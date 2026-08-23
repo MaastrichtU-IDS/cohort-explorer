@@ -17,7 +17,7 @@ import {ParticipantsModal, useOwnersIncludedByDefault} from '@/components/Partic
 import MappingWorkbench, {RoleDef} from '@/components/nocode/MappingWorkbench';
 import KindExplainer from '@/components/nocode/KindExplainer';
 import {KindGlyph} from '@/components/nocode/MiniChart';
-import {AnalysisSpec, Kind, KindMeta, MappingSpec, createNocodeDcr, describeSpec, fetchKinds, provenanceLine} from '@/components/nocode/client';
+import {AnalysisSpec, Kind, KindMeta, MappingSpec, aiDcrName, createNocodeDcr, describeSpec, fetchKinds, provenanceLine} from '@/components/nocode/client';
 import {apiUrl} from '@/utils';
 
 
@@ -67,6 +67,25 @@ function defaultTitle(kind: Kind | null, mapping: MappingSpec, roles: Record<str
   }
 }
 
+// Local fallback for the room name, same template as the server's
+// /ai-dcr-name: NoCode-<Type>-<Variables>-<Cohorts|Ncohorts>-<MonDD>.
+function localDcrName(kind: Kind | null, mapping: MappingSpec, roles: Record<string, string>, cohorts: string[]): string {
+  if (!kind) return 'NoCode-analysis';
+  const token = (t: string, n: number) => t.replace(/[^A-Za-z0-9-]+/g, '').replace(/^-+|-+$/g, '').slice(0, n);
+  const abbrev = (hname: string) => {
+    const hv = mapping.variables.find(v => v.harmonized_name === hname);
+    const members = hv ? Object.values(hv.members) : [];
+    const base = (cohorts.length === 1 && members[0]?.var_name ? members[0].var_name : hname).replace(/_(pooled|harmonized)$/, '');
+    return token(base.split(/[^A-Za-z0-9]+/).filter(Boolean).map(t => (t === t.toUpperCase() ? t : t[0].toUpperCase() + t.slice(1))).join(''), 14) || 'var';
+  };
+  const type = kind === 'compare' ? (roles.group ? 'PoolAndStratify' : 'PoolAndCompare') : {stratified: 'Stratify', correlation: 'Correlate', crosstab: 'Crosstab'}[kind];
+  const vars = kind === 'correlation' || kind === 'crosstab' ? [abbrev(roles.x || ''), abbrev(roles.y || '')].join(kind === 'correlation' ? '-vs-' : '-by-') : [abbrev(roles.variable || ''), ...(roles.group ? [abbrev(roles.group)] : [])].join('-by-');
+  const who = cohorts.length <= 2 ? cohorts.map(c => token(c, 12)).join('-') : `${cohorts.length}cohorts`;
+  const d = new Date();
+  const day = `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]}${String(d.getDate()).padStart(2, '0')}`;
+  return `NoCode-${type}-${vars}-${who}-${day}`.replace(/-{2,}/g, '-').slice(0, 100);
+}
+
 export default function NocodeWizard({embedded = false, onClose}: {embedded?: boolean; onClose?: () => void}) {
   const {cohortsData, userEmail} = useCohorts();
   const [kinds, setKinds] = useState<Record<Kind, KindMeta> | null>(null);
@@ -81,6 +100,8 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
   const bins = 20;
   const [dcrName, setDcrName] = useState('');
   const [editingName, setEditingName] = useState(false);
+  // Room name proposed by the server (iCARE-AI short forms) for the current spec.
+  const [suggestedName, setSuggestedName] = useState<{name: string; source: string; signature: string} | null>(null);
   const [description, setDescription] = useState('');
   const [script, setScript] = useState('');
   const [showScript, setShowScript] = useState(false);
@@ -198,10 +219,11 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
   });
 
   const autoTitle = defaultTitle(kind, mapping, roleAssignments, cohorts);
-  // DCR name: "NoCode-" + the analysis title with dashes between words (no
-  // spaces or colons), e.g. NoCode-weight-by-sex-in-TIME-CHF.
-  const dashed = (text: string) => text.replace(/[^\p{L}\p{N}-]+/gu, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  const autoDcrName = `NoCode-${dashed(autoTitle || (meta?.label ?? '') || 'analysis')}`;
+  // DCR name: NoCode-<Type>-<Variables>-<Cohorts|Ncohorts>-<MonDD>, at most 100
+  // characters; the server's proposal (short forms from iCARE-AI) replaces the
+  // local fallback when it arrives. The creator's email is appended on creation.
+  const nameSignature = `${kind}|${cohorts.join(',')}|${Object.entries(roleAssignments).map(([k, v]) => `${k}=${v}`).join(',')}`;
+  const autoDcrName = (suggestedName && suggestedName.signature === nameSignature ? suggestedName.name : '') || localDcrName(kind, mapping, roleAssignments, cohorts);
   const effectiveTitle = autoTitle || meta?.label || kind || '';
 
   const spec: AnalysisSpec | null = kind
@@ -227,6 +249,12 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
           setScript(r.script);
         })
         .catch(e => setError(e.message));
+      if (kind && (!suggestedName || suggestedName.signature !== nameSignature)) {
+        const signature = nameSignature;
+        aiDcrName({kind, roles: roleAssignments, cohorts, variables: mapping.variables})
+          .then(r => r.name && setSuggestedName({name: r.name, source: r.source, signature}))
+          .catch(() => null);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
@@ -511,9 +539,38 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
                 Cohorts: {cohorts.join(', ')} · data: {dataSource === 'shuffled' ? 'SHUFFLED SAMPLES (code test only)' : 'full datasets'} · {k > 0 ? `suppression k = ${k}` : 'no suppression'} · bins = {bins}
                 {spec.mapping.sources && spec.mapping.sources.length > 0 && <> · cached files consulted: {spec.mapping.sources.join(', ')}</>}
               </div>
-              <div className="mt-2 text-xs text-base-content/60">
-                Participants: {manuallyIncludedOwners.length} data owner{manuallyIncludedOwners.length === 1 ? '' : 's'} invited
-                {additionalAnalysts.length > 0 && <>, analysts: {additionalAnalysts.join(', ')}</>}
+              <div className="mt-3 text-sm">
+                <div className="font-semibold mb-1">
+                  Invitations will be sent to {1 + manuallyIncludedOwners.length + additionalAnalysts.length} participant
+                  {1 + manuallyIncludedOwners.length + additionalAnalysts.length === 1 ? '' : 's'}
+                </div>
+                <ul className="text-xs space-y-0.5">
+                  <li>
+                    <span className="font-mono">{userEmail}</span> <span className="text-base-content/60">creator, analyst</span>
+                  </li>
+                  {dataOwners
+                    .filter(o => manuallyIncludedOwners.includes(o.email))
+                    .map(o => (
+                      <li key={o.email}>
+                        <span className="font-mono">{o.email}</span>{' '}
+                        <span className="text-base-content/60">data owner of {o.cohorts.join(', ')}, analyst</span>
+                      </li>
+                    ))}
+                  {additionalAnalysts.map(e => (
+                    <li key={e}>
+                      <span className="font-mono">{e}</span> <span className="text-base-content/60">analyst</span>
+                    </li>
+                  ))}
+                </ul>
+                {excludedDataOwners.length > 0 && (
+                  <div className="text-xs text-base-content/50 mt-1">
+                    Not invited (unticked in the participants list): {excludedDataOwners.join(', ')}
+                  </div>
+                )}
+                {loadingParticipants && <div className="text-xs text-base-content/50 mt-1">loading the data owners…</div>}
+                <button className="btn btn-xs btn-outline gap-1 mt-2" onClick={() => setShowParticipantsModal(true)}>
+                  <Users size={12} /> Edit participants list
+                </button>
               </div>
             </div>
             <div className="text-sm">
@@ -542,8 +599,8 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
             </div>
             <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 p-3 text-sm">
               {dataSource === 'shuffled'
-                ? 'The platform uploads the shuffled samples when the room is created, so the analysis can be run immediately afterwards. Figures will be marked as computed on shuffled samples.'
-                : 'Creating the room invites the participants above, exactly like a regular analysis DCR. The analysis can run once the data owners have provisioned their data; you can then view the results here in the explorer.'}
+                ? 'The platform uploads the shuffled samples when the room is created, so the analysis can be run immediately afterwards, from here. Figures will be marked as computed on shuffled samples.'
+                : 'Creating the room invites the participants above, exactly like a regular analysis DCR. Once the data owners have provisioned their data, the analysis is run on the Decentriq platform.'}
             </div>
             <button className="btn btn-primary" onClick={create} disabled={creating}>
               {creating ? 'Creating the Data Clean Room…' : 'Create the Data Clean Room'}
@@ -562,16 +619,23 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
         <div className="rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 p-5 max-w-2xl">
           <div className="font-bold text-lg mb-2">✅ Data Clean Room created</div>
           <p className="text-sm mb-3">{created.message}</p>
-          {dataSource === 'shuffled' && <p className="text-sm mb-3 font-semibold">Shuffled samples are in place. You can run the analysis right away.</p>}
+          {dataSource === 'shuffled' ? (
+            <p className="text-sm mb-3 font-semibold">Shuffled samples are in place. You can run the analysis right away.</p>
+          ) : (
+            <p className="text-sm mb-3">
+              The participants have been invited. Once the data owners have provisioned their data, run the analysis node on the Decentriq platform.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <a href={created.dcr_url} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
               Open on Decentriq
             </a>
-            {(created.nocode_nodes || []).map((n: string) => (
-              <Link key={n} href={`/nocode-results?dcr=${encodeURIComponent(created.dcr_id)}&node=${encodeURIComponent(n)}&title=${encodeURIComponent(spec?.analysis.title || '')}`} className="btn btn-sm btn-primary">
-                Run & view results
-              </Link>
-            ))}
+            {dataSource === 'shuffled' &&
+              (created.nocode_nodes || []).map((n: string) => (
+                <Link key={n} href={`/nocode-results?dcr=${encodeURIComponent(created.dcr_id)}&node=${encodeURIComponent(n)}&title=${encodeURIComponent(spec?.analysis.title || '')}`} className="btn btn-sm btn-primary">
+                  Run & view results
+                </Link>
+              ))}
           </div>
           {created.merge_warnings && created.merge_warnings.length > 0 && <ul className="mt-3 text-xs list-disc ml-5">{created.merge_warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}</ul>}
           {onClose && (

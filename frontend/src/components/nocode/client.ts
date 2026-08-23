@@ -71,7 +71,7 @@ const fmtNum = (x: number | null | undefined): string | null => {
 // Pseudo-key in value_map carrying the policy for empty / coded-missing values:
 // "" = those patients are excluded, MISSING_LABEL = kept as one category.
 export const MISSING_KEY = '__MISSING__';
-export const MISSING_LABEL = '<value missing>';
+export const MISSING_LABEL = '<missing>';
 export const displayRaw = (raw: string) => (raw === MISSING_KEY ? '(missing)' : raw);
 
 // One muted line summarising a variable's scale: "n 1,245 · mean 78.4 (sd 12.3) · 38 to 160".
@@ -249,7 +249,14 @@ export const suggestValues = (members: Record<string, string>, cachedFiles: stri
 export const aiName = (variables: {cohort_id: string; var_name: string; var_label?: string}[]) =>
   post<{name: string; label: string; source: string}>('/api/nocode/ai-name', {variables});
 
-export const aiSuggest = (body: any) => post<{task: string; result: any; model: string}>('/api/nocode/ai-suggest', body);
+export type AiListingMode = {mode: 'top' | 'all'; listed: number; total: number};
+export const aiSuggest = (body: any) =>
+  post<{task: string; result: any; model: string; modes?: Record<string, AiListingMode>}>('/api/nocode/ai-suggest', body);
+
+// Name of the room following NoCode-<Type>-<Variables>-<Cohorts|Ncohorts>-<MonDD>,
+// with short forms of the variables/cohorts from the local LLM when available.
+export const aiDcrName = (body: {kind: Kind; roles: Record<string, string>; cohorts: string[]; variables: HVar[]}) =>
+  post<{name: string; source: string}>('/api/nocode/ai-dcr-name', body);
 
 export const fetchCachedMappings = (cohortIds: string[]) =>
   get<{pairs: any[]; files: {filename: string; source: string; target: string; generated_at: string; size_kb: number}[]}>(

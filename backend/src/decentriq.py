@@ -1055,6 +1055,10 @@ async def get_compute_dcr_definition(
     # the participants, so the explorer can fetch results for the wizard's viewer.
     from src.nocode_scripts import nocode_analysis_script, nocode_node_name
 
+    # Human-readable notes about how the room was assembled (cohorts excluded
+    # from the merge, shuffled samples missing, chain omitted). Returned to the
+    # caller so the wizard can show them instead of the room silently changing shape.
+    merge_warnings: list[str] = []
     nocode_node_names: list[str] = []
     for gi, gspec in enumerate(nocode_analyses or [], start=1):
         gspec = dict(gspec)
@@ -1099,10 +1103,6 @@ async def get_compute_dcr_definition(
     # It comes after all per-cohort data/visualization nodes and pools every cohort
     # together using the `cohortpool` package installed from GitHub via a custom
     # Python environment.
-    # Human-readable notes about how the merge was assembled (cohorts excluded,
-    # synthetic IDs used, chain omitted). Returned to the caller so the wizard can
-    # show them instead of the merge silently changing shape.
-    merge_warnings: list[str] = []
     if nocode_room:
         # No merge/pooling chain (and therefore no merged-data airlock) in a
         # no-code room: cross-cohort harmonization happens inside its own node.
@@ -1458,6 +1458,22 @@ async def create_live_compute_dcr(
     
     try:
         dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
+        if nocode_analyses:
+            # Keep the whole configuration of the no-code room: its analysis
+            # nodes (the results viewer may only run those), data source, specs.
+            from src.nocode import record_nocode_room
+            record_nocode_room(dcr.id, {
+                "title": dcr_title,
+                "url": dcr_url,
+                "created_by": user["email"],
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+                "cohorts": list(cohorts_request.get("cohorts", {}).keys()),
+                "data_source": "shuffled" if all((a or {}).get("data_source") == "shuffled" for a in nocode_analyses) else "full",
+                "nodes": nocode_node_names,
+                "analyses": nocode_analyses,
+                "additional_analysts": additional_analysts,
+                "excluded_data_owners": excluded_data_owners,
+            })
         
         # Step 3: Upload metadata dictionaries for each cohort
         from src.cohort_cache import get_cohorts_from_cache

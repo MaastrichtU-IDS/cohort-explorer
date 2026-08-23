@@ -145,20 +145,35 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-") or "analysis"
 
 
+def short_var(name: str, n: int = 16) -> str:
+    """A harmonized variable name without its _pooled/_harmonized suffix, as a
+    dashed slug cut to n characters: 'ntprobnp_pooled' -> 'ntprobnp'."""
+    base = re.sub(r"_(pooled|harmonized)$", "", str(name or ""))
+    return _slug(base)[:n].rstrip("-") if base else ""
+
+
 def nocode_node_name(index: int, spec: dict[str, Any]) -> str:
-    """Short node name focused on the analysis type, e.g. nocode-pool-and-stratify."""
+    """Compute node name: the analysis type followed by the variables in play,
+    e.g. pool-and-stratify-ntprobnp-by-nyha, crosstab-sex-nyha. (The node has
+    code in it; 'no-code' is about how it was built, so it is not in the name.)"""
     a = spec.get("analysis", {})
     kind = a.get("kind", "analysis")
     roles = a.get("roles", {}) or {}
-    label = {
-        "stratified": "stratify",
-        "correlation": "correlate",
-        "crosstab": "crosstab",
-        "compare": "pool-and-stratify" if roles.get("group") else "pool-and-compare",
-        "pooled": "pool",
-        "distribution": "distribution",
-    }.get(kind, _slug(kind))
-    return f"nocode-{label}" if index <= 1 else f"nocode-{index}-{label}"
+    if kind == "compare":
+        label = "pool-and-stratify" if roles.get("group") else "pool-and-compare"
+    else:
+        label = {"stratified": "stratify", "correlation": "correlate", "crosstab": "crosstab",
+                 "pooled": "pool", "distribution": "distribution"}.get(kind, _slug(kind))
+    if kind in ("correlation", "crosstab"):
+        parts = [short_var(roles.get("x")), short_var(roles.get("y"))]
+    else:
+        parts = [short_var(roles.get("variable"))]
+        if roles.get("group"):
+            parts += ["by", short_var(roles.get("group"))]
+    name = "-".join([label] + [p for p in parts if p])
+    if index > 1:
+        name = f"{name}-{index}"
+    return name[:64].rstrip("-")
 
 
 def describe_spec(spec: dict[str, Any]) -> str:
@@ -332,8 +347,8 @@ def prepare_column(df, hv, cohort, missing):
     vmap = dict((hv.get("value_map") or {}).get(cohort) or {})
     # "__MISSING__" carries the policy for empty cells, NaN and the dictionary's
     # declared missing codes (masked above): "" (default) = those patients are
-    # excluded; a name (the wizard uses "<value missing>") = they are kept as
-    # that one category, the same in every cohort.
+    # excluded; a name (the wizard uses "<missing>") = they are kept as that one
+    # category, the same in every cohort.
     missing_target = vmap.pop("__MISSING__", "") or ""
     is_missing = s.isna() | (s.astype(str).str.strip() == "")
     if vmap:

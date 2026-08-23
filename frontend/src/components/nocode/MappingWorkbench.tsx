@@ -878,19 +878,15 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
     const anchorCohort = Object.keys(hv.members)[0];
     const current = suggestions[hv.harmonized_name] || {};
     setBusy('ai-match');
+    // The server decides what the model sees per cohort: the top-ranked
+    // suggestions when a strong one exists (codes, high text similarity,
+    // computed mappings), otherwise the cohort's whole variable list, each
+    // variable with its categories or observed range.
     aiSuggest({
       task: 'match',
-      anchor: {cohort_id: anchorCohort, ...hv.members[anchorCohort]},
-      candidates: Object.fromEntries(
-        cohorts
-          .filter(c => c !== anchorCohort)
-          .map(c => [
-            c,
-            variables
-              .filter(v => v.cohort_id === c && v.kind !== 'other')
-              .map(v => ({var_name: v.var_name, var_label: v.var_label, concept_name: v.concept_name || undefined, units: v.units || undefined, type: v.kind}))
-          ])
-      )
+      anchor: {cohort_id: anchorCohort, var_name: hv.members[anchorCohort].var_name},
+      targets: cohorts.filter(c => c !== anchorCohort),
+      cached_files: useCache
     })
       .then(r => {
         const m = r.result?.matches || {};
@@ -898,7 +894,9 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
         Object.entries(m).forEach(([c, pick]: [string, any]) => {
           if (!pick?.var_name) return;
           const list = next[c] ? [...next[c]] : [];
-          const aiEvidence = {type: 'ai' as const, detail: pick.reason || 'AI suggestion'};
+          const mode = r.modes?.[c];
+          const looked = mode ? (mode.mode === 'all' ? ` (looked at ${mode.listed === mode.total ? 'all' : `${mode.listed} of`} ${mode.total} variables)` : ` (looked at the top ${mode.listed} suggestions)`) : '';
+          const aiEvidence = {type: 'ai' as const, detail: (pick.reason || 'AI suggestion') + looked};
           const existing = list.find(cand => cand.var_name === pick.var_name);
           if (existing) {
             next[c] = list

@@ -47,6 +47,30 @@ logger = logging.getLogger(__name__)
 
 MAPPINGS_DIR = os.path.join(settings.data_folder, "nocode_mappings")
 RESULTS_DIR = os.path.join(settings.data_folder, "nocode_results")
+# One JSON per no-code room: its analysis nodes, data source and specs (the
+# whole configuration), written when the room is created.
+ROOMS_DIR = os.path.join(settings.data_folder, "nocode_rooms")
+
+
+def record_nocode_room(dcr_id: str, info: dict[str, Any]) -> None:
+    """Persist a no-code room's configuration (called by the DCR creation code)."""
+    try:
+        os.makedirs(ROOMS_DIR, exist_ok=True)
+        with open(os.path.join(ROOMS_DIR, f"{os.path.basename(dcr_id)}.json"), "w", encoding="utf-8") as fh:
+            json.dump({"dcr_id": dcr_id, **info}, fh, indent=2, ensure_ascii=False)
+    except Exception as exc:
+        logger.warning("could not record no-code room %s: %s", dcr_id, exc)
+
+
+def load_nocode_room(dcr_id: str) -> Optional[dict[str, Any]]:
+    p = os.path.join(ROOMS_DIR, f"{os.path.basename(dcr_id)}.json")
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return None
 
 
 def _migrate_legacy_dirs() -> None:
@@ -485,6 +509,13 @@ def suggest(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict
     if not a:
         raise HTTPException(status_code=404, detail="Anchor variable not found")
     rows = load_cached_rows(cached_files) if cached_files else []
+    scored = _score_candidates(index, a, targets, rows)
+    return {"anchor": a, "candidates": {cid: cands[:15] for cid, cands in scored.items()}}
+
+
+def _score_candidates(index: dict[str, list[dict]], a: dict, targets: list[str], rows: list) -> dict[str, list[dict]]:
+    """Evidence-ranked candidates for anchor `a` in each target cohort (all of
+    them, sorted by score): standard codes, text similarity, computed mappings."""
     out: dict[str, list[dict]] = {}
     for cid in targets:
         if cid == a["cohort_id"]:
@@ -523,8 +554,8 @@ def suggest(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict
                 c["evidence"] = evidence
                 cands.append(c)
         cands.sort(key=lambda c: -c["score"])
-        out[cid] = cands[:15]
-    return {"anchor": a, "candidates": out}
+        out[cid] = cands
+    return out
 
 
 def _canonical_value(cat: dict) -> str:
@@ -685,11 +716,242 @@ def ai_name(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict
         return {"name": name, "label": label, "source": "heuristic"}
 
 
+def _fmt_num(x: Any) -> str:
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return str(x)
+    return str(int(f)) if f == int(f) and abs(f) < 1e15 else ("%.4g" % f)
+
+
+def _describe_var(v: dict, evidence: Optional[list[dict]] = None) -> str:
+    """One compact line about a variable for the local LLM: name, label, concept,
+    unit, type with the observed range (numeric) or the categories (categorical),
+    visit, and the matcher's evidence when given."""
+    bits = [str(v.get("var_name") or "")]
+    if v.get("var_label") and v["var_label"] != v["var_name"]:
+        bits.append("label: %s" % v["var_label"])
+    if v.get("concept_name"):
+        bits.append("concept: %s" % v["concept_name"])
+    if v.get("units"):
+        bits.append("unit: %s" % v["units"])
+    eda = v.get("eda") or {}
+    kind = v.get("kind") or ""
+    if kind == "categorical":
+        cats = v.get("categories") or []
+        shown = ["%s=%s" % (c.get("value"), c.get("label")) if c.get("label") and c.get("label") != c.get("value") else str(c.get("value"))
+                 for c in cats[:10]]
+        bits.append("categorical: %s%s" % (", ".join(shown), " (+%d more)" % (len(cats) - 10) if len(cats) > 10 else ""))
+    elif kind == "numeric":
+        rng = ""
+        if eda.get("min") is not None and eda.get("max") is not None:
+            rng = ", range %s to %s" % (_fmt_num(eda["min"]), _fmt_num(eda["max"]))
+            if eda.get("mean") is not None:
+                rng += ", mean %s" % _fmt_num(eda["mean"])
+        bits.append("numeric%s" % rng)
+    elif kind:
+        bits.append(kind)
+    if v.get("visits"):
+        bits.append("visit: %s" % v["visits"])
+    if evidence:
+        ev = []
+        for e in evidence:
+            if e.get("type") == "code":
+                ev.append("same %s" % (e.get("system") or "code"))
+            elif e.get("type") == "text":
+                ev.append("text similarity %.2f" % float(e.get("score") or 0))
+            elif e.get("type") == "cache":
+                ev.append("computed mapping: %s" % (e.get("status") or "match"))
+            elif e.get("type") == "warning":
+                ev.append(str(e.get("detail") or "warning"))
+        if ev:
+            bits.append("evidence: " + "; ".join(ev))
+    return "- " + " | ".join(bits)
+
+
+_AI_TOP_N = 15          # candidates shown when the matcher has strong suggestions
+_AI_LIST_BUDGET = 48000  # characters available for the full listings, all cohorts together
+
+
+def _strong(c: dict) -> bool:
+    """A candidate worth trusting as a shortlist: a shared standard code, a
+    high text similarity, or an identical/compatible computed mapping."""
+    for e in c.get("evidence") or []:
+        if e.get("type") == "code":
+            return True
+        if e.get("type") == "text" and float(e.get("score") or 0) >= 0.8:
+            return True
+        if e.get("type") == "cache" and e.get("status") in ("Identical Match", "Compatible Match"):
+            return True
+    return False
+
+
+def _ai_match_listing(index: dict[str, list[dict]], a: dict, scored: dict[str, list[dict]]) -> tuple[str, dict[str, dict]]:
+    """What the local LLM gets to see per cohort: the matcher's top candidates
+    when at least one of them is strong (codes, high text similarity, computed
+    mappings), otherwise the cohort's whole variable list (same-type variables
+    first, cut to a character budget)."""
+    modes: dict[str, dict] = {}
+    sections: list[tuple[str, list[str]]] = []
+    full_cohorts = [cid for cid, cands in scored.items() if not any(_strong(c) for c in cands[:_AI_TOP_N])]
+    per_cohort_budget = _AI_LIST_BUDGET // max(1, len(full_cohorts))
+    for cid, cands in scored.items():
+        if cid not in full_cohorts:
+            top = cands[:_AI_TOP_N]
+            lines = [_describe_var(_find(index, cid, c["var_name"]) or c, c.get("evidence")) for c in top]
+            modes[cid] = {"mode": "top", "listed": len(lines), "total": len([v for v in index.get(cid, []) if v.get("kind") != "other"])}
+            sections.append(("%s: the platform's %d top-ranked suggestions (strong evidence present)" % (cid, len(lines)), lines))
+        else:
+            all_vars = [v for v in index.get(cid, []) if v.get("kind") != "other"]
+            all_vars.sort(key=lambda v: (0 if v.get("kind") == a.get("kind") else 1, str(v.get("var_name")).lower()))
+            lines, used = [], 0
+            for v in all_vars:
+                line = _describe_var(v)
+                if used + len(line) > per_cohort_budget:
+                    break
+                lines.append(line)
+                used += len(line) + 1
+            modes[cid] = {"mode": "all", "listed": len(lines), "total": len(all_vars)}
+            head = "%s: no strong suggestion, so its FULL variable list (%d variables" % (cid, len(all_vars))
+            if len(lines) < len(all_vars):
+                head += "; cut to the first %d, same-type variables first" % len(lines)
+            sections.append((head + ")", lines))
+    text = "\n\n".join("%s\n%s" % (head, "\n".join(lines)) for head, lines in sections)
+    return text, modes
+
+
+# ---------------------------------------------------------------------------
+# DCR name: NoCode-<Type>-<Variables>-<Cohorts|Ncohorts>-<MonDD>
+# ---------------------------------------------------------------------------
+
+_DCR_NAME_MAX = 100
+_TYPE_WORDS = {"stratified": "Stratify", "correlation": "Correlate", "crosstab": "Crosstab",
+               "pooled": "Pool", "distribution": "Distribution"}
+
+
+def _name_token(text: str, n: int) -> str:
+    """Letters and digits only (dashes inside are kept), cut to n characters."""
+    t = re.sub(r"[^A-Za-z0-9-]+", "", _ascii(str(text or "")))
+    return t.strip("-")[:n].rstrip("-")
+
+
+def _abbrev_var(name: str, n: int = 14) -> str:
+    """Heuristic short form of a variable name: CamelCase of its tokens without
+    the _pooled/_harmonized suffix, e.g. 'nt_pro_bnp_pooled' -> 'NtProBnp'."""
+    base = re.sub(r"_(pooled|harmonized)$", "", str(name or ""))
+    toks = [t for t in re.split(r"[^A-Za-z0-9]+", _ascii(base)) if t]
+    if not toks:
+        return "var"
+    camel = "".join(t if t.isupper() else t[:1].upper() + t[1:] for t in toks)
+    return camel[:n]
+
+
+def _assemble_dcr_name(type_word: str, var_words: list[str], joiner: str, cohorts: list[str],
+                       cohort_short: dict[str, str], day: str) -> str:
+    """Builds the name from the template and shortens it until it fits: first
+    the variables, then the cohorts become a count, then a hard cut."""
+    def build(var_n: int, named_cohorts: bool) -> str:
+        vars_part = joiner.join(_name_token(v, var_n) or "var" for v in var_words)
+        if named_cohorts and len(cohorts) <= 2:
+            coh = "-".join(_name_token(cohort_short.get(c) or c, 12) or "cohort" for c in cohorts)
+        else:
+            coh = "%dcohorts" % len(cohorts)
+        parts = ["NoCode", _name_token(type_word, 18) or "Analysis", vars_part, coh, day]
+        name = "-".join(p for p in parts if p)
+        return re.sub(r"-{2,}", "-", name)
+    for var_n, named in ((14, True), (10, True), (8, True), (8, False), (6, False)):
+        name = build(var_n, named)
+        if len(name) <= _DCR_NAME_MAX:
+            return name
+    return name[:_DCR_NAME_MAX].rstrip("-")
+
+
+@router.post("/ai-dcr-name")
+def ai_dcr_name(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Name of the Data Clean Room following the template
+    NoCode-<analysis type>-<variables in play>-<cohort names if 1 or 2, else count>-<MonDD>
+    (the creator's email is appended by the creation code). The local LLM, when
+    available, supplies conventional short forms of the variables and cohorts
+    (NTproBNP, NYHA, LVEF); a heuristic does otherwise. At most 100 characters."""
+    kind = str(body.get("kind") or "")
+    roles = body.get("roles") or {}
+    cohorts = [str(c) for c in body.get("cohorts") or []]
+    variables = {str(v.get("harmonized_name")): v for v in (body.get("variables") or []) if isinstance(v, dict)}
+    single = len(cohorts) == 1
+    if kind == "compare":
+        type_word = "PoolAndStratify" if roles.get("group") else "PoolAndCompare"
+    else:
+        type_word = _TYPE_WORDS.get(kind, kind.title() or "Analysis")
+    if kind in ("correlation", "crosstab"):
+        role_keys, joiner = ["x", "y"], "-vs-" if kind == "correlation" else "-by-"
+    else:
+        role_keys, joiner = ["variable"] + (["group"] if roles.get("group") else []), "-by-"
+    in_play = [str(roles.get(k) or "") for k in role_keys if roles.get(k)]
+
+    def source_name(hname: str) -> str:
+        # single cohort: the source variable's own name; several: the harmonized name
+        hv = variables.get(hname) or {}
+        members = hv.get("members") or {}
+        if single and members:
+            m = next(iter(members.values()))
+            if isinstance(m, dict) and m.get("var_name"):
+                return str(m["var_name"])
+        return hname
+
+    day = datetime.now().strftime("%b%d")
+    heuristic_words = [_abbrev_var(source_name(h)) for h in in_play]
+    name = _assemble_dcr_name(type_word, heuristic_words, joiner, cohorts, {}, day)
+    if not settings.chat_enabled or not in_play:
+        return {"name": name, "source": "heuristic"}
+    from src.chat import _get_openai_client
+
+    described = []
+    for h in in_play:
+        hv = variables.get(h) or {}
+        members = hv.get("members") or {}
+        described.append({"name": source_name(h), "label": hv.get("label") or "",
+                          "source_variables": [{"cohort": c, "name": m.get("var_name"), "label": m.get("var_label")}
+                                               for c, m in members.items() if isinstance(m, dict)]})
+    prompt = (
+        "Clinical cohort variables and cohort names are to be shortened for the name of a data clean room.\n"
+        f"VARIABLES: {json.dumps(described, ensure_ascii=False)}\n"
+        f"COHORTS: {json.dumps(cohorts, ensure_ascii=False)}\n\n"
+        "For each variable give the conventional short form a cardiologist would use (e.g. NTproBNP, NYHA, LVEF, "
+        "BMI, Age, Sex, SBP, eGFR, HbA1c), letters and digits only, at most 12 characters. For each cohort give a "
+        "short form of at most 10 characters (keep it if already short). Return STRICT JSON only: "
+        "{\"variables\": {\"<name as given>\": \"<short>\"}, \"cohorts\": {\"<cohort as given>\": \"<short>\"}}"
+    )
+    try:
+        client = _get_openai_client()
+        resp = client.chat.completions.create(
+            model=settings.litellm_model,
+            messages=[{"role": "system", "content": "Answer with JSON only, no prose, no code fences."},
+                      {"role": "user", "content": prompt}],
+            temperature=0.1,
+        )
+        content = (resp.choices[0].message.content or "").strip()
+        content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.M).strip()
+        start, end = content.find("{"), content.rfind("}")
+        parsed = json.loads(content[start:end + 1]) if start >= 0 else {}
+        short_vars = {str(k): str(v) for k, v in (parsed.get("variables") or {}).items() if v}
+        short_cohorts = {str(k): str(v) for k, v in (parsed.get("cohorts") or {}).items() if v}
+        words = []
+        for h, fallback in zip(in_play, heuristic_words):
+            w = short_vars.get(source_name(h)) or short_vars.get(h) or fallback
+            words.append(_name_token(w, 14) or fallback)
+        ai = _assemble_dcr_name(type_word, words, joiner, cohorts, short_cohorts, day)
+        return {"name": ai, "source": "ai", "model": settings.litellm_model}
+    except Exception as exc:
+        logger.warning("ai-dcr-name failed, using heuristic: %s", exc)
+        return {"name": name, "source": "heuristic"}
+
+
 @router.post("/ai-suggest")
 def ai_suggest(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Ask the platform's local LLM for match or value-map suggestions.
 
-    body.task = "match": body.anchor (variable summary), body.candidates {cohort: [summaries]}
+    body.task = "match": body.anchor {cohort_id, var_name}, body.targets [cohort ids],
+                         body.cached_files [computed mapping files to consult]
     body.task = "values": body.variables {cohort: {var_name, var_label, categories}}
     Returns the model's JSON; the UI labels everything from here as "AI suggestion".
     """
@@ -697,12 +959,27 @@ def ai_suggest(body: dict[str, Any], user: Any = Depends(get_current_user)) -> d
 
     task = body.get("task") or "match"
     client = _get_openai_client()
+    modes: dict[str, dict] = {}
     if task == "match":
+        anchor_ref = body.get("anchor") or {}
+        targets = [str(c) for c in body.get("targets") or []]
+        cached_files = [str(f) for f in body.get("cached_files") or []]
+        index = _index([anchor_ref.get("cohort_id", "")] + targets)
+        a = _find(index, anchor_ref.get("cohort_id", ""), anchor_ref.get("var_name", ""))
+        if not a:
+            raise HTTPException(status_code=404, detail="Anchor variable not found")
+        rows = load_cached_rows(cached_files) if cached_files else []
+        scored = _score_candidates(index, a, targets, rows)
+        listing, modes = _ai_match_listing(index, a, scored)
         prompt = (
             "You align variables across clinical cohort datasets (cardiovascular research cohorts). "
-            "You are given one ANCHOR variable and, for each other cohort, the FULL list of that cohort's "
-            "variables (name, label, standard concept name, unit, type). For each cohort, pick the variable "
-            "that most likely measures the same clinical quantity as the anchor, or null if none does.\n\n"
+            "You are given one ANCHOR variable and, for each other cohort, EITHER the platform's top-ranked "
+            "suggestions (with the evidence that ranked them) OR, when no strong suggestion exists, that "
+            "cohort's full list of variables. Each line gives the name, label, standard concept name, unit, "
+            "type with the observed range (numeric) or the categories (categorical), and visit. For each cohort, "
+            "pick the variable that most likely measures the same clinical quantity as the anchor, or null if none does. "
+            "Use the categories and ranges: a variable whose values are NYHA classes I to IV is not a yes/no flag, "
+            "and a range of 5 to 35000 pg/mL fits NT-proBNP but not a percentage.\n\n"
             "How to recognise the same quantity:\n"
             "- Variable names are often abbreviations or concatenations: NTBNP, NT_proBNP, ntprobnp, BNP1 and "
             "'NT pro-BNP at visit month 1' all refer to NT-proBNP; LVEF, EF, ejectionfraction refer to ejection fraction.\n"
@@ -716,8 +993,8 @@ def ai_suggest(body: dict[str, Any], user: Any = Depends(get_current_user)) -> d
             "- Do not match on a shared generic word alone (e.g. 'date', 'visit', 'score').\n\n"
             "Return STRICT JSON only: {\"matches\": {\"<cohort_id>\": {\"var_name\": \"<exact name from the list>\", "
             "\"confidence\": 0-1, \"reason\": \"<one short sentence>\"} or null}}\n\n"
-            f"ANCHOR: {json.dumps(body.get('anchor'), ensure_ascii=False)}\n\n"
-            f"VARIABLES PER COHORT: {json.dumps(body.get('candidates'), ensure_ascii=False)[:60000]}"
+            f"ANCHOR ({a.get('cohort_id')}):\n{_describe_var(a)}\n\n"
+            f"{listing}"
         )
     else:
         prompt = (
@@ -743,7 +1020,7 @@ def ai_suggest(body: dict[str, Any], user: Any = Depends(get_current_user)) -> d
     except Exception as exc:
         logger.warning("ai-suggest failed: %s", exc)
         raise HTTPException(status_code=502, detail=f"AI suggestion failed: {exc}")
-    return {"task": task, "result": parsed, "model": settings.litellm_model}
+    return {"task": task, "result": parsed, "model": settings.litellm_model, "modes": modes}
 
 
 # ---------------------------------------------------------------------------
@@ -838,10 +1115,13 @@ def run_node(dcr_id: str, body: dict[str, Any], user: Any = Depends(get_current_
     import decentriq_platform as dq
 
     node_name = str(body.get("node_name") or "")
-    # "guided-" is the prefix used by DCRs created before the feature was renamed;
-    # they keep working.
-    if not node_name.startswith(("nocode-", "guided-")):
-        raise HTTPException(status_code=400, detail="node_name must be a no-code DCR node")
+    # Only the analysis nodes of a no-code room can be run from here: the room's
+    # record lists them. Rooms created before records existed used the
+    # "nocode-"/"guided-" name prefixes.
+    room = load_nocode_room(dcr_id)
+    known = set((room or {}).get("nodes") or [])
+    if node_name not in known and not node_name.startswith(("nocode-", "guided-")):
+        raise HTTPException(status_code=400, detail="node_name must be an analysis node of a no-code DCR")
     try:
         client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
         dcr = client.retrieve_analytics_dcr(dcr_id)
@@ -861,6 +1141,14 @@ def run_node(dcr_id: str, body: dict[str, Any], user: Any = Depends(get_current_
         fh.write(datetime.now().isoformat(timespec="seconds"))
     summary = _read_summary(out_dir) or {"items": [], "files": os.listdir(out_dir)}
     return {"ok": True, "dcr_id": dcr_id, "node_name": node_name, "summary": summary}
+
+
+@router.get("/rooms/{dcr_id}")
+def get_room(dcr_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    room = load_nocode_room(dcr_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail="No record of this no-code DCR")
+    return room
 
 
 @router.get("/results/{dcr_id}/{node_name}")
