@@ -325,6 +325,13 @@ function ValueMapEditor({
 }) {
   const memberCohorts = cohorts.filter(c => hv.members[c]?.var_name);
   const [infoOpen, setInfoOpen] = useState(false);
+  // Cells with an open "+ add" picker (key: cohort|row). A filled cell hides
+  // its picker behind a small + so the table stays readable.
+  const [openAdd, setOpenAdd] = useState<Record<string, boolean>>({});
+  // Has the mapping been worked on (a suggestion run, iCARE-AI asked, a
+  // computed mapping applied, or a manual move)? Until then the two buttons
+  // shimmer to invite a click.
+  const touched = !!hv.value_map_edited || hv.evidence.some(e => (e.detail || '').startsWith('value map') || (e.type === 'cache' && !!e.value_mapping));
 
   // Model: every recorded value of every cohort is always present in value_map,
   // either assigned to a harmonized value (row) or mapped to "" = excluded.
@@ -416,11 +423,11 @@ function ValueMapEditor({
         <h4 className="font-semibold text-sm">Value mapping</h4>
         <span className="text-xs text-base-content/50">every raw value of every cohort is listed; move values between rows to align them</span>
         <div className="ml-auto flex gap-2">
-          <button className="btn btn-xs btn-outline gap-1" onClick={onSuggest} disabled={busy !== null}>
-            <Zap size={12} /> {busy === 'values' ? 'Suggesting…' : 'Suggest from codes, labels & computed mappings'}
+          <button className={`btn btn-sm btn-outline gap-1.5 ${!touched && busy === null ? 'shimmer-warm' : ''}`} onClick={onSuggest} disabled={busy !== null}>
+            <Zap size={14} /> {busy === 'values' ? 'Suggesting…' : 'Suggest from codes, labels & computed mappings'}
           </button>
-          <button className="btn btn-xs btn-outline btn-warning gap-1" onClick={onAi} disabled={busy !== null}>
-            <Sparkles size={12} /> {busy === 'ai-values' ? 'Asking…' : 'Ask iCARE-AI'}
+          <button className={`btn btn-sm btn-outline btn-warning gap-1.5 ${!touched && busy === null ? 'shimmer-warm' : ''}`} onClick={onAi} disabled={busy !== null}>
+            <Sparkles size={14} /> {busy === 'ai-values' ? 'Asking…' : 'Ask iCARE-AI'}
           </button>
         </div>
       </div>
@@ -480,9 +487,19 @@ function ValueMapEditor({
                                 </button>
                               </span>
                             ))}
-                            {others.length > 0 && (
-                              <select className="select select-xs select-bordered max-w-[180px]" value="" onChange={e => e.target.value && setRaw(c, e.target.value, h)} title="Move a value of this cohort into this row">
-                                <option value="">{here.length ? '+ add' : 'choose a value…'}</option>
+                            {others.length > 0 && (here.length === 0 || openAdd[`${c}|${h}`]) && (
+                              <select
+                                className="select select-xs select-bordered max-w-[180px]"
+                                value=""
+                                autoFocus={!!openAdd[`${c}|${h}`]}
+                                onBlur={() => setOpenAdd(prev => ({...prev, [`${c}|${h}`]: false}))}
+                                onChange={e => {
+                                  if (e.target.value) setRaw(c, e.target.value, h);
+                                  setOpenAdd(prev => ({...prev, [`${c}|${h}`]: false}));
+                                }}
+                                title="Move a value of this cohort into this row"
+                              >
+                                <option value="">{here.length ? 'move here…' : 'choose a value…'}</option>
                                 {others.map(o => (
                                   <option key={o.raw} value={o.raw}>
                                     {displayRaw(o.raw)}
@@ -491,6 +508,16 @@ function ValueMapEditor({
                                   </option>
                                 ))}
                               </select>
+                            )}
+                            {others.length > 0 && here.length > 0 && !openAdd[`${c}|${h}`] && (
+                              <button
+                                type="button"
+                                className="text-base-content/30 hover:text-base-content text-sm leading-none px-1"
+                                title="Move another value of this cohort into this row"
+                                onClick={() => setOpenAdd(prev => ({...prev, [`${c}|${h}`]: true}))}
+                              >
+                                +
+                              </button>
                             )}
                             {here.length === 0 && others.length === 0 && <span className="text-xs text-base-content/40">no values</span>}
                           </div>
@@ -575,6 +602,23 @@ function MissingPolicy({
     onChange(vm);
   };
   const pcts = cohorts.filter(c => missingPct?.[c] != null).map(c => `${c} ${Math.round(missingPct![c]!)}%`);
+  // Nothing to decide when the EDA reports no missing values anywhere: say so
+  // instead of offering the choice (the box stays, as a statement of fact).
+  const noneMissing = cohorts.length > 0 && cohorts.every(c => missingPct?.[c] != null && Math.abs(missingPct![c]!) < 0.05);
+  if (noneMissing) {
+    return (
+      <div className="mt-3 text-xs rounded-lg border border-base-300 bg-base-100 px-3 py-2">
+        <div className="font-semibold inline-flex items-center gap-1">
+          <Check size={12} className="text-emerald-700" /> No empty or missing values
+          <span className="font-normal text-base-content/60">
+            {' '}
+            (0% of rows in {cohorts.length === 1 ? cohorts[0] : `${cohorts.slice(0, -1).join(', ')} and ${cohorts[cohorts.length - 1]}`}, per the EDA)
+          </span>
+        </div>
+        <div className="text-[11px] text-base-content/60">Nothing to decide for this variable: every patient has a recorded value.</div>
+      </div>
+    );
+  }
   return (
     <div className="mt-3 text-xs rounded-lg border border-base-300 bg-base-100 px-3 py-2">
       <div className="font-semibold">
@@ -1047,8 +1091,8 @@ export default function MappingWorkbench({cohorts, roles, mapping, roleAssignmen
                           <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${cohortColor(cohorts, c)}`}>{c}</span>
                           {isAnchor && <span className="text-[10px] uppercase tracking-wide text-base-content/40">anchor</span>}
                           {!isAnchor && !m?.var_name && (roleSugg[c]?.length || 0) > 0 && (
-                            <button className="btn btn-ghost btn-xs gap-1 ml-auto" onClick={() => doAiMatch(hv)} disabled={busy !== null} title="Ask the local model which candidate matches best">
-                              <Sparkles size={11} /> {busy === 'ai-match' ? 'Asking…' : 'Ask iCARE-AI'}
+                            <button className={`btn btn-sm btn-outline btn-warning gap-1 ml-auto ${busy === null ? 'shimmer-warm' : ''}`} onClick={() => doAiMatch(hv)} disabled={busy !== null} title="Ask the local model which candidate matches best">
+                              <Sparkles size={13} /> {busy === 'ai-match' ? 'Asking…' : 'Ask iCARE-AI'}
                             </button>
                           )}
                         </div>

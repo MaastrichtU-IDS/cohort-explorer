@@ -130,3 +130,23 @@ a.link {
   animation: icare-shimmer 2.2s ease-in-out infinite;
   pointer-events: none;
 }
+
+/* Same sweep in a warm tint, for white (outline) and yellow (warning) buttons
+   where a blue sweep would look out of place: the no-code workbench's
+   "Suggest" / "Ask iCARE-AI" buttons while their fields are still empty. */
+.shimmer-warm {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-warm::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(105deg, transparent 20%, rgba(251, 191, 36, 0.45) 50%, transparent 80%);
+  animation: icare-shimmer 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
