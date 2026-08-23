@@ -968,6 +968,13 @@ export default function CohortsList() {
         ...prev,
         [cohortId]: 'metadata'
       }));
+
+      // While the page is in search mode, every cohort opens on its search
+      // results for the current terms (the view shows "no matches" when the
+      // cohort has none), not on the traditional view.
+      if (searchInput.trim()) {
+        setCohortSearchQueries(prev => (prev[cohortId] ? prev : {...prev, [cohortId]: searchInput}));
+      }
       
       // Activate shimmer effect
       setShimmerActive(prev => ({
@@ -1350,7 +1357,7 @@ export default function CohortsList() {
               setActiveSubTab({});
               setCohortSearchQueries({});
             }}
-            className="fixed bottom-6 right-6 z-[9999] btn btn-error shadow-lg"
+            className="fixed bottom-6 right-6 z-[9999] btn btn-error btn-lg shadow-lg text-base"
             title="Clear search and collapse all cohorts"
           >
             ✕ Clear Search
