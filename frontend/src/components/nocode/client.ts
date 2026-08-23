@@ -67,6 +67,10 @@ const fmtNum = (x: number | null | undefined): string | null => {
   return x.toLocaleString(undefined, {maximumFractionDigits: digits});
 };
 
+// Pseudo raw value standing for empty cells, NaN and declared missing codes.
+export const MISSING_KEY = '__MISSING__';
+export const displayRaw = (raw: string) => (raw === MISSING_KEY ? '(empty/missing)' : raw);
+
 // One muted line summarising a variable's scale: "n 1,245 · mean 78.4 (sd 12.3) · 38 to 160".
 export function edaLine(v: {kind: string; eda?: EdaStats | null}): string {
   const e = v.eda;
@@ -316,7 +320,7 @@ export function provenanceLine(hv: HVar): string {
       const vm = hv.value_map?.[cohort] || {};
       const pairs = Object.entries(vm);
       if (pairs.length) {
-        piece += ` (${pairs.slice(0, 6).map(([k, v]) => `${k}→${v || '(missing)'}`).join(', ')}${pairs.length > 6 ? ', …' : ''})`;
+        piece += ` (${pairs.slice(0, 6).map(([k, v]) => `${displayRaw(k)}→${v || '(excluded)'}`).join(', ')}${pairs.length > 6 ? ', …' : ''})`;
       }
       const conv = hv.unit_conversion?.[cohort];
       if (conv && conv.factor && conv.factor !== 1) piece += ` (×${conv.factor} ${conv.from || '?'}→${conv.to || '?'})`;

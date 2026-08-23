@@ -287,7 +287,13 @@ def prepare_column(df, hv, cohort, missing):
             s = s * float(conv["factor"])
             log("%s: %s scaled by %s (%s -> %s)" % (cohort, member["var_name"], conv["factor"], conv.get("from"), conv.get("to")))
         return s
-    vmap = (hv.get("value_map") or {}).get(cohort) or {}
+    vmap = dict((hv.get("value_map") or {}).get(cohort) or {})
+    # "__MISSING__" stands for empty cells, NaN and the dictionary's declared
+    # missing codes (masked above). Mapped to "" (default) they are excluded;
+    # mapped to a harmonized value they become that category (e.g. "Missing",
+    # or "no" where absence of a record means no).
+    missing_target = vmap.pop("__MISSING__", "") or ""
+    is_missing = s.isna() | (s.astype(str).str.strip() == "")
     if vmap:
         norm = {str(k).strip().lower(): v for k, v in vmap.items()}
         key = s.astype(str).str.strip().str.lower()
@@ -295,11 +301,16 @@ def prepare_column(df, hv, cohort, missing):
         mapped = key.map(norm)
         mapped = mapped.where(mapped.notna(), key2.map(norm))
         mapped = mapped.replace("", np.nan)        # "" in the value map = treated as missing
-        unmapped = int((s.notna() & mapped.isna()).sum())
+        unmapped = int((~is_missing & mapped.isna()).sum())
         if unmapped:
             log("%s: %d value(s) of %s not in the value map -> missing" % (cohort, unmapped, member["var_name"]))
-        return mapped.where(s.notna(), np.nan)
-    return s.where(s.notna(), np.nan).astype(object)
+        mapped = mapped.where(~is_missing, np.nan)
+    else:
+        mapped = s.where(~is_missing, np.nan).astype(object)
+    if missing_target:
+        mapped = mapped.where(~is_missing, missing_target)
+        log("%s: %d empty/missing value(s) of %s kept as '%s'" % (cohort, int(is_missing.sum()), member["var_name"], missing_target))
+    return mapped
 
 '''
 
@@ -349,7 +360,7 @@ def provenance_lines(used):
             piece = "%s [%s]" % (m["var_name"], c)
             vmap = (hv.get("value_map") or {}).get(c) or {}
             if vmap:
-                pairs = ", ".join("%s->%s" % (k, v or "(missing)") for k, v in list(vmap.items())[:6])
+                pairs = ", ".join("%s->%s" % ("(empty)" if k == "__MISSING__" else k, v or "(excluded)") for k, v in list(vmap.items())[:6])
                 piece += " (%s%s)" % (pairs, ", ..." if len(vmap) > 6 else "")
             conv = (hv.get("unit_conversion") or {}).get(c)
             if conv and conv.get("factor") not in (None, "", 1, 1.0):
