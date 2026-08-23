@@ -28,6 +28,9 @@ export interface SearchVariable {
   units?: string;
   visits?: string;
   categorical?: boolean;
+  // The variable has an EDA entry (and usually a distribution graph): the UI
+  // shows a clickable chart icon opening the EDA overlay.
+  has_eda?: boolean;
   equivalents?: {cohort_id: string; var_name: string}[];
 }
 

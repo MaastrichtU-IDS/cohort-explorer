@@ -160,7 +160,7 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
               {v.visit && <span className="badge badge-info badge-outline">{v.visit}</span>}
             </div>
           </div>
-          <button onClick={onClose} className="btn btn-sm btn-circle">✕</button>
+          <button onClick={onClose} className="btn btn-circle text-xl" aria-label="Close">✕</button>
         </div>
 
         {/* Main content: chart + stats side by side */}
@@ -307,6 +307,9 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
               </table>
             </div>
           </div>
+        </div>
+        <div className="modal-action">
+          <button className="btn" onClick={onClose}>Close</button>
         </div>
       </div>
       <div className="modal-backdrop" onClick={onClose}></div>

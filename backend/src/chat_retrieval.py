@@ -246,6 +246,17 @@ def _norm_code(value: Any) -> str:
     return text.split(":", 1)[-1].strip() if ":" in text else text
 
 
+def _eda_names(cohort_id: str) -> set:
+    """Names (lowercased) of the variables that have an EDA entry for this
+    cohort — those get a clickable chart marker in the chat."""
+    try:
+        from src.nocode import _load_eda
+
+        return set((_load_eda(cohort_id) or {}).keys())
+    except Exception:
+        return set()
+
+
 def _equivalents_map(entries: list[tuple[str, str, Any]]) -> dict[str, list[tuple[str, str]]]:
     """code/OMOP id -> [(cohort_id, var_name)]: variables sharing a standard code."""
     by_code: dict[str, list[tuple[str, str]]] = {}
@@ -283,8 +294,11 @@ def run_chat_searches(
         detailed_ids = {cid for cid, _ in ranked[:SEARCH_COHORTS_DETAILED]}
         for cohort_id, vars_ in sorted(by_cohort.items(), key=lambda kv: -len(kv[1])):
             shown = []
+            eda_names = _eda_names(cohort_id) if cohort_id in detailed_ids else set()
             for var in (vars_[:SEARCH_VARS_SHOWN_PER_COHORT] if cohort_id in detailed_ids else []):
                 d = _var_public(var)
+                if (d.get("var_name") or "").strip().lower() in eda_names:
+                    d["has_eda"] = True
                 eqs = []
                 for raw in (getattr(var, "concept_code", None), getattr(var, "omop_id", None)):
                     code = _norm_code(raw)
@@ -346,6 +360,8 @@ def format_search_context(runs: list[dict[str, Any]]) -> str:
                 if v.get("equivalents"):
                     eq = ", ".join(f"{e['cohort_id']}::{e['var_name']}" for e in v["equivalents"])
                     bits.append(f"EQUIVALENT BY STANDARD CODE to: {eq}")
+                if v.get("has_eda"):
+                    bits.append(f"CHART-MARKER: \U0001F4CA[{c['cohort_id']}::{v.get('var_name')}]")
                 parts.append("  - " + " — ".join(bits[:2]) + (" " + " ".join(bits[2:]) if len(bits) > 2 else ""))
             if c["matches"] > len(shown):
                 parts.append(f"  (+{c['matches'] - len(shown)} more matching variables in {c['cohort_id']} not listed here)")
@@ -359,7 +375,11 @@ def format_search_context(runs: list[dict[str, Any]]) -> str:
         "counts — never drop any. When listing variables, name at most 10-15 per cohort and "
         "ALWAYS state the full counts explicitly (e.g. \"TIME-CHF has 57 matching variables; "
         "here are 12\"), so the user knows there are more. Use the EQUIVALENT BY STANDARD CODE "
-        "links to point out which variables correspond across cohorts."
+        "links to point out which variables correspond across cohorts. Variables with a "
+        "CHART-MARKER have an EDA distribution graph: EVERY time you mention such a variable by "
+        "name, put its exact marker (the \U0001F4CA[cohort::variable] token, copied verbatim) right "
+        "after the name — it renders as a clickable chart icon that opens the graph. Never invent "
+        "a marker for a variable that has none."
     )
     return "\n".join(parts)
 

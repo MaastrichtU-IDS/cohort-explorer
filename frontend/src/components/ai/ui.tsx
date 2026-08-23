@@ -3,6 +3,7 @@
 // Small shared UI atoms for the experimental AI chat layouts.
 import React, {useEffect, useRef, useState} from 'react';
 import {ChatMessage, SearchCohort, SearchRun} from '@/components/ai/chatClient';
+import EdaOverlayHost, {openEda} from '@/components/ai/EdaOverlay';
 import {apiUrl} from '@/utils';
 
 // Very small, safe markdown-ish renderer: escapes HTML then applies headings,
@@ -71,7 +72,13 @@ function renderRich(text: string): string {
     )
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     // Single-asterisk italics (bold already consumed its double asterisks).
-    .replace(/(^|[^*\w])\*([^*\n]+)\*(?![\w*])/g, '$1<em>$2</em>');
+    .replace(/(^|[^*\w])\*([^*\n]+)\*(?![\w*])/g, '$1<em>$2</em>')
+    // Chart markers the model copies from the search results: 📊[cohort::var]
+    // becomes a clickable icon that opens the variable's EDA overlay.
+    .replace(/📊\[([^\[\]\n]+?)::([^\[\]\n]+?)\]/g, (_m, c, v) => {
+      const attr = (t: string) => t.replace(/"/g, '&quot;').trim();
+      return `<a href="#" class="eda-open no-underline" data-eda-cohort="${attr(c)}" data-eda-var="${attr(v)}" title="Open the EDA graph of ${attr(v)} (${attr(c)})">📊</a>`;
+    });
   const lines = withInline.split('\n');
   let html = '';
   let inList = false;
@@ -190,6 +197,16 @@ function SearchCohortBlock({cohort, defaultOpen}: {cohort: SearchCohort; default
             {(v.var_type || v.units || v.omop_domain || v.categorical) && (
               <span className="text-base-content/50"> [{[v.var_type, v.units, v.omop_domain, v.categorical ? 'categorical' : ''].filter(Boolean).join(', ')}]</span>
             )}
+            {v.has_eda && (
+              <button
+                type="button"
+                className="ml-1 align-middle hover:scale-110 transition-transform"
+                title={`Open the EDA graph of ${v.var_name} (${cohort.cohort_id})`}
+                onClick={() => openEda(cohort.cohort_id, v.var_name)}
+              >
+                📊
+              </button>
+            )}
             {v.equivalents && v.equivalents.length > 0 && (
               <span className="text-violet-700"> ⇄ {v.equivalents.map(e => `${e.cohort_id}::${e.var_name}`).join(', ')}</span>
             )}
@@ -283,6 +300,13 @@ export function MessageBubble({message, streaming}: {message: ChatMessage; strea
         {shown ? (
           <div
             className="prose prose-sm max-w-none leading-relaxed [&_*]:my-0"
+            onClick={e => {
+              const t = (e.target as HTMLElement).closest?.('a.eda-open') as HTMLElement | null;
+              if (t) {
+                e.preventDefault();
+                openEda(t.getAttribute('data-eda-cohort') || '', t.getAttribute('data-eda-var') || '');
+              }
+            }}
             dangerouslySetInnerHTML={{__html: renderRich(shown)}}
           />
         ) : streaming ? (
@@ -311,6 +335,7 @@ export function MessageList({messages, streaming}: {messages: ChatMessage[]; str
   }, [messages]);
   return (
     <div className="space-y-4">
+      <EdaOverlayHost />
       {messages.map((m, i) => (
         <React.Fragment key={i}>
           {m.role === 'assistant' && m.searches && m.searches.length > 0 && <SearchResultsPanel runs={m.searches} />}
