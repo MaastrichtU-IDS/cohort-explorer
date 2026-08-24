@@ -839,6 +839,18 @@ from cohortpool import pool
 output_dir = "/output"
 log_file = os.path.join(output_dir, "merge_datasets_log.txt")
 
+
+def wlog(message):
+    # Live progress to Decentriq's worker log ("/worker/logs"), visible in the
+    # platform while the computation is still running. Best-effort: outside an
+    # enclave the path does not exist and the message is simply dropped.
+    try:
+        with open("/worker/logs", "a") as f:
+            f.write(str(message) + "\\n")
+    except Exception:
+        pass
+
+
 # Studies to pool. Each study points to its cohort data node and metadata dictionary
 # node, mounted read-only under /input inside the enclave, plus the patient id column
 # used to align records across studies.
@@ -855,6 +867,7 @@ mappings = [
 with open(log_file, "w") as log:
     log.write("Pooling {{}} studies with {{}} mapping file(s)\\n".format(len(studies), len(mappings)))
     log.write("Studies: {{}}\\n".format(list(studies.keys())))
+wlog("merge-datasets: starting - {{}} studies ({{}}), {{}} mapping file(s)".format(len(studies), ", ".join(studies), len(mappings)))
 
 # Preprocess: strip leading/trailing spaces from column names in each study's data
 # CSV (written to a cleaned copy under /tmp). Data owners upload raw CSVs whose
@@ -880,6 +893,7 @@ for study_id, cfg in studies.items():
     if not cfg.get("patient_id"):
         with open(log_file, "a") as log:
             log.write("{{}}: no patient-ID column configured; left to the merge algorithm to resolve\\n".format(study_id))
+wlog("merge-datasets: input headers cleaned; inspecting the mapping files")
 
 # Sanity-check the mapping files' harmonization_status values BEFORE pooling.
 # cohortpool silently drops every row whose status is not exactly
@@ -905,6 +919,8 @@ with open(log_file, "a") as log:
                           "ignore this whole mapping file.\\n")
         except Exception as e:
             log.write("Could not inspect mapping file {{}}: {{}}\\n".format(m.get("path"), e))
+
+wlog("merge-datasets: calling cohortpool.pool() - the long step")
 
 # Pool the datasets together using the cohortpool package.
 # Unit conversions, drug classes, drug target doses and core variables all come
@@ -944,6 +960,8 @@ result = pool(
     is_shuffled_data={is_shuffled_data},
 )
 
+wlog("merge-datasets: pool() returned; publishing the pooled dataset")
+
 # Persist the published dataset as pooled_dataset.csv — the stable name the
 # downstream nodes (airlock fragment, overview) read. With
 # output_format="longitudinal" the published frame is the longitudinal one
@@ -963,6 +981,7 @@ if published_df.empty:
                   "accepted (see the harmonization_status counts above; cohortpool "
                   "only accepts 'Identical Match', 'Compatible Match' and "
                   "'Partial Match').\\n")
+    wlog("merge-datasets: ERROR - pooling produced no data (see merge_datasets_log.txt)")
     raise RuntimeError("Pooling produced no data; see merge_datasets_log.txt")
 output_file = os.path.join(output_dir, "pooled_dataset.csv")
 published_df.to_csv(output_file, index=False)
@@ -980,6 +999,8 @@ if "output_paths" in result:
         log.write("Package output paths:\\n")
         for key, path in result["output_paths"].items():
             log.write("  {{}}: {{}}\\n".format(key, path))
+
+wlog("merge-datasets: done - pooled_dataset.csv written, {{}} rows x {{}} columns ({{}})".format(len(published_df), len(published_df.columns), published_kind))
 """
 
 
@@ -1021,8 +1042,22 @@ import os
 output_dir = "/output"
 log_file = os.path.join(output_dir, "merged_fragmentation_log.txt")
 
+
+def wlog(message):
+    # Live progress to Decentriq's worker log ("/worker/logs"), visible in the
+    # platform while the computation is still running. Best-effort: outside an
+    # enclave the path does not exist and the message is simply dropped.
+    try:
+        with open("/worker/logs", "a") as f:
+            f.write(str(message) + "\\n")
+    except Exception:
+        pass
+
+
 # Read the pooled dataset produced by the merge node (mounted under /input)
+wlog("merged-data-fragment: loading pooled_dataset.csv from the merge node")
 df = pd.read_csv("/input/{merge_node_name}/pooled_dataset.csv")
+wlog("merged-data-fragment: loaded {{}} rows x {{}} columns; de-identifying".format(len(df), len(df.columns)))
 
 with open(log_file, "a") as log:
     log.write("Loaded pooled dataset with {{}} rows and {{}} columns\\n".format(len(df), len(df.columns)))
@@ -1065,6 +1100,7 @@ with open(log_file, "a") as log:
 # Airlock percentage setting (fixed for the merged dataset, independent of the
 # per-cohort airlock settings)
 airlock_percentage = {airlock_percentage}
+wlog("merged-data-fragment: IDs replaced; splitting the {{}}% fragment and capping outliers".format(airlock_percentage))
 
 # Shuffle the dataframe to ensure random split
 df_full = df.sample(frac=1, random_state=42).reset_index(drop=True)
@@ -1159,6 +1195,8 @@ df_fragment.to_csv(output_file, index=False)
 with open(log_file, "a") as log:
     log.write("\\nMerged data fragment saved: {{}}\\n".format(output_file))
     log.write("Fragment size: {{}} rows out of {{}} total rows ({{:.1f}}%)\\n".format(len(df_fragment), len(df_full), len(df_fragment)/len(df_full)*100 if len(df_full) else 0))
+
+wlog("merged-data-fragment: done - dataset.csv written, {{}} of {{}} rows".format(len(df_fragment), len(df_full)))
 """
 
 
@@ -1297,8 +1335,21 @@ import pandas as pd
 output_dir = "/output"
 report_file = os.path.join(output_dir, "merged_data_overview.txt")
 
+
+def wlog(message):
+    # Live progress to Decentriq's worker log ("/worker/logs"), visible in the
+    # platform while the computation is still running. Best-effort: outside an
+    # enclave the path does not exist and the message is simply dropped.
+    try:
+        with open("/worker/logs", "a") as f:
+            f.write(str(message) + "\\n")
+    except Exception:
+        pass
+
+
 merge_dir = "/input/{merge_node_name}"
 pooled_path = os.path.join(merge_dir, "pooled_dataset.csv")
+wlog("merged-data-overview: reading the pooled dataset from the merge node")
 
 with open(report_file, "w") as report:
     report.write("MERGED DATASET OVERVIEW\\n")
@@ -1314,6 +1365,7 @@ with open(report_file, "w") as report:
     else:
         size_bytes = os.path.getsize(pooled_path)
         df = pd.read_csv(pooled_path)
+        wlog("merged-data-overview: pooled dataset loaded - {{}} rows x {{}} columns; computing completeness".format(len(df), len(df.columns)))
         report.write("File: pooled_dataset.csv ({{:.2f}} KB)\\n".format(size_bytes / 1024))
         report.write("Rows (patients): {{:,}}\\n".format(len(df)))
         report.write("Columns: {{:,}}\\n\\n".format(len(df.columns)))
@@ -1362,6 +1414,7 @@ with open(report_file, "w") as report:
 # files are exported too), False when it pools the full cohort data (the
 # patient-level files are then never exported).
 include_patient_level = {include_patient_level}
+wlog("merged-data-overview: overview written; copying the merge-process metadata (harmonization reports)")
 reports_dir = os.path.join(output_dir, "harmonization_reports")
 os.makedirs(reports_dir, exist_ok=True)
 copied = []
@@ -1395,6 +1448,8 @@ with open(report_file, "a") as report:
 
     report.write("\\n" + "=" * 60 + "\\n")
     report.write("OVERVIEW COMPLETE\\n")
+
+wlog("merged-data-overview: done - {{}} metadata files copied, {{}} skipped".format(len(copied), len(skipped)))
 """
 
 
