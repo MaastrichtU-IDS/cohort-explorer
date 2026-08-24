@@ -50,7 +50,7 @@ MERGE_ENV_NAME = "cohortpool_env"
 # Bump this SHA deliberately, together with any embedded-script changes the new
 # cohortpool version requires; the changed requirements string forces a fresh
 # environment build.
-COHORTPOOL_COMMIT = "dfbc4dbbccdb31fe4f94df8c6083f89357a472d3"  # cohortpool main, 24 Aug 2026
+COHORTPOOL_COMMIT = "b894362f67b9c7a5a2287934244828eea2fc0cbc"  # cohortpool main, 24 Aug 2026
 # cohortpool is a private repo, so a GitHub Personal Access Token (PAT) with repo
 # read scope must be embedded in the pip-installable Git URL for the enclave to
 # fetch and install it. The token is loaded from the COHORTPOOL_GITHUB_TOKEN env var.

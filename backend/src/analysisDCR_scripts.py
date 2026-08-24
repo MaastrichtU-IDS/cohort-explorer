@@ -936,6 +936,9 @@ result = pool(
     # longitudinal frame is the published dataset (handled below).
     output_format="longitudinal",
     temporal_unit="months",
+    # Write cohortpool's own log file(s) under /worker so they stream live to
+    # Decentriq's worker log while the computation is running.
+    log_dir="/worker/",
     # Quality thresholds: a variable needs values for >=50% of each cohort's
     # patients, and >=80% of pooled patients overall, to be included.
     min_completeness_per_cohort_pct=50,
