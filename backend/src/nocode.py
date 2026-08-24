@@ -172,7 +172,12 @@ def _load_eda(cohort_id: str) -> dict[str, dict]:
     """{lower-cased variable name -> normalized stats} for a cohort, or {} when
     no EDA output exists. Handles both EDA formats (v1 flat keys such as
     'std dev' / 'count missing'; v2 numeric keys under 'variables')."""
-    path = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}", f"eda_output_{cohort_id}.json")
+    # v2 outputs live in a differently NAMED file (eda_output_v2_<id>.json);
+    # prefer it, fall back to the legacy v1 name.
+    dcr_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+    path = os.path.join(dcr_dir, f"eda_output_v2_{cohort_id}.json")
+    if not os.path.exists(path):
+        path = os.path.join(dcr_dir, f"eda_output_{cohort_id}.json")
     if not os.path.exists(path):
         return {}
     mtime = os.path.getmtime(path)

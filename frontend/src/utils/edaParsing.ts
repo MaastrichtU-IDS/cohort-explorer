@@ -183,8 +183,91 @@ export function parseNormality(s: string | undefined | null): { isNormal: boolea
 // Main parser: convert raw EDA JSON object → structured EdaData
 // ---------------------------------------------------------------------------
 
+// One v2 entry (from eda_output_v2_<id>.json) normalized to the EdaVariable
+// shape the dashboard and the detail modal were built on.
+function parseV2Entry(varName: string, entry: Record<string, any>): EdaVariable {
+  const meta = entry['metadata'] || {};
+  const comp = entry['completeness'] || {};
+  const n = Number(entry['n']) || 0;
+  const nRows = Number(comp['n_rows']) || n + (Number(comp['n_empty']) || 0) + (Number(comp['n_coded_missing']) || 0);
+  const empty = Number(comp['n_empty']) || 0;
+  const missing = Number(comp['n_coded_missing']) || 0;
+  const type = entry['type'] === 'numeric' ? 'numeric' : entry['type'] === 'categorical' ? 'categorical' : parseVarType(entry['type']);
+  const v: EdaVariable = {
+    name: varName,
+    label: entry['label'] || meta['label'] || varName,
+    type,
+    rawType: String(meta['var_type'] || entry['type'] || ''),
+    metadataLabel: meta['label'] || undefined,
+    metadataVarType: meta['var_type'] || undefined,
+    units: meta['units'] || undefined,
+    conceptCode: meta['concept_code'] || undefined,
+    conceptName: meta['concept_name'] || undefined,
+    omopId: meta['omop_id'] || undefined,
+    domain: meta['domain'] || undefined,
+    visit: meta['visits'] || undefined,
+    totalObservations: n,
+    countEmpty: empty,
+    countEmptyPct: nRows ? (100 * empty) / nRows : 0,
+    countMissing: missing,
+    countMissingPct: nRows ? (100 * missing) / nRows : 0,
+    uniqueValues: Number(entry['n_unique']) || 0,
+    graphUrl: entry['graph_url'],
+    raw: entry
+  };
+  if (type === 'numeric') {
+    v.mean = entry['mean'];
+    v.median = entry['median'];
+    v.stdDev = entry['std'];
+    v.variance = entry['variance'];
+    v.min = entry['min'];
+    v.max = entry['max'];
+    v.range = entry['range'];
+    v.q1 = entry['q1'];
+    v.q3 = entry['q3'];
+    v.iqr = entry['iqr'];
+    v.skewness = entry['skewness'];
+    v.kurtosis = entry['kurtosis'];
+    const shapiroP = entry['normality']?.['shapiro_p'];
+    if (shapiroP !== undefined && shapiroP !== null) {
+      v.isNormal = Number(shapiroP) > 0.05;
+      v.normalityTest = `shapiro p=${shapiroP}`;
+    }
+    const oi = entry['outliers_iqr'];
+    if (oi && typeof oi === 'object') {
+      v.outliersIqr = Number(oi['n']) || 0;
+      v.outliersIqrPct = Number(oi['pct']) || (n ? (100 * (Number(oi['n']) || 0)) / n : 0);
+    }
+    const oz = entry['outliers_z'];
+    if (oz && typeof oz === 'object') v.outliersZ = Number(oz['n']) || 0;
+  }
+  if (type === 'categorical') {
+    const dist = Array.isArray(entry['distribution']) ? entry['distribution'] : [];
+    v.classBalance = dist.map((d: any) => ({
+      label: String(d?.label ?? d?.value ?? ''),
+      percentage: Number(d?.pct) || 0,
+      count: Number(d?.count) || 0
+    }));
+    if (v.classBalance && v.classBalance.length > 0) v.mostFrequentCategory = v.classBalance[0].label;
+  }
+  return v;
+}
+
 export function parseEdaJson(raw: Record<string, any>): EdaData {
   const variables: EdaVariable[] = [];
+
+  // v2 shape: {schema_version, variables: {name: entry}, ...}; v1 is the flat
+  // {name: entry} dict.
+  if (raw && typeof raw === 'object' && raw['variables'] && typeof raw['variables'] === 'object' && !Array.isArray(raw['variables'])) {
+    for (const [varName, entry] of Object.entries(raw['variables'] as Record<string, any>)) {
+      if (!entry || typeof entry !== 'object') continue;
+      variables.push(parseV2Entry(varName, entry));
+    }
+    const numericVars = variables.filter(v => v.type === 'numeric');
+    const categoricalVars = variables.filter(v => v.type === 'categorical');
+    const dateVars = variables.filter(v => v.type === 'date');
+    return { variables, numericVars, categoricalVars, dateVars, timePointGroups: detectTimePointGroups(variables) };
+  }
 
   for (const [varName, entry] of Object.entries(raw)) {
     if (!entry || typeof entry !== 'object') continue;

@@ -58,7 +58,7 @@ function renderTable(rows: string[]): string {
   return html;
 }
 
-function renderRich(text: string): string {
+function renderRich(text: string, validEda?: Set<string>): string {
   const esc = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -76,6 +76,9 @@ function renderRich(text: string): string {
     // Chart markers the model copies from the search results: 📊[cohort::var]
     // becomes a clickable icon that opens the variable's EDA overlay.
     .replace(/📊\[([^\[\]\n]+?)::([^\[\]\n]+?)\]/g, (_m, c, v) => {
+      // When a validation set is given (built from the turn's search results),
+      // markers the model invented for variables without an EDA are dropped.
+      if (validEda && !validEda.has(`${c}::${v}`.trim().toLowerCase())) return '';
       const attr = (t: string) => t.replace(/"/g, '&quot;').trim();
       return `<a href="#" class="eda-open no-underline" data-eda-cohort="${attr(c)}" data-eda-var="${attr(v)}" title="Open the EDA graph of ${attr(v)} (${attr(c)})">📊</a>`;
     });
@@ -282,7 +285,7 @@ export function SearchResultsPanel({runs}: {runs: SearchRun[]}) {
   );
 }
 
-export function MessageBubble({message, streaming}: {message: ChatMessage; streaming?: boolean}) {
+export function MessageBubble({message, streaming, validEda}: {message: ChatMessage; streaming?: boolean; validEda?: Set<string>}) {
   const isUser = message.role === 'user';
   // Assistant turns carry two answer variants (short summary / in-depth);
   // default to the summary and let the user toggle.
@@ -297,10 +300,10 @@ export function MessageBubble({message, streaming}: {message: ChatMessage; strea
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
-        className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
+        className={`rounded-2xl px-4 py-3 shadow-sm ${
           isUser
-            ? 'bg-blue-100 text-blue-900 border border-blue-200 rounded-br-sm'
-            : 'bg-base-100 border border-base-300 rounded-bl-sm'
+            ? 'max-w-[85%] bg-blue-100 text-blue-900 border border-blue-200 rounded-br-sm'
+            : 'max-w-[97%] grow bg-base-100 border border-base-300 rounded-bl-sm'
         }`}
       >
         {!isUser && (
@@ -319,7 +322,7 @@ export function MessageBubble({message, streaming}: {message: ChatMessage; strea
                 openEda(t.getAttribute('data-eda-cohort') || '', t.getAttribute('data-eda-var') || '');
               }
             }}
-            dangerouslySetInnerHTML={{__html: renderRich(shown)}}
+            dangerouslySetInnerHTML={{__html: renderRich(shown, validEda)}}
           />
         ) : streaming ? (
           <TypingDots />
@@ -345,6 +348,18 @@ export function MessageList({messages, streaming}: {messages: ChatMessage[]; str
   useEffect(() => {
     endRef.current?.scrollIntoView({behavior: 'smooth', block: 'end'});
   }, [messages]);
+  // Chart markers are only trusted for variables the searches actually flagged
+  // with an EDA; anything else the model wrote is dropped at render time.
+  const validEda = new Set<string>();
+  messages.forEach(m =>
+    (m.searches || []).forEach(run =>
+      run.cohorts.forEach(c =>
+        c.variables.forEach(v => {
+          if (v.has_eda) validEda.add(`${c.cohort_id}::${v.var_name}`.toLowerCase());
+        })
+      )
+    )
+  );
   return (
     <div className="space-y-4">
       <EdaOverlayHost />
@@ -356,7 +371,7 @@ export function MessageList({messages, streaming}: {messages: ChatMessage[]; str
               The assistant&rsquo;s catalog search could not run ({m.searchError}); the answer relies on the basic context only.
             </div>
           )}
-          <MessageBubble message={m} streaming={streaming && i === messages.length - 1} />
+          <MessageBubble message={m} streaming={streaming && i === messages.length - 1} validEda={validEda} />
         </React.Fragment>
       ))}
       <div ref={endRef} />

@@ -5,7 +5,13 @@ export default function handler(req, res) {
   const { cohortName } = req.query;
 
   const dcrOutputDir = path.join('/data', `dcr_output_${cohortName}`);
-  const edaFilePath = path.join(dcrOutputDir, `eda_output_${cohortName}.json`);
+  // Two EDA generations with DIFFERENT file names: the legacy v1 file and the
+  // v2 file (eda_output_v2_<id>.json). Serve v1 when it exists (the dashboards
+  // grew up on it), else fall back to v2 so v2-only cohorts are not reported
+  // as having no EDA.
+  const v1Path = path.join(dcrOutputDir, `eda_output_${cohortName}.json`);
+  const v2Path = path.join(dcrOutputDir, `eda_output_v2_${cohortName}.json`);
+  const edaFilePath = fs.existsSync(v1Path) ? v1Path : v2Path;
 
   // HEAD request — just check existence
   if (req.method === 'HEAD') {

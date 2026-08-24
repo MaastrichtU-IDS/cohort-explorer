@@ -676,7 +676,7 @@ function ICareAI() {
           /* Ongoing conversation */
           <div className="flex-1 flex flex-col min-h-0">
             <div className="flex-1 overflow-y-auto px-4 md:px-8 py-4">
-              <div className="max-w-3xl mx-auto">
+              <div className="max-w-5xl mx-auto">
                 <MessageList messages={chat.messages} streaming={chat.isStreaming} />
                 {chat.error && (
                   <div className="alert alert-error mt-4 text-sm">
@@ -686,7 +686,7 @@ function ICareAI() {
               </div>
             </div>
             <div className="bg-base-200 px-4 md:px-8 pb-3">
-              <div className="max-w-3xl mx-auto">
+              <div className="max-w-5xl mx-auto">
                 {/* In an ongoing conversation this is a follow-up field: no
                     placeholder, no suggestion chips — just continue the thread.
                     Any pinned cohort scope stays visible as context. */}
