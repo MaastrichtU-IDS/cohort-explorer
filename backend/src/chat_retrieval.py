@@ -225,6 +225,12 @@ SEARCH_VARS_SHOWN_PER_COHORT = 12
 SEARCH_COHORTS_DETAILED = 6
 SEARCH_EQUIVALENTS_SHOWN = 6
 SEARCH_CONTEXT_CHAR_CAP = 40000
+# Standard-code expansion: variables sharing a standard code with a text match
+# are pulled into the results too (that is how BB_3M or ALTROBB count as beta
+# blockers via ATC:C07A). Codes carried by more than this many variables are
+# considered too generic to expand.
+SEARCH_CODE_EXPANSION_LIMIT = 400
+SEARCH_CODES_PER_TERM = 10
 
 
 def _var_public(var: Any) -> dict[str, Any]:
@@ -257,15 +263,26 @@ def _eda_names(cohort_id: str) -> set:
         return set()
 
 
-def _equivalents_map(entries: list[tuple[str, str, Any]]) -> dict[str, list[tuple[str, str]]]:
-    """code/OMOP id -> [(cohort_id, var_name)]: variables sharing a standard code."""
-    by_code: dict[str, list[tuple[str, str]]] = {}
+def _equivalents_map(entries: list[tuple[str, str, Any]]) -> dict[str, list[tuple[str, str, Any]]]:
+    """code/OMOP id -> [(cohort_id, var_name, var)]: variables sharing a standard code."""
+    by_code: dict[str, list[tuple[str, str, Any]]] = {}
     for cohort_id, _blob, var in entries:
         for raw in (getattr(var, "concept_code", None), getattr(var, "omop_id", None)):
             code = _norm_code(raw)
             if code:
-                by_code.setdefault(code, []).append((cohort_id, _clean(getattr(var, "var_name", ""))))
+                by_code.setdefault(code, []).append((cohort_id, _clean(getattr(var, "var_name", "")), var))
     return by_code
+
+
+def _word_match(blob: str, w: str) -> bool:
+    """Substring match with light stemming, so 'blockers' and 'blocking' both
+    find 'blocker' (and vice versa via the substring direction)."""
+    if w in blob:
+        return True
+    for suf in ("es", "s", "ing", "ed"):
+        if w.endswith(suf) and len(w) - len(suf) >= 4 and w[: len(w) - len(suf)] in blob:
+            return True
+    return False
 
 
 def run_chat_searches(
@@ -287,22 +304,52 @@ def run_chat_searches(
             continue
         by_cohort: dict[str, list[Any]] = {}
         for cohort_id, blob, var in entries:
-            if all(w in blob for w in words):
+            if all(_word_match(blob, w) for w in words):
                 by_cohort.setdefault(cohort_id, []).append(var)
+        # Standard-code expansion: any code carried by a text match pulls in the
+        # other variables sharing it, in every cohort (marked "via code").
+        seen_pairs = {(cid, _clean(getattr(v, "var_name", ""))) for cid, vs in by_cohort.items() for v in vs}
+        codes_used: dict[str, str] = {}
+        code_added: dict[str, list[tuple[Any, str]]] = {}
+        for cid, vs in list(by_cohort.items()):
+            for var in vs:
+                for raw in (getattr(var, "concept_code", None), getattr(var, "omop_id", None)):
+                    code = _norm_code(raw)
+                    peers = eq_map.get(code, [])
+                    if not code or code in codes_used or len(peers) > SEARCH_CODE_EXPANSION_LIMIT or len(codes_used) >= SEARCH_CODES_PER_TERM:
+                        continue
+                    name = _clean(getattr(var, "concept_name", "")) or _clean(getattr(var, "mapped_label", ""))
+                    display = _clean(raw) + (f" ({name})" if name else "")
+                    expanded = False
+                    for ocid, oname, ovar in peers:
+                        if (ocid, oname) in seen_pairs:
+                            continue
+                        seen_pairs.add((ocid, oname))
+                        code_added.setdefault(ocid, []).append((ovar, display))
+                        expanded = True
+                    if expanded:
+                        codes_used[code] = display
         cohorts_out = []
-        ranked = sorted(by_cohort.items(), key=lambda kv: (kv[0] not in restrict if restrict else False, -len(kv[1])))
-        detailed_ids = {cid for cid, _ in ranked[:SEARCH_COHORTS_DETAILED]}
-        for cohort_id, vars_ in sorted(by_cohort.items(), key=lambda kv: -len(kv[1])):
+        all_cohort_ids = set(by_cohort) | set(code_added)
+        totals = {cid: len(by_cohort.get(cid, [])) + len(code_added.get(cid, [])) for cid in all_cohort_ids}
+        ranked = sorted(all_cohort_ids, key=lambda cid: (cid not in restrict if restrict else False, -totals[cid]))
+        detailed_ids = set(ranked[:SEARCH_COHORTS_DETAILED])
+        for cohort_id in sorted(all_cohort_ids, key=lambda cid: -totals[cid]):
+            # text matches first, then the ones pulled in by a shared code
+            candidates = [(v, None) for v in by_cohort.get(cohort_id, [])] + list(code_added.get(cohort_id, []))
             shown = []
             eda_names = _eda_names(cohort_id) if cohort_id in detailed_ids else set()
-            for var in (vars_[:SEARCH_VARS_SHOWN_PER_COHORT] if cohort_id in detailed_ids else []):
+            for var, via_code in (candidates[:SEARCH_VARS_SHOWN_PER_COHORT] if cohort_id in detailed_ids else []):
                 d = _var_public(var)
+                if via_code:
+                    d["via_code"] = True
+                    d["matched_code"] = via_code
                 if (d.get("var_name") or "").strip().lower() in eda_names:
                     d["has_eda"] = True
                 eqs = []
                 for raw in (getattr(var, "concept_code", None), getattr(var, "omop_id", None)):
                     code = _norm_code(raw)
-                    for other_cohort, other_name in eq_map.get(code, []):
+                    for other_cohort, other_name, _ovar in eq_map.get(code, []):
                         if other_cohort != cohort_id and (other_cohort, other_name) not in eqs:
                             eqs.append((other_cohort, other_name))
                 if eqs:
@@ -310,7 +357,9 @@ def run_chat_searches(
                 shown.append(d)
             cohorts_out.append({
                 "cohort_id": cohort_id,
-                "matches": len(vars_),
+                "matches": totals[cohort_id],
+                "text_matches": len(by_cohort.get(cohort_id, [])),
+                "code_matches": len(code_added.get(cohort_id, [])),
                 "in_selection": (not restrict) or cohort_id in restrict,
                 "variables": shown,
             })
@@ -318,6 +367,7 @@ def run_chat_searches(
             "term": str(raw_term),
             "total_matches": sum(c["matches"] for c in cohorts_out),
             "cohorts_matched": len(cohorts_out),
+            "codes": [{"code": c, "display": d} for c, d in codes_used.items()],
             "cohorts": cohorts_out,
         })
     return runs
@@ -336,11 +386,17 @@ def format_search_context(runs: list[dict[str, Any]]) -> str:
         if not coh:
             parts.append(f'## Search "{run.get("term")}": no matching variables in any cohort.')
             continue
-        counts = ", ".join(f"{c['cohort_id']} ({c['matches']})" for c in coh)
+        counts = ", ".join(
+            f"{c['cohort_id']} ({c['matches']}{' incl. ' + str(c['code_matches']) + ' via code' if c.get('code_matches') else ''})"
+            for c in coh
+        )
         parts.append(
             f'## Search "{run.get("term")}": {run.get("total_matches")} matching variables across '
             f"{len(coh)} cohort(s) — ALL matching cohorts with their counts: {counts}"
         )
+        if run.get("codes"):
+            parts.append("   (results include variables matched via shared standard codes: "
+                         + "; ".join(c["display"] for c in run["codes"]) + ")")
         for c in coh:
             shown = c.get("variables") or []
             if not shown:
@@ -360,6 +416,8 @@ def format_search_context(runs: list[dict[str, Any]]) -> str:
                 if v.get("equivalents"):
                     eq = ", ".join(f"{e['cohort_id']}::{e['var_name']}" for e in v["equivalents"])
                     bits.append(f"EQUIVALENT BY STANDARD CODE to: {eq}")
+                if v.get("via_code"):
+                    bits.append(f"MATCHED VIA STANDARD CODE {v.get('matched_code')}")
                 if v.get("has_eda"):
                     bits.append(f"CHART-MARKER: \U0001F4CA[{c['cohort_id']}::{v.get('var_name')}]")
                 parts.append("  - " + " — ".join(bits[:2]) + (" " + " ".join(bits[2:]) if len(bits) > 2 else ""))
@@ -379,7 +437,9 @@ def format_search_context(runs: list[dict[str, Any]]) -> str:
         "CHART-MARKER have an EDA distribution graph: EVERY time you mention such a variable by "
         "name, put its exact marker (the \U0001F4CA[cohort::variable] token, copied verbatim) right "
         "after the name — it renders as a clickable chart icon that opens the graph. Never invent "
-        "a marker for a variable that has none."
+        "a marker for a variable that has none. The search HAS ALREADY BEEN RUN: never tell the "
+        "user to run a search themselves or to \"confirm with a fresh search\" — answer from "
+        "these results."
     )
     return "\n".join(parts)
 

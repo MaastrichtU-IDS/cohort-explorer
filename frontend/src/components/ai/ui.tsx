@@ -186,6 +186,7 @@ function SearchCohortBlock({cohort, defaultOpen}: {cohort: SearchCohort; default
         <span className="font-semibold">{cohort.cohort_id}</span>
         <span className="text-xs text-base-content/60">
           {cohort.matches} matching variable{cohort.matches === 1 ? '' : 's'}
+          {(cohort.code_matches || 0) > 0 && <> ({cohort.code_matches} via standard code)</>}
           {cohort.matches > shown.length && <> · showing {shown.length}</>}
         </span>
       </summary>
@@ -196,6 +197,11 @@ function SearchCohortBlock({cohort, defaultOpen}: {cohort: SearchCohort; default
             {v.var_label && v.var_label.toLowerCase() !== v.var_name.toLowerCase() && <span className="text-base-content/70"> — {v.var_label}</span>}
             {(v.var_type || v.units || v.omop_domain || v.categorical) && (
               <span className="text-base-content/50"> [{[v.var_type, v.units, v.omop_domain, v.categorical ? 'categorical' : ''].filter(Boolean).join(', ')}]</span>
+            )}
+            {v.via_code && (
+              <span className="ml-1 px-1 py-0.5 rounded bg-violet-100 border border-violet-300 text-violet-800 text-[10px]" title={v.matched_code ? `Shares the standard code ${v.matched_code}` : 'Matched via a shared standard code'}>
+                same code
+              </span>
             )}
             {v.has_eda && (
               <button
@@ -240,11 +246,17 @@ export function SearchResultsPanel({runs}: {runs: SearchRun[]}) {
               </span>
             )}
           </div>
+          {run.codes && run.codes.length > 0 && (
+            <div className="text-xs text-violet-800">
+              includes variables matched via shared standard code{run.codes.length === 1 ? '' : 's'}: {run.codes.map(c => c.display).join('; ')}
+            </div>
+          )}
           {run.cohorts.length > 0 && (
             <div className="flex flex-wrap gap-1.5 text-xs">
               {run.cohorts.map(c => (
-                <span key={c.cohort_id} className="px-1.5 py-0.5 rounded bg-base-100 border border-base-300">
+                <span key={c.cohort_id} className="px-1.5 py-0.5 rounded bg-base-100 border border-base-300" title={c.code_matches ? `${c.text_matches || 0} by text + ${c.code_matches} via standard code` : undefined}>
                   {c.cohort_id} <b>{c.matches}</b>
+                  {(c.code_matches || 0) > 0 && (c.text_matches || 0) === 0 && <span className="text-violet-700"> code</span>}
                 </span>
               ))}
             </div>

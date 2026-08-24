@@ -5,7 +5,7 @@ import {
   ChatMessage,
   SearchRun,
   fetchChatConfig,
-  planSearch,
+  planSearchWithRetry,
   saveConversation,
   streamChat
 } from '@/components/ai/chatClient';
@@ -140,7 +140,7 @@ export function useCohortChat(): UseCohortChat {
       let searchTerms: string[] = [];
       if (!overrides?.contextOverride) {
         try {
-          const plan = await planSearch(content, selected, base);
+          const plan = await planSearchWithRetry(content, selected, base);
           if (plan.needed && plan.searches.length > 0) {
             searches = plan.searches;
             searchTerms = plan.terms;

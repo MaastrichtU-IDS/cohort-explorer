@@ -31,12 +31,18 @@ export interface SearchVariable {
   // The variable has an EDA entry (and usually a distribution graph): the UI
   // shows a clickable chart icon opening the EDA overlay.
   has_eda?: boolean;
+  // Matched through a shared standard code rather than the search text itself
+  // (e.g. BB_3M counts as a beta blocker via ATC:C07A).
+  via_code?: boolean;
+  matched_code?: string;
   equivalents?: {cohort_id: string; var_name: string}[];
 }
 
 export interface SearchCohort {
   cohort_id: string;
   matches: number;
+  text_matches?: number;
+  code_matches?: number;
   in_selection?: boolean;
   variables: SearchVariable[];
 }
@@ -45,6 +51,8 @@ export interface SearchRun {
   term: string;
   total_matches: number;
   cohorts_matched: number;
+  // Standard codes that pulled equivalent variables into the results.
+  codes?: {code: string; display: string}[];
   cohorts: SearchCohort[];
 }
 
@@ -64,6 +72,15 @@ export async function planSearch(question: string, cohortIds: string[], history:
   if (!res.ok) throw new Error(`Search planning failed (${res.status})`);
   const j = await res.json();
   return {needed: !!j.needed, terms: j.terms || [], searches: Array.isArray(j.searches) ? j.searches : []};
+}
+
+// One retry on failure: the first call after a deploy can hit a cold model.
+export async function planSearchWithRetry(question: string, cohortIds: string[], history: ChatMessage[]) {
+  try {
+    return await planSearch(question, cohortIds, history);
+  } catch {
+    return await planSearch(question, cohortIds, history);
+  }
 }
 
 export type AnswerStyle = 'summary' | 'detailed';
