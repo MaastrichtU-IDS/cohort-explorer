@@ -961,9 +961,10 @@ result = pool(
     # so write the log under /output; the _WorkerLogsHandler above streams the
     # same records live to /worker/logs.
     log_dir=output_dir,
-    # Quality thresholds: a variable needs values for >=50% of each cohort's
-    # patients, and >=80% of pooled patients overall, to be included.
-    min_completeness_per_cohort_pct=50,
+    # Quality thresholds: a variable needs values for >=20% of each cohort's
+    # patients, and >=80% of pooled patients overall, to be included
+    # (matching the reference run.py).
+    min_completeness_per_cohort_pct=20,
     min_pooled_completeness_pct=80,
     # Mapping options.
     include_partial=True,
