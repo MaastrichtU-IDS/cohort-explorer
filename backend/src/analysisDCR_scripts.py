@@ -895,10 +895,61 @@ for study_id, cfg in studies.items():
             log.write("{{}}: no patient-ID column configured; left to the merge algorithm to resolve\\n".format(study_id))
 wlog("merge-datasets: input headers cleaned; inspecting the mapping files")
 
-# Stream cohortpool's log records live to the append-only /worker/logs file
-# (the only path writable for live logs in the enclave). cohortpool logs via
-# Python's logging module, so a handler on the root logger catches its records
-# as they are emitted and appends each one to /worker/logs.
+# cohortpool's own log directory. It opens <log_dir>/cohortpool.log as a
+# regular file, so log_dir must be a writable directory: /worker is NOT one
+# (only the special append-only file /worker/logs is), hence the enclave's
+# scratch space. Falls back to the output directory if /scratch is unavailable.
+LOG_DIR = "/scratch/cohortpool_logs"
+try:
+    os.makedirs(LOG_DIR, exist_ok=True)
+except Exception as _e:
+    LOG_DIR = os.path.join(output_dir, "cohortpool_logs")
+    os.makedirs(LOG_DIR, exist_ok=True)
+    wlog("merge-datasets: /scratch not writable ({{}}); cohortpool logs go to {{}}".format(_e, LOG_DIR))
+
+# Connect that log directory to the live worker log: a background thread
+# forwards every new line written under LOG_DIR to /worker/logs, so the
+# platform shows cohortpool's own progress while the merge is still running.
+import threading as _threading
+
+_tail_stop = _threading.Event()
+_tail_offsets = {{}}
+
+def _drain_log_dir():
+    try:
+        names = sorted(os.listdir(LOG_DIR))
+    except Exception:
+        return
+    for name in names:
+        path = os.path.join(LOG_DIR, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            start = _tail_offsets.get(path, 0)
+            size = os.path.getsize(path)
+            if size < start:      # truncated/rotated: start over
+                start = 0
+            if size <= start:
+                continue
+            with open(path, "r", errors="replace") as fh:
+                fh.seek(start)
+                chunk = fh.read()
+                _tail_offsets[path] = fh.tell()
+            for line in chunk.splitlines():
+                if line.strip():
+                    wlog("{{}}: {{}}".format(name, line.rstrip()))
+        except Exception:
+            continue
+
+def _tail_log_dir():
+    while not _tail_stop.wait(2.0):
+        _drain_log_dir()
+
+_threading.Thread(target=_tail_log_dir, daemon=True).start()
+
+# Warnings and errors additionally go straight to /worker/logs the moment they
+# are emitted (the file tail above polls, so it lags by a couple of seconds —
+# fine for progress, not for the message that explains a crash).
 import logging as _logging
 
 class _WorkerLogsHandler(_logging.Handler):
@@ -909,11 +960,10 @@ class _WorkerLogsHandler(_logging.Handler):
         except Exception:
             pass
 
-_worker_handler = _WorkerLogsHandler(level=_logging.INFO)
-_worker_handler.setFormatter(_logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+_worker_handler = _WorkerLogsHandler(level=_logging.WARNING)
+_worker_handler.setFormatter(_logging.Formatter("%(levelname)s %(name)s: %(message)s"))
 _logging.getLogger().addHandler(_worker_handler)
 _logging.getLogger().setLevel(_logging.INFO)
-_logging.getLogger("cohortpool").addHandler(_worker_handler)
 
 # Sanity-check the mapping files' harmonization_status values BEFORE pooling.
 # cohortpool silently drops every row whose status is not exactly
@@ -956,14 +1006,13 @@ result = pool(
     # longitudinal frame is the published dataset (handled below).
     output_format="longitudinal",
     temporal_unit="months",
-    # cohortpool opens <log_dir>/cohortpool.log as a regular file. /worker is NOT
-    # writable in the enclave (only the special append-only /worker/logs file is),
-    # so write the log under /output; the _WorkerLogsHandler above streams the
-    # same records live to /worker/logs.
-    log_dir=output_dir,
-    # Quality thresholds: a variable needs values for >=50% of each cohort's
-    # patients, and >=80% of pooled patients overall, to be included.
-    min_completeness_per_cohort_pct=50,
+    # cohortpool's own log files (see LOG_DIR above): written to the enclave's
+    # scratch space and forwarded line by line to /worker/logs.
+    log_dir=LOG_DIR,
+    # Quality thresholds: a variable needs values for >=20% of each cohort's
+    # patients, and >=80% of pooled patients overall, to be included
+    # (matching the reference run.py).
+    min_completeness_per_cohort_pct=20,
     min_pooled_completeness_pct=80,
     # Mapping options.
     include_partial=True,
@@ -984,6 +1033,23 @@ result = pool(
     # warnings only. Set from the DCR wizard's "merge on shuffled samples" switch.
     is_shuffled_data={is_shuffled_data},
 )
+
+# The merge is over: drain whatever the tailer has not forwarded yet, then
+# keep cohortpool's log files with the node's output (they live in scratch,
+# which is not exported).
+_tail_stop.set()
+_drain_log_dir()
+import shutil as _shutil
+try:
+    _kept = os.path.join(output_dir, "cohortpool_logs")
+    if os.path.abspath(LOG_DIR) != os.path.abspath(_kept):
+        os.makedirs(_kept, exist_ok=True)
+        for _name in sorted(os.listdir(LOG_DIR)):
+            _src = os.path.join(LOG_DIR, _name)
+            if os.path.isfile(_src):
+                _shutil.copy(_src, os.path.join(_kept, _name))
+except Exception as _e:
+    wlog("merge-datasets: could not copy the cohortpool logs to the output: {{}}".format(_e))
 
 wlog("merge-datasets: pool() returned; publishing the pooled dataset")
 
@@ -1018,11 +1084,13 @@ with open(log_file, "a") as log:
         log.write("Patients: {{}}\\n".format(published_df["pooled_patient_id"].nunique()))
     log.write("Columns: {{}}\\n".format(list(published_df.columns)))
 
-# Record the output files the package reports having written.
-if "output_paths" in result:
+# Record the output files the package reports having written. The key was
+# renamed from "output_paths" to "output_files"; accept either.
+_paths = result.get("output_files") or result.get("output_paths")
+if _paths:
     with open(log_file, "a") as log:
-        log.write("Package output paths:\\n")
-        for key, path in result["output_paths"].items():
+        log.write("Package output files:\\n")
+        for key, path in _paths.items():
             log.write("  {{}}: {{}}\\n".format(key, path))
 
 wlog("merge-datasets: done - pooled_dataset.csv written, {{}} rows x {{}} columns ({{}})".format(len(published_df), len(published_df.columns), published_kind))
