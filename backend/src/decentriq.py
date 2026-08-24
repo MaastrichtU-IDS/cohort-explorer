@@ -74,7 +74,11 @@ else:
 # cohortpool itself (or be shimmed in the merge script, see
 # merge_datasets_script); stack pins added here will not take effect while
 # that path precedence holds.
-MERGE_ENV_REQUIREMENTS = f"{COHORTPOOL_GITHUB_URL}\n"
+# matplotlib is pinned so the merge node draws with a known-modern API
+# (the boxplot tick-label keyword was renamed in 3.9). NOTE the path
+# precedence caveat below: this can only take effect if the base image does
+# not already ship matplotlib.
+MERGE_ENV_REQUIREMENTS = f"{COHORTPOOL_GITHUB_URL}\nmatplotlib>=3.9\n"
 MERGE_NODE_NAME = "merge-datasets"
 # Fixed airlock percentage for the merged/pooled dataset fragment. Deliberately
 # hardcoded (independent of the per-cohort airlock settings); make it a request

@@ -102,7 +102,13 @@ SYSTEM_PROMPT = (
 STYLE_INSTRUCTIONS = {
     "summary": (
         "Answer style: SHORT SUMMARY. Give only the essential answer, in at most 4 "
-        "sentences or up to 5 short bullet points. No preamble, no closing offer."
+        "sentences or up to 5 short bullet points. No preamble, no closing offer. "
+        "COMPLETENESS STILL APPLIES: when the question asks which cohorts have "
+        "something, being brief means saying MORE about fewer cohorts — never "
+        "listing fewer cohorts. Detail the most relevant two or three, then close "
+        "with one line naming EVERY remaining match, e.g. 'Also with beta-blocker "
+        "variables: TIM-HF, GISSI-HF, GISSI-Prevenzione, CHECK-HF, ... — see the "
+        "search results for the variables in each.'"
     ),
     "detailed": (
         "Answer style: DETAILED. Give a thorough, well-structured answer with "

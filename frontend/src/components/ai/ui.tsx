@@ -229,12 +229,56 @@ function SearchCohortBlock({cohort, defaultOpen}: {cohort: SearchCohort; default
   );
 }
 
-export function SearchResultsPanel({runs}: {runs: SearchRun[]}) {
+// `live` = the answer is still being written: the panel then sits ABOVE the
+// answer, expanded, so the user can watch what was searched. Once the answer is
+// done the panel is rendered BELOW it, collapsed to a summary rectangle with a
+// button to review the full results.
+export function SearchResultsPanel({runs, live = false}: {runs: SearchRun[]; live?: boolean}) {
+  const [open, setOpen] = useState(live);
   if (!runs || runs.length === 0) return null;
+  const totalMatches = runs.reduce((sum, r) => sum + (r.total_matches || 0), 0);
+  const cohortIds = new Set<string>();
+  runs.forEach(r => r.cohorts.forEach(c => cohortIds.add(c.cohort_id)));
+  const headline = [
+    `${runs.length} search${runs.length === 1 ? '' : 'es'}`,
+    `${totalMatches.toLocaleString()} matching variable${totalMatches === 1 ? '' : 's'}`,
+    `${cohortIds.size} cohort${cohortIds.size === 1 ? '' : 's'}`
+  ].join(' · ');
+
+  if (!open) {
+    return (
+      <div className="rounded-2xl border border-sky-200 bg-sky-50/60 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] uppercase tracking-wide font-semibold text-sky-900/70">
+          <span aria-hidden>🔎</span> Catalog search
+          <span className="normal-case tracking-normal text-sm font-semibold text-base-content/80">{headline}</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {runs.map(r => (
+            <span key={r.term} className="px-2 py-0.5 rounded-full bg-sky-100 border border-sky-300 text-sky-900 font-mono text-xs">
+              {r.term}
+            </span>
+          ))}
+        </div>
+        <button
+          className="btn btn-outline border-sky-300 text-sky-900 hover:bg-sky-100 hover:border-sky-400 gap-2 w-full mt-3"
+          onClick={() => setOpen(true)}
+        >
+          🔎 Review the search results
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-2xl border border-sky-200 bg-sky-50/60 px-4 py-3 space-y-3">
       <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide font-semibold text-sky-900/70">
         <span aria-hidden>🔎</span> Catalog search — run by the assistant with the platform&rsquo;s search tool
+        <span className="normal-case tracking-normal text-xs font-normal text-base-content/60">{headline}</span>
+        {!live && (
+          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => setOpen(false)}>
+            Hide
+          </button>
+        )}
       </div>
       {runs.map(run => (
         <div key={run.term} className="space-y-1.5">
@@ -278,8 +322,15 @@ export function SearchResultsPanel({runs}: {runs: SearchRun[]}) {
           </div>
         </div>
       ))}
-      <div className="text-[11px] text-base-content/50">
-        Every matching cohort is listed; variable lists are capped per cohort — the counts show how many more there are.
+      <div className="flex items-center gap-3">
+        <div className="text-[11px] text-base-content/50 flex-1">
+          Every matching cohort is listed; variable lists are capped per cohort — the counts show how many more there are.
+        </div>
+        {!live && (
+          <button className="btn btn-sm btn-ghost" onClick={() => setOpen(false)}>
+            Hide the search results
+          </button>
+        )}
       </div>
     </div>
   );
@@ -365,13 +416,18 @@ export function MessageList({messages, streaming}: {messages: ChatMessage[]; str
       <EdaOverlayHost />
       {messages.map((m, i) => (
         <React.Fragment key={i}>
-          {m.role === 'assistant' && m.searches && m.searches.length > 0 && <SearchResultsPanel runs={m.searches} />}
+          {m.role === 'assistant' && m.searches && m.searches.length > 0 && streaming && i === messages.length - 1 && (
+            <SearchResultsPanel runs={m.searches} live />
+          )}
           {m.role === 'assistant' && m.searchError && (
             <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
               The assistant&rsquo;s catalog search could not run ({m.searchError}); the answer relies on the basic context only.
             </div>
           )}
           <MessageBubble message={m} streaming={streaming && i === messages.length - 1} validEda={validEda} />
+          {m.role === 'assistant' && m.searches && m.searches.length > 0 && !(streaming && i === messages.length - 1) && (
+            <SearchResultsPanel runs={m.searches} />
+          )}
         </React.Fragment>
       ))}
       <div ref={endRef} />

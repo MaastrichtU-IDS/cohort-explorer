@@ -555,6 +555,28 @@ if SELECTED_VARIABLES is not None:
             log.write("Requested columns: {{}}\\n".format(SELECTED_VARIABLES))
             log.write("\\nNo charts will be generated. Please check the column mismatch files for details.\\n")
 
+# Patient identifier columns are never charted: one value per patient carries no
+# distribution, and drawing it would put row-level values into the output.
+# Matched on the NAME, case- and separator-insensitive.
+import re as _re
+_ID_NAMES = {{
+    "id", "pid", "patientid", "patientno", "patientnr", "patientnumber", "patientcode",
+    "recordid", "recordno", "subjectid", "subjectno", "usubjid", "studysubjectid",
+    "caseid", "participantid", "syntheticid", "pooledpatientid",
+}}
+
+
+def is_id_column(name):
+    key = _re.sub(r"[^a-z0-9]+", "", str(name).strip().lower())
+    return key in _ID_NAMES or key.endswith("patientid") or key.endswith("subjectid")
+
+
+_id_cols = [c for c in selected_columns if is_id_column(c)]
+if _id_cols:
+    selected_columns = [c for c in selected_columns if not is_id_column(c)]
+    with open(log_file, "a") as log:
+        log.write("Identifier column(s) not charted: {{}}\\n".format(_id_cols))
+
 with open(log_file, "a") as log:
     log.write("Selected {{}} columns for visualization: {{}}\\n\\n".format(len(selected_columns), selected_columns))
 
@@ -650,7 +672,7 @@ for col in selected_columns:
         ax.set_title('Cumulative distribution', fontsize=10)
 
         # (3) box plot with outliers / (4) without
-        for ax, fliers, sub in ((axes[1][0], True, 'Box plot, outliers shown'), (axes[1][1], False, 'Box plot, outliers hidden')):
+        for ax, fliers, sub in ((axes[1][0], True, 'Box plot, outliers shown'), (axes[1][1], False, 'Box plot, outliers not drawn (same n)')):
             ax.boxplot([vals.values], showfliers=fliers)
             ax.set_xticks([1])
             ax.set_xticklabels(['n={{}}'.format(len(vals))])
@@ -718,8 +740,10 @@ with open(os.path.join(output_dir, "figures_guide.txt"), "w") as gf:
     gf.write("    any percentile can be read off (the curve crosses 0.5 at the median).\\n")
     gf.write("  Box plot, outliers shown -- median, quartiles, whiskers (1.5 x IQR) and each\\n")
     gf.write("    value beyond them; shows how extreme the extremes are.\\n")
-    gf.write("  Box plot, outliers hidden -- the same box with the axis limited to the\\n")
-    gf.write("    whiskers, so the box stays readable when outliers are far out.\\n\\n")
+    gf.write("  Box plot, outliers not drawn -- the same box with the axis limited to the\\n")
+    gf.write("    whiskers, so the box stays readable when outliers are far out. The n is\\n")
+    gf.write("    unchanged and so are the median, quartiles and whiskers: the outlying\\n")
+    gf.write("    values are still part of the statistics, they are simply not drawn.\\n\\n")
     gf.write("Each categorical or binary variable gets one image with two views:\\n")
     gf.write("  Counts -- patients per category (top {{}} categories).\\n".format(MAX_CATEGORIES))
     gf.write("  Shares -- the same as percentages of the patients with a value.\\n\\n")
@@ -1262,7 +1286,11 @@ def merged_airlock_example_script(preview_node_name: str, merge_node_name: str) 
 #   - columns_by_study_p*.png - the same columns STRATIFIED BY study_id, so
 #     each variable can be read both as pooled/harmonized and per original
 #     study: box plots per study for numeric columns, the category mix per
-#     study for the rest. Synthetic_ID and pooled_patient_id are left out.
+#     study for the rest.
+#
+# Patient identifier columns (PatientID, patient_id, Synthetic_ID,
+# pooled_patient_id, ... matched case-insensitively) are counted in the tables
+# but never plotted. study_id is kept - it names the cohort.
 #
 # Because this node depends on the "{merge_node_name}" node, running it also
 # triggers the merge itself when its output is not computed yet (that step can
@@ -1277,6 +1305,7 @@ def merged_airlock_example_script(preview_node_name: str, merge_node_name: str) 
 ###############################################################################
 
 import os
+import re
 
 import numpy as np
 import pandas as pd
@@ -1310,6 +1339,23 @@ INPUT_PATH = "/input/{merge_node_name}/pooled_dataset.csv"
 
 output_dir = "/output"
 
+# Patient identifier columns are never plotted: one value per patient carries
+# no distribution, and drawing it would put row-level values in the output.
+# Matched on the NAME, case- and separator-insensitive ("PatientID",
+# "patient_id", "Synthetic_ID", "pooled_patient_id", ...). study_id is NOT an
+# identifier here - it names the cohort and is used to stratify.
+_ID_NAMES = {{
+    "id", "pid", "patientid", "patientno", "patientnr", "patientnumber", "patientcode",
+    "pooledpatientid", "syntheticid", "recordid", "recordno", "subjectid", "subjectno",
+    "usubjid", "studysubjectid", "caseid", "participantid",
+}}
+
+
+def is_id_column(name):
+    key = re.sub(r"[^a-z0-9]+", "", str(name).strip().lower())
+    return key in _ID_NAMES or key.endswith("patientid") or key.endswith("subjectid")
+
+
 wlog("example-analysis: reading the merged dataset")
 df = pd.read_csv(INPUT_PATH)
 wlog("example-analysis: loaded {{}} rows x {{}} columns; counting".format(len(df), len(df.columns)))
@@ -1336,13 +1382,19 @@ with open(os.path.join(output_dir, "columns_and_counts.txt"), "w") as fh:
         print(line)
 
 # ---- Completeness bars: non-empty count per column (chunked pages) -----------
+PLOT_COLUMNS = [c for c in df.columns if not is_id_column(c)]
+_skipped_ids = [c for c in df.columns if is_id_column(c)]
+if _skipped_ids:
+    wlog("example-analysis: identifier column(s) not plotted: {{}} (still counted in the tables)".format(", ".join(_skipped_ids)))
+chart_summary = summary[summary["column"].isin(PLOT_COLUMNS)].reset_index(drop=True)
+
 CHUNK = 45
-for page, start in enumerate(range(0, len(summary), CHUNK), start=1):
-    part = summary.iloc[start:start + CHUNK]
+for page, start in enumerate(range(0, len(chart_summary), CHUNK), start=1):
+    part = chart_summary.iloc[start:start + CHUNK]
     fig, ax = plt.subplots(figsize=(14, max(4, 0.36 * len(part))))
     ax.barh(part["column"][::-1], part["non_empty"][::-1], color="#3b6ea5")
     ax.set_xlabel("Non-empty values (of {{}} rows)".format(len(df)))
-    ax.set_title("Column completeness ({{}}/{{}})".format(page, (len(summary) + CHUNK - 1) // CHUNK))
+    ax.set_title("Column completeness ({{}}/{{}})".format(page, (len(chart_summary) + CHUNK - 1) // CHUNK))
     ax.tick_params(axis="y", labelsize=8)
     plt.tight_layout()
     fig.savefig(os.path.join(output_dir, "columns_completeness_p{{}}.png".format(page)), dpi=130)
@@ -1352,9 +1404,9 @@ wlog("example-analysis: completeness charts written; drawing per-column mini-cha
 # ---- One mini-chart per column (histogram / top categories) ------------------
 PER_FIG = 12   # 3 x 4 charts per page
 COLS = 3
-pages = (len(df.columns) + PER_FIG - 1) // PER_FIG
+pages = (len(PLOT_COLUMNS) + PER_FIG - 1) // PER_FIG
 for page in range(pages):
-    cols = list(df.columns)[page * PER_FIG:(page + 1) * PER_FIG]
+    cols = PLOT_COLUMNS[page * PER_FIG:(page + 1) * PER_FIG]
     nrows = (len(cols) + COLS - 1) // COLS
     fig, axes = plt.subplots(nrows, COLS, figsize=(16, 3.6 * nrows), squeeze=False)
     axes = np.atleast_2d(axes)
@@ -1410,7 +1462,6 @@ for _c in df.columns:
         STUDY_COL = _c
         break
 
-ID_COLUMNS = {{"synthetic_id", "pooled_patient_id"}}
 strat_pages = 0
 if STUDY_COL is None:
     wlog("example-analysis: no study_id column found - the per-study pages are skipped")
@@ -1418,8 +1469,8 @@ else:
     studies = sorted(str(x) for x in df[STUDY_COL].dropna().unique())
     short = {{s: s[:14] for s in studies}}
     strat_cols = []
-    for col in df.columns:
-        if col == STUDY_COL or col.lower().strip() in ID_COLUMNS:
+    for col in PLOT_COLUMNS:
+        if col == STUDY_COL:
             continue
         series = df[col].dropna()
         if len(series) == 0:
@@ -1495,8 +1546,8 @@ else:
         fig.savefig(os.path.join(output_dir, "columns_by_study_p{{}}.png".format(page + 1)), dpi=130)
         plt.close(fig)
 
-wlog("example-analysis: done - {{}} columns over {{}} overview page(s) and {{}} per-study page(s)".format(
-    len(df.columns), pages, strat_pages))
+wlog("example-analysis: done - {{}} columns plotted over {{}} overview page(s) and {{}} per-study page(s)".format(
+    len(PLOT_COLUMNS), pages, strat_pages))
 """
 
 
