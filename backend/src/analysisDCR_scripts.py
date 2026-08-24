@@ -1257,8 +1257,12 @@ def merged_airlock_example_script(preview_node_name: str, merge_node_name: str) 
 #   - every column name with its counts (non-empty, empty, unique values),
 #     as columns_summary.csv and columns_and_counts.txt
 #   - columns_completeness_p*.png - non-empty counts per column, as bars
-#   - columns_overview_p*.png - one mini-chart per column (histogram for
-#     numeric columns, the top categories for the rest)
+#   - columns_overview_p*.png - one chart per column over the pooled data
+#     (histogram for numeric columns, the top categories for the rest)
+#   - columns_by_study_p*.png - the same columns STRATIFIED BY study_id, so
+#     each variable can be read both as pooled/harmonized and per original
+#     study: box plots per study for numeric columns, the category mix per
+#     study for the rest. Synthetic_ID and pooled_patient_id are left out.
 #
 # Because this node depends on the "{merge_node_name}" node, running it also
 # triggers the merge itself when its output is not computed yet (that step can
@@ -1332,27 +1336,27 @@ with open(os.path.join(output_dir, "columns_and_counts.txt"), "w") as fh:
         print(line)
 
 # ---- Completeness bars: non-empty count per column (chunked pages) -----------
-CHUNK = 60
+CHUNK = 45
 for page, start in enumerate(range(0, len(summary), CHUNK), start=1):
     part = summary.iloc[start:start + CHUNK]
-    fig, ax = plt.subplots(figsize=(11, max(3, 0.28 * len(part))))
+    fig, ax = plt.subplots(figsize=(14, max(4, 0.36 * len(part))))
     ax.barh(part["column"][::-1], part["non_empty"][::-1], color="#3b6ea5")
     ax.set_xlabel("Non-empty values (of {{}} rows)".format(len(df)))
     ax.set_title("Column completeness ({{}}/{{}})".format(page, (len(summary) + CHUNK - 1) // CHUNK))
-    ax.tick_params(axis="y", labelsize=7)
+    ax.tick_params(axis="y", labelsize=8)
     plt.tight_layout()
-    fig.savefig(os.path.join(output_dir, "columns_completeness_p{{}}.png".format(page)), dpi=120)
+    fig.savefig(os.path.join(output_dir, "columns_completeness_p{{}}.png".format(page)), dpi=130)
     plt.close(fig)
 wlog("example-analysis: completeness charts written; drawing per-column mini-charts")
 
 # ---- One mini-chart per column (histogram / top categories) ------------------
-PER_FIG = 24   # 4 x 6 mini-charts per page
-COLS = 4
+PER_FIG = 12   # 3 x 4 charts per page
+COLS = 3
 pages = (len(df.columns) + PER_FIG - 1) // PER_FIG
 for page in range(pages):
     cols = list(df.columns)[page * PER_FIG:(page + 1) * PER_FIG]
     nrows = (len(cols) + COLS - 1) // COLS
-    fig, axes = plt.subplots(nrows, COLS, figsize=(13, 2.4 * nrows))
+    fig, axes = plt.subplots(nrows, COLS, figsize=(16, 3.6 * nrows), squeeze=False)
     axes = np.atleast_2d(axes)
     for i, col in enumerate(cols):
         ax = axes[i // COLS][i % COLS]
@@ -1360,33 +1364,139 @@ for page in range(pages):
         numeric = pd.to_numeric(series, errors="coerce").dropna()
         try:
             if len(numeric) >= 0.9 * len(series) and numeric.nunique() > 8:
-                ax.hist(numeric, bins=20, color="#3b6ea5")
+                # Strongly right-skewed positive values (biomarkers, durations):
+                # bin them on a log axis, otherwise everything lands in bin 1.
+                if (numeric > 0).all() and numeric.median() > 0 and numeric.max() / numeric.median() > 10:
+                    _edges = np.logspace(np.log10(float(numeric.min())), np.log10(float(numeric.max())), 21)
+                    ax.hist(numeric, bins=_edges, color="#3b6ea5")
+                    ax.set_xscale("log")
+                    ax.set_xlabel("log scale", fontsize=7)
+                else:
+                    ax.hist(numeric, bins=20, color="#3b6ea5")
             elif len(series) > 0 and series.nunique() > 30 and series.nunique() > 0.5 * len(series):
                 # Identifier-like or free-text column: its values are (near-)
                 # unique per row, so drawing them would put row-level values
                 # into the output. Counted, not drawn.
                 ax.text(0.5, 0.5, "identifier / free text\\n({{}} unique values)\\nnot drawn".format(series.nunique()),
-                        ha="center", va="center", fontsize=7, color="#888888")
+                        ha="center", va="center", fontsize=9, color="#888888")
                 ax.set_xticks([])
                 ax.set_yticks([])
             else:
-                vc = series.astype(str).value_counts().head(8)
-                labels = [(v[:-2] if v.endswith(".0") else v)[:14] for v in vc.index]
+                vc = series.astype(str).value_counts().head(10)
+                labels = [(v[:-2] if v.endswith(".0") else v)[:20] for v in vc.index]
                 ax.barh(range(len(vc))[::-1], vc.values, color="#7a9e58")
                 ax.set_yticks(range(len(vc))[::-1])
-                ax.set_yticklabels(labels, fontsize=6)
+                ax.set_yticklabels(labels, fontsize=8)
         except Exception as e:
-            ax.text(0.5, 0.5, "not drawable", ha="center", va="center", fontsize=7)
+            ax.text(0.5, 0.5, "not drawable", ha="center", va="center", fontsize=9)
             wlog("example-analysis: could not draw {{}}: {{}}".format(col, e))
-        ax.set_title("{{}} (n={{}})".format(col[:34], len(series)), fontsize=8)
-        ax.tick_params(labelsize=6)
+        ax.set_title("{{}} (n={{}})".format(col[:40], len(series)), fontsize=10)
+        ax.tick_params(labelsize=8)
     for j in range(len(cols), nrows * COLS):
         axes[j // COLS][j % COLS].axis("off")
     plt.tight_layout()
-    fig.savefig(os.path.join(output_dir, "columns_overview_p{{}}.png".format(page + 1)), dpi=120)
+    fig.savefig(os.path.join(output_dir, "columns_overview_p{{}}.png".format(page + 1)), dpi=130)
     plt.close(fig)
 
-wlog("example-analysis: done - {{}} columns summarised over {{}} overview page(s)".format(len(df.columns), pages))
+# ---- The same columns, stratified by study_id --------------------------------
+# The pages above show each harmonized variable over the pooled data; these show
+# how each original study contributes to it - the distribution per study, side
+# by side. The pooled ID columns carry no information to stratify, so
+# Synthetic_ID and pooled_patient_id are left out, as are identifier-like or
+# free-text columns (their values are near-unique per row).
+STUDY_COL = None
+for _c in df.columns:
+    if _c.lower().strip() == "study_id":
+        STUDY_COL = _c
+        break
+
+ID_COLUMNS = {{"synthetic_id", "pooled_patient_id"}}
+strat_pages = 0
+if STUDY_COL is None:
+    wlog("example-analysis: no study_id column found - the per-study pages are skipped")
+else:
+    studies = sorted(str(x) for x in df[STUDY_COL].dropna().unique())
+    short = {{s: s[:14] for s in studies}}
+    strat_cols = []
+    for col in df.columns:
+        if col == STUDY_COL or col.lower().strip() in ID_COLUMNS:
+            continue
+        series = df[col].dropna()
+        if len(series) == 0:
+            continue
+        _num = pd.to_numeric(series, errors="coerce").dropna()
+        _is_numeric = len(_num) >= 0.9 * len(series) and _num.nunique() > 8
+        # Continuous measurements are near-unique by nature, so the
+        # identifier/free-text guard only applies to non-numeric columns.
+        if not _is_numeric and series.nunique() > 30 and series.nunique() > 0.5 * len(series):
+            continue   # identifier-like / free text: counted on the pages above, not drawn
+        strat_cols.append(col)
+    wlog("example-analysis: stratifying {{}} columns by {{}} ({{}} studies)".format(len(strat_cols), STUDY_COL, len(studies)))
+    strat_pages = (len(strat_cols) + PER_FIG - 1) // PER_FIG
+    for page in range(strat_pages):
+        cols = strat_cols[page * PER_FIG:(page + 1) * PER_FIG]
+        nrows = (len(cols) + COLS - 1) // COLS
+        fig, axes = plt.subplots(nrows, COLS, figsize=(16, 4.2 * nrows), squeeze=False)
+        axes = np.atleast_2d(axes)
+        for i, col in enumerate(cols):
+            ax = axes[i // COLS][i % COLS]
+            series = df[col].dropna()
+            numeric = pd.to_numeric(series, errors="coerce").dropna()
+            try:
+                if len(numeric) >= 0.9 * len(series) and numeric.nunique() > 8:
+                    # Numeric: one box per study (outliers as small dots)
+                    data, ticks = [], []
+                    for st in studies:
+                        vals = pd.to_numeric(df.loc[df[STUDY_COL].astype(str) == st, col], errors="coerce").dropna()
+                        if len(vals) > 0:
+                            data.append(vals.values)
+                            ticks.append("{{}}\\n(n={{}})".format(short[st], len(vals)))
+                    if not data:
+                        raise ValueError("no values per study")
+                    ax.boxplot(data, showfliers=True, flierprops=dict(marker=".", markersize=2, alpha=0.35))
+                    ax.set_xticks(range(1, len(data) + 1))
+                    ax.set_xticklabels(ticks, fontsize=7)
+                    # Strongly right-skewed positive values (biomarkers): on a
+                    # linear axis the boxes collapse against zero.
+                    if (numeric > 0).all() and numeric.median() > 0 and numeric.max() / numeric.median() > 10:
+                        ax.set_yscale("log")
+                        ax.set_ylabel("log scale", fontsize=7)
+                else:
+                    # Categorical: the category mix of each study, as shares
+                    sub = df[[STUDY_COL, col]].dropna()
+                    ct = pd.crosstab(sub[STUDY_COL].astype(str), sub[col].astype(str))
+                    ct = ct.reindex([st for st in studies if st in ct.index])
+                    top = list(ct.sum().sort_values(ascending=False).head(6).index)
+                    rest = [c for c in ct.columns if c not in top]
+                    plot_ct = ct[top].copy()
+                    if rest:
+                        plot_ct["other ({{}})".format(len(rest))] = ct[rest].sum(axis=1)
+                    pct = plot_ct.div(plot_ct.sum(axis=1).replace(0, np.nan), axis=0) * 100
+                    bottom = np.zeros(len(pct))
+                    for cat in pct.columns:
+                        vals = pct[cat].fillna(0).values
+                        label = str(cat)
+                        label = (label[:-2] if label.endswith(".0") else label)[:16]
+                        ax.bar(range(len(pct)), vals, bottom=bottom, label=label)
+                        bottom = bottom + vals
+                    ax.set_xticks(range(len(pct)))
+                    ax.set_xticklabels(["{{}}\\n(n={{}})".format(short.get(st, st), int(ct.loc[st].sum())) for st in pct.index], fontsize=7)
+                    ax.set_ylim(0, 100)
+                    ax.set_ylabel("% of the study's values", fontsize=7)
+                    ax.legend(fontsize=6, loc="center left", bbox_to_anchor=(1.0, 0.5), framealpha=0.8)
+            except Exception as e:
+                ax.text(0.5, 0.5, "not drawable per study", ha="center", va="center", fontsize=9, color="#888888")
+                wlog("example-analysis: could not stratify {{}}: {{}}".format(col, e))
+            ax.set_title("{{}} by {{}}".format(col[:34], STUDY_COL), fontsize=10)
+            ax.tick_params(labelsize=8)
+        for j in range(len(cols), nrows * COLS):
+            axes[j // COLS][j % COLS].axis("off")
+        plt.tight_layout()
+        fig.savefig(os.path.join(output_dir, "columns_by_study_p{{}}.png".format(page + 1)), dpi=130)
+        plt.close(fig)
+
+wlog("example-analysis: done - {{}} columns over {{}} overview page(s) and {{}} per-study page(s)".format(
+    len(df.columns), pages, strat_pages))
 """
 
 
