@@ -895,6 +895,26 @@ for study_id, cfg in studies.items():
             log.write("{{}}: no patient-ID column configured; left to the merge algorithm to resolve\\n".format(study_id))
 wlog("merge-datasets: input headers cleaned; inspecting the mapping files")
 
+# Stream cohortpool's log records live to the append-only /worker/logs file
+# (the only path writable for live logs in the enclave). cohortpool logs via
+# Python's logging module, so a handler on the root logger catches its records
+# as they are emitted and appends each one to /worker/logs.
+import logging as _logging
+
+class _WorkerLogsHandler(_logging.Handler):
+    def emit(self, record):
+        try:
+            with open("/worker/logs", "a") as f:
+                f.write(self.format(record) + "\\n")
+        except Exception:
+            pass
+
+_worker_handler = _WorkerLogsHandler(level=_logging.INFO)
+_worker_handler.setFormatter(_logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+_logging.getLogger().addHandler(_worker_handler)
+_logging.getLogger().setLevel(_logging.INFO)
+_logging.getLogger("cohortpool").addHandler(_worker_handler)
+
 # Sanity-check the mapping files' harmonization_status values BEFORE pooling.
 # cohortpool silently drops every row whose status is not exactly
 # 'Identical Match', 'Compatible Match' or 'Partial Match' (a missing column
@@ -936,9 +956,11 @@ result = pool(
     # longitudinal frame is the published dataset (handled below).
     output_format="longitudinal",
     temporal_unit="months",
-    # Write cohortpool's own log file(s) under /worker so they stream live to
-    # Decentriq's worker log while the computation is running.
-    log_dir="/worker/",
+    # cohortpool opens <log_dir>/cohortpool.log as a regular file. /worker is NOT
+    # writable in the enclave (only the special append-only /worker/logs file is),
+    # so write the log under /output; the _WorkerLogsHandler above streams the
+    # same records live to /worker/logs.
+    log_dir=output_dir,
     # Quality thresholds: a variable needs values for >=50% of each cohort's
     # patients, and >=80% of pooled patients overall, to be included.
     min_completeness_per_cohort_pct=50,
