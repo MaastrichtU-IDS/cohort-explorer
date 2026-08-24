@@ -73,6 +73,13 @@ SYSTEM_PROMPT = (
     "understand and compare cardiovascular research cohorts and their variables. "
     f"\n\n{PLATFORM_OVERVIEW}\n\n"
     "Answer using ONLY the cohort context provided in this conversation. "
+    "COHORT NAMES: if the user's message contains a word matching a cohort's name or the first "
+    "part of one (e.g. 'biostat' for BIOSTAT-CHF, 'aachen' for Aachen-HF, 'time' for TIME-CHF, "
+    "'check' for CHECK-HF), ASSUME they are referring to that cohort: answer about the cohort, in "
+    "the context of the conversation so far. If the match was only partial, end with ONE short "
+    "question confirming the reading (e.g. 'I read \"biostat\" as the BIOSTAT-CHF cohort — did "
+    "you mean something else?'). Never instead interpret such a word as a general topic (e.g. "
+    "'biostat' is not biostatistics here). "
     "SEARCH RESULTS: when the conversation includes CATALOG SEARCH RESULTS (produced by the "
     "platform's built-in search tool, shown to the user in a search panel), any question about "
     "which cohorts or variables meet certain criteria MUST be answered from those results: "
@@ -427,6 +434,13 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
         context = context_override.strip()[:MAX_CONTEXT_CHARS]
     else:
         context = build_context([str(c) for c in cohort_ids], focus)
+        try:
+            last_user_msg = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+            note = cohort_name_note(last_user_msg) if last_user_msg else ""
+            if note:
+                context = f"{context}\n\n{note}"
+        except Exception as exc:
+            logger.warning("Cohort-name note failed: %s", exc)
         # Search results from the planning round (see /api/chat/plan-search):
         # the client runs the plan once per user turn and passes the structured
         # results into both style variants, so the model and the user's search
@@ -519,17 +533,76 @@ def chat(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[st
         raise HTTPException(status_code=502, detail=f"Upstream model error: {exc}")
 
 
+def _cohort_first_segment(cohort_id: str) -> str:
+    """First name segment of a cohort id, lowercased: 'BIOSTAT-CHF' -> 'biostat',
+    'RotterdamStudyCohort2' -> 'rotterdam', 'TIME-CHF' -> 'time'."""
+    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", str(cohort_id))
+    parts = re.split(r"[^A-Za-z0-9]+|\s+", text)
+    return parts[0].lower() if parts and parts[0] else ""
+
+
+def cohort_name_note(message: str) -> str:
+    """A context note when the message mentions a cohort by name or by the
+    first part of its name: the model must assume the cohort is meant (and
+    hedge when the match was only partial)."""
+    try:
+        from src.cohort_cache import get_cohorts_from_cache
+
+        all_ids = list(get_cohorts_from_cache("").keys())
+    except Exception:
+        return ""
+    words = set(re.split(r"[^a-z0-9]+", str(message).lower()))
+    norm_msg = re.sub(r"[^a-z0-9]+", "", str(message).lower())
+    exact, partial = [], {}
+    for cid in all_ids:
+        norm_id = re.sub(r"[^a-z0-9]+", "", cid.lower())
+        if norm_id and norm_id in norm_msg:
+            exact.append(cid)
+            continue
+        seg = _cohort_first_segment(cid)
+        if len(seg) >= 4 and seg in words:
+            partial.setdefault(seg, []).append(cid)
+    bits = []
+    if exact:
+        bits.append(f"the user explicitly names the cohort(s) {', '.join(exact)}")
+    for seg, cids in partial.items():
+        bits.append(f"'{seg}' matches the cohort name(s) {', '.join(cids)} — assume the cohort is meant, "
+                    "answer about it, and end with one short question confirming that reading")
+    if not bits:
+        return ""
+    return "COHORT NAME MATCH: " + "; ".join(bits) + ". Do not treat these words as general topics."
+
+
+# Deterministic backstop: questions shaped like "which studies/cohorts have X"
+# must always search, even if the planning model returns nothing.
+_IDENTIFICATION_RE = re.compile(
+    r"\b(which|what|find|list|identify|show|any|are there)\b.{0,80}\b(stud(?:y|ies)|cohorts?|registr(?:y|ies)|datasets?)\b"
+    r"|\b(stud(?:y|ies)|cohorts?)\b.{0,50}\b(have|has|with|contain|include|measure|collect|record)\b",
+    re.I | re.S,
+)
+
+
 SEARCH_PLANNER_PROMPT = (
     "You plan catalog searches for iCARE-AI, an assistant over a catalog of cardiovascular "
     "research cohorts and their variables. Given the user's question (and the conversation so "
     "far), decide whether answering involves IDENTIFYING COHORTS OR VARIABLES that meet some "
     "criteria (a topic, a measurement, a condition, a kind of data). If it does, the built-in "
-    "search tool MUST be used: propose 1 to 6 search terms. Terms should be short (1-3 words) "
-    "and concrete, and should COVER RELATED TERMINOLOGY: synonyms, common abbreviations and "
-    "closely related measurements (e.g. for kidney function: creatinine, eGFR, urea; for "
-    "ejection fraction: LVEF, ejection fraction; German or other-language names are found via "
-    "concept names, so English terms suffice). If the question needs no catalog search (small "
-    "talk, platform how-to, questions about already-shown results), return an empty list.\n"
+    "search tool MUST be used: propose 1 to 6 search terms. Questions like 'which studies have "
+    "X', 'which cohorts measure Y', 'is Z available anywhere' ALWAYS need searches. Terms should "
+    "be short (1-3 words) and concrete, and should COVER RELATED TERMINOLOGY: synonyms, common "
+    "abbreviations and closely related measurements (kidney function: creatinine, eGFR, urea; "
+    "ejection fraction: LVEF, ejection fraction). Expand medication CLASSES into the class name, "
+    "its abbreviation and typical member drugs (RAS: ACE, ARB, sartan, ARNI; MRA: MRA, "
+    "spironolactone, eplerenone; beta blockers: beta blocker, bisoprolol, metoprolol, carvedilol). "
+    "German or other-language variable names are found via concept names, so English terms "
+    "suffice.\n"
+    "COHORT NAMES: the catalog's cohort names are listed below. A word matching a cohort name or "
+    "its first part (biostat -> BIOSTAT-CHF, aachen -> Aachen-HF, time -> TIME-CHF) refers to THE "
+    "COHORT, never to a topic — NEVER turn it into search terms (no 'biostatistics'). For a "
+    "follow-up like 'what about <cohort>?', re-propose the search terms of the criteria already "
+    "under discussion in the conversation, so the results cover that cohort too.\n"
+    "If the question needs no catalog search (small talk, platform how-to, questions about "
+    "already-shown results), return an empty list.\n"
     'Return STRICT JSON only: {"searches": ["term", ...]}'
 )
 
@@ -550,13 +623,22 @@ def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
     cohort_ids = [str(c) for c in (body.get("cohort_ids") or []) if c]
     history = _normalize_messages(body.get("history"))[-6:]
     convo = "\n".join(f"{m['role']}: {m['content'][:400]}" for m in history)
+    try:
+        from src.cohort_cache import get_cohorts_from_cache
+
+        cohort_names = ", ".join(sorted(get_cohorts_from_cache("").keys()))
+    except Exception:
+        cohort_names = ""
+    name_note = cohort_name_note(question)
     client = _get_openai_client()
     try:
         resp = client.chat.completions.create(
             model=settings.litellm_model,
             messages=[
-                {"role": "system", "content": SEARCH_PLANNER_PROMPT},
-                {"role": "user", "content": (f"Conversation so far:\n{convo}\n\n" if convo else "") + f"Question: {question}"},
+                {"role": "system", "content": SEARCH_PLANNER_PROMPT + (f"\nCOHORT NAMES IN THE CATALOG: {cohort_names}" if cohort_names else "")},
+                {"role": "user", "content": (f"Conversation so far:\n{convo}\n\n" if convo else "")
+                                            + (f"{name_note}\n\n" if name_note else "")
+                                            + f"Question: {question}"},
             ],
             temperature=0.0,
         )
@@ -567,7 +649,14 @@ def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
         terms = [str(t).strip() for t in (parsed.get("searches") or []) if str(t).strip()][:6]
     except Exception as exc:
         logger.warning("Search planning failed: %s", exc)
-        return {"needed": False, "terms": [], "searches": [], "error": str(exc)}
+        terms = []
+    # Backstop: an identification-shaped question always searches, with terms
+    # from the question itself if the planner offered none.
+    if not terms and _IDENTIFICATION_RE.search(question):
+        from src.chat_retrieval import extract_query_terms
+
+        terms = extract_query_terms(question)[:6]
+        logger.info("Search planner returned no terms; identification backstop used: %s", terms)
     if not terms:
         return {"needed": False, "terms": [], "searches": []}
     try:
