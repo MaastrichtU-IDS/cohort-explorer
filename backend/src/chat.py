@@ -49,20 +49,20 @@ PLATFORM_OVERVIEW = (
     "About the iCARE4CVD Cohort Explorer platform:\n"
     "- The Explorer's main (explore) page lets analysts discover cardiovascular studies/cohorts "
     "of interest and the variables each has uploaded (its metadata).\n"
-    "- The explore page has a proper SEARCH BOX with search modes (match ANY term, match ALL "
-    "terms, or exact phrase) that searches variable names, labels, concept names and codes, plus "
-    "filters by OMOP domain, data type, categorical vs non-categorical, and visit. When users need "
-    "to find variables, point them to this search box and its filters — NEVER suggest browser "
-    "tricks like Ctrl+F.\n"
+    "- The explore page has a proper SEARCH BOX. It offers exactly two settings: WHERE to search "
+    "(cohorts metadata, variables information, or all) and the MODE (OR search, AND search, or "
+    "exact phrase). It searches variable names, labels, concept names and codes. There are NO "
+    "other filters — no domain filter, no data-type filter, no visit filter — so never tell the "
+    "user to apply one. When users need to find variables, point them to this search box — NEVER "
+    "suggest browser tricks like Ctrl+F.\n"
     "- To actually analyse data, an analyst creates an analysis DCR (Data Clean Room): a secure "
     "computing enclave. The data owners (cohort admins) upload their real data into the DCR, and "
     "the analyst writes a script that computes over that data WITHOUT ever seeing the raw records — "
     "only permitted outputs leave the enclave.\n"
     "- Cross-cohort variable mapping is done from the dedicated MAPPING PAGE: the analyst picks a "
     "source cohort and target cohort(s) and the platform generates a mapping file of likely "
-    "variable correspondences (suggested equivalences, not guarantees). This is the ONLY supported "
-    "way to map variables across cohorts. The explore page also shows an older per-variable manual "
-    "mapping control, but it is DEPRECATED and unsupported — never recommend it.\n"
+    "variable correspondences (suggested equivalences, not guarantees). This is the ONLY way to "
+    "map variables across cohorts; there is no per-variable mapping control anywhere else.\n"
     "When relevant, explain how the user could act via these features (e.g. create a DCR to run an "
     "analysis, or generate a mapping from the mapping page to align variables across cohorts), but "
     "never claim to have run an analysis or seen raw data yourself."
@@ -623,7 +623,13 @@ def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
     if not question:
         return {"needed": False, "terms": [], "searches": []}
     cohort_ids = [str(c) for c in (body.get("cohort_ids") or []) if c]
-    history = _normalize_messages(body.get("history"))[-6:]
+    # The first turn of a conversation has no history; _normalize_messages
+    # treats an empty list as an error (it guards the chat endpoints), so it
+    # must not run here on empty input.
+    try:
+        history = _normalize_messages(body.get("history"))[-6:] if body.get("history") else []
+    except HTTPException:
+        history = []
     convo = "\n".join(f"{m['role']}: {m['content'][:400]}" for m in history)
     try:
         from src.cohort_cache import get_cohorts_from_cache

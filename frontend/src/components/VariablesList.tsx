@@ -597,7 +597,7 @@ const VariablesList = ({
                       index={`${cohortId}_${variable.index}`}
                       tooltip={variable.mapped_label || variable.mapped_id || ''}
                       onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
-                      canEdit={cohortsData[cohortId].can_edit}
+                      canEdit={false} /* manual per-variable mapping is deprecated: read-only badge, mapping happens on the mapping page */
                     />
                     {/* )} */}
                     <button
@@ -677,7 +677,7 @@ const VariablesList = ({
                             index={`${cohortId}_${variable.index}_inside`}
                             tooltip={variable.mapped_label || variable.mapped_id || ''}
                             onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
-                            canEdit={cohortsData[cohortId].can_edit}
+                            canEdit={false} /* manual per-variable mapping is deprecated: read-only badge, mapping happens on the mapping page */
                           />
                         </div>
                       </div>
@@ -721,7 +721,7 @@ const VariablesList = ({
                                     value={option.mapped_id || option.concept_id}
                                     tooltip={option.mapped_label || option.mapped_id || option.concept_id}
                                     onSelect={concept => handleConceptSelect(variable.var_name, concept, index)}
-                                    canEdit={cohortsData[cohortId].can_edit}
+                                    canEdit={false} /* manual per-variable mapping is deprecated: read-only badge, mapping happens on the mapping page */
                                   />
                                 </td>
                               </tr>
