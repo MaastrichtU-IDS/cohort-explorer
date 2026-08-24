@@ -1393,7 +1393,7 @@ wlog("example-analysis: done - {{}} columns summarised over {{}} overview page(s
 def merged_data_overview_script(
     merge_node_name: str,
     preview_node_name: str,
-    include_patient_level: bool = False,
+    merge_node_visible: bool = False,
 ) -> str:
     """Generate the example script that summarizes the FULL merged dataset.
 
@@ -1406,26 +1406,26 @@ def merged_data_overview_script(
     its output — dataset shape, patients per study, per-column completeness —
     plus ALL merge-process metadata produced by cohortpool (mapping tables,
     disambiguation/review decisions, provenance, audits, logs, figures, the PDF
-    quality report), excluding only the patient-level data files. Intentionally
-    broad while testing; prune the export once sensitive files are identified.
+    quality report). Excluded from the export, always: pooled_dataset.csv and
+    any .csv/.parquet file whose name contains "patient_level".
 
     Args:
         merge_node_name: Name of the merge compute node (its output, including
             cohortpool's tables/, is mounted at /input/<merge_node_name>/).
         preview_node_name: Name of the airlock node, referenced in the header
             comments so users know how to explore the fragment in Development mode.
-        include_patient_level: When True, the patient-level pooled files are
-            exported as well. Set this only when the merge pools the shuffled
-            samples (synthetic data, no leak concern); with full cohort data it
-            must stay False so patient-level files are never exported.
+        merge_node_visible: True when the merge pools the shuffled samples —
+            the merge node then has analysts and is visible in the interface,
+            which changes the explanatory note in the script header. Has no
+            effect on which files are exported.
 
     Returns:
         The Python script as a string.
     """
-    # include_patient_level is True exactly when the merge pools the SHUFFLED
+    # merge_node_visible is True exactly when the merge pools the SHUFFLED
     # samples; in that case the merge node has analysts and is visible in the
     # interface, so the "hidden node" explanation would be wrong.
-    if include_patient_level:
+    if merge_node_visible:
         name_note = f"""# A note on the name: the merge itself does NOT happen in this script — the
 # merge code lives in the "{merge_node_name}" node. Running THIS node makes
 # the platform compute that node and the airlock fragment first (they are its
@@ -1455,7 +1455,8 @@ def merged_data_overview_script(
 #   - ALL metadata the pooling package produced about the merge process
 #     (mapping tables, disambiguation/review decisions, provenance, audits,
 #     logs, figures, the PDF quality report) — everything except the merged
-#     dataset itself. It never writes patient-level rows to its output.
+#     dataset itself (pooled_dataset.csv) and the patient-level csv/parquet
+#     files.
 #
 # To explore the (de-identified, outlier-capped) merged-data fragment yourself,
 # see the node "example-analysis-for-merged-data-in-airlock": it explains how to
@@ -1537,19 +1538,11 @@ with open(report_file, "w") as report:
 # Export ALL merge-process metadata produced by the pooling package — the
 # combined cross-study mapping, the applied mapping plan, disambiguation and
 # review decisions, provenance, audits, logs, figures and the PDF quality
-# report — EXCEPT the merged dataset itself. The patient-level files all sit
-# in the output root and start with "pooled_" (pooled_dataset.csv,
-# pooled_harmonized_patient_level.csv/.parquet, pooled_harmonized_filtered.csv,
-# pooled_longitudinal*.csv, pooled_provenance_patient_level.csv), so those
-# are skipped; everything else is copied verbatim, preserving the tables/ and
-# logs/ directory structure. During the testing phase this is intentionally
-# broad — files found to be sensitive will be excluded later.
-#
-# include_patient_level is set at DCR-creation time: True when the merge pools
-# the SHUFFLED samples (synthetic data, so no leak concern — the patient-level
-# files are exported too), False when it pools the full cohort data (the
-# patient-level files are then never exported).
-include_patient_level = {include_patient_level}
+# report. Excluded, regardless of what was pooled:
+#   - pooled_dataset.csv (the merged dataset itself)
+#   - any .csv or .parquet file whose name contains "patient_level"
+# Everything else is copied verbatim, preserving the tables/, figures/ and
+# logs/ directory structure.
 wlog("merged-data-overview: overview written; copying the merge-process metadata (harmonization reports)")
 reports_dir = os.path.join(output_dir, "harmonization_reports")
 os.makedirs(reports_dir, exist_ok=True)
@@ -1559,9 +1552,12 @@ for root, dirs, files in os.walk(merge_dir):
     rel_root = os.path.relpath(root, merge_dir)
     for fname in sorted(files):
         in_output_root = rel_root == "."
-        is_patient_level = (in_output_root and fname.lower().startswith("pooled_")) or fname.lower().endswith(".parquet")
-        if is_patient_level and not include_patient_level:
-            skipped.append(fname)
+        fname_lower = fname.lower()
+        is_excluded = fname_lower == "pooled_dataset.csv" or (
+            fname_lower.endswith((".csv", ".parquet")) and "patient_level" in fname_lower
+        )
+        if is_excluded:
+            skipped.append(fname if in_output_root else os.path.join(rel_root, fname))
             continue
         dst_dir = reports_dir if in_output_root else os.path.join(reports_dir, rel_root)
         os.makedirs(dst_dir, exist_ok=True)
@@ -1575,10 +1571,8 @@ with open(report_file, "a") as report:
     report.write("Merge-process metadata copied to harmonization_reports/ ({{}} files):\\n".format(len(copied)))
     for name in copied:
         report.write("  [ok]      {{}}\\n".format(name))
-    if include_patient_level:
-        report.write("\\nPatient-level files INCLUDED (merge pools the shuffled samples).\\n")
     if skipped:
-        report.write("\\nSkipped (patient-level data, not exported):\\n")
+        report.write("\\nSkipped (merged dataset / patient-level files, not exported):\\n")
         for name in skipped:
             report.write("  [skipped] {{}}\\n".format(name))
 
