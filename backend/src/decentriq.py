@@ -1297,16 +1297,17 @@ async def get_compute_dcr_definition(
         for p_email in participants:
             participants[p_email]["analyst_of"].add(merge_check_node_name)
 
-        # Documentation node: numbered instructions (plus a commented snippet)
-        # on how to analyse the airlocked merged-data fragment in the
-        # Development tab. Running it only prints a pointer message — it has no
-        # dependencies, so it runs instantly and works in production mode.
+        # Runnable example node: computes over the FULL merged dataset (all
+        # column names with counts + simple per-column charts, aggregates
+        # only) and doubles as the template to copy into the Development tab,
+        # where the note at INPUT_PATH points at the airlock fragment instead.
+        # Depending on the merge node, running it triggers the merge first.
         merge_example_node_name = "example-analysis-for-merged-data-in-airlock"
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_example_node_name,
-                script=merged_airlock_example_script(merge_preview_node_name),
-                dependencies=[]
+                script=merged_airlock_example_script(merge_preview_node_name, merge_node_name),
+                dependencies=[merge_node_name]
             )
         )
         for p_email in participants:

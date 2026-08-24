@@ -1200,57 +1200,165 @@ wlog("merged-data-fragment: done - dataset.csv written, {{}} of {{}} rows".forma
 """
 
 
-def merged_airlock_example_script(preview_node_name: str) -> str:
-    """Generate the example-analysis script for the merged-data airlock.
+def merged_airlock_example_script(preview_node_name: str, merge_node_name: str) -> str:
+    """Generate the example-analysis script for the merged data.
 
-    A documentation node: its script carries numbered instructions on how to
-    work with the airlocked merged-data fragment in the Development tab (the
-    key point being the input path), plus a commented minimal code snippet.
-    The script is comments only — running the node executes nothing and
-    produces no output; its purpose is to be read and copied into the
-    Development tab. It has no dependencies, so it runs instantly and cannot
-    fail in production mode.
+    A RUNNABLE example every participant can execute and copy: it reads the
+    FULL merged dataset (so the node depends on the merge node), prints every
+    column with its counts (also written to /output), and draws simple
+    overview figures — a completeness bar chart plus one mini-chart per column
+    (histogram for numeric, top categories otherwise). Aggregates only.
+
+    Right at the INPUT_PATH sits the note telling Development-tab users to
+    point the script at the airlock fragment instead
+    (/input/<preview_node>/dataset.csv).
 
     Args:
-        preview_node_name: Name of the airlock/preview node the instructions
-            refer to.
+        preview_node_name: Name of the airlock/preview node (for the note).
+        merge_node_name: Name of the merge node whose pooled_dataset.csv is read.
 
     Returns:
         The Python script as a string.
     """
     return f"""###############################################################################
-# EXAMPLE ANALYSIS — WORKING WITH THE MERGED DATA IN THE AIRLOCK
+# EXAMPLE ANALYSIS - THE MERGED DATASET
 #
-# The airlock node "{preview_node_name}" exposes a testing
-# fragment of the merged dataset (a subset of rows, synthetic IDs instead of
-# the original ones, outliers capped) as the file "dataset.csv".
+# A worked example you can RUN AS IS and copy as the starting point of your
+# own analysis. Running it computes over the FULL merged (pooled) dataset and
+# writes AGGREGATES ONLY to /output:
+#   - every column name with its counts (non-empty, empty, unique values),
+#     as columns_summary.csv and columns_and_counts.txt
+#   - columns_completeness_p*.png - non-empty counts per column, as bars
+#   - columns_overview_p*.png - one mini-chart per column (histogram for
+#     numeric columns, the top categories for the rest)
 #
-# HOW TO USE THE AIRLOCK:
+# Because this node depends on the "{merge_node_name}" node, running it also
+# triggers the merge itself when its output is not computed yet (that step can
+# take a while - progress appears in the worker log).
 #
-#   1. Open the "Development" tab of this Data Clean Room and create a new
-#      script (or copy this one into it).
-#   2. In the right-side panel of the Development tab, select the airlock node
-#      "{preview_node_name}" as an input.
-#      Without this step the fragment will NOT be available to your script.
-#   3. The airlock contents are then mounted read-only under:
-#          /input/{preview_node_name}/
-#      and the merged-data fragment itself is at:
-#          /input/{preview_node_name}/dataset.csv
-#   4. Load the fragment with pandas (see the snippet below), build up your
-#      analysis, and write any results you want to keep to /output.
-#   5. Once your analysis works, it can be added to the DCR as a compute node
-#      of its own so other participants can run it.
-#
-# MINIMAL EXAMPLE — uncomment these lines in the Development tab:
-#
-# import pandas as pd
-#
-# df = pd.read_csv("/input/{preview_node_name}/dataset.csv")
-# print("Fragment shape:", df.shape)
-# summary = df.describe(include="all")
-# summary.to_csv("/output/fragment_summary.csv")
-#
+# TO BUILD YOUR OWN ANALYSIS in the "Development" tab:
+#   1. Copy this script into a new Development-tab script.
+#   2. Select your input in the right-side panel (see the INPUT note below),
+#      adjust, run, and write anything you want to keep to /output.
+#   3. A finished analysis can be added to the DCR as a compute node of its
+#      own so other participants can run it.
 ###############################################################################
+
+import os
+
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+
+def wlog(message):
+    # Live progress to Decentriq's worker log ("/worker/logs"), visible in the
+    # platform while the computation is still running. Best-effort: outside an
+    # enclave the path does not exist and the message is simply dropped.
+    try:
+        with open("/worker/logs", "a") as f:
+            f.write(str(message) + "\\n")
+    except Exception:
+        pass
+
+
+# INPUT ------------------------------------------------------------------------
+# The full merged (pooled) dataset produced by the "{merge_node_name}" node:
+INPUT_PATH = "/input/{merge_node_name}/pooled_dataset.csv"
+#
+# NOTE - USING THE AIRLOCK IN THE DEVELOPMENT TAB: the full dataset above is
+# only readable by published compute nodes, not by Development-tab scripts.
+# When you work in the Development tab, select the airlock node
+# "{preview_node_name}" as your input and point INPUT_PATH at the
+# airlocked testing fragment (subset of rows, synthetic IDs, outliers capped):
+#     INPUT_PATH = "/input/{preview_node_name}/dataset.csv"
+# ------------------------------------------------------------------------------
+
+output_dir = "/output"
+
+wlog("example-analysis: reading the merged dataset")
+df = pd.read_csv(INPUT_PATH)
+wlog("example-analysis: loaded {{}} rows x {{}} columns; counting".format(len(df), len(df.columns)))
+
+# ---- Every column with its counts --------------------------------------------
+rows = []
+for col in df.columns:
+    non_empty = int(df[col].notna().sum())
+    rows.append({{
+        "column": col,
+        "non_empty": non_empty,
+        "empty": int(len(df) - non_empty),
+        "unique_values": int(df[col].nunique(dropna=True)),
+    }})
+summary = pd.DataFrame(rows)
+summary.to_csv(os.path.join(output_dir, "columns_summary.csv"), index=False)
+
+with open(os.path.join(output_dir, "columns_and_counts.txt"), "w") as fh:
+    fh.write("MERGED DATASET: {{}} rows, {{}} columns\\n\\n".format(len(df), len(df.columns)))
+    fh.write("{{:<50}} {{:>10}} {{:>10}} {{:>10}}\\n".format("column", "non-empty", "empty", "unique"))
+    for r in rows:
+        line = "{{:<50}} {{:>10}} {{:>10}} {{:>10}}".format(r["column"][:50], r["non_empty"], r["empty"], r["unique_values"])
+        fh.write(line + "\\n")
+        print(line)
+
+# ---- Completeness bars: non-empty count per column (chunked pages) -----------
+CHUNK = 60
+for page, start in enumerate(range(0, len(summary), CHUNK), start=1):
+    part = summary.iloc[start:start + CHUNK]
+    fig, ax = plt.subplots(figsize=(11, max(3, 0.28 * len(part))))
+    ax.barh(part["column"][::-1], part["non_empty"][::-1], color="#3b6ea5")
+    ax.set_xlabel("Non-empty values (of {{}} rows)".format(len(df)))
+    ax.set_title("Column completeness ({{}}/{{}})".format(page, (len(summary) + CHUNK - 1) // CHUNK))
+    ax.tick_params(axis="y", labelsize=7)
+    plt.tight_layout()
+    fig.savefig(os.path.join(output_dir, "columns_completeness_p{{}}.png".format(page)), dpi=120)
+    plt.close(fig)
+wlog("example-analysis: completeness charts written; drawing per-column mini-charts")
+
+# ---- One mini-chart per column (histogram / top categories) ------------------
+PER_FIG = 24   # 4 x 6 mini-charts per page
+COLS = 4
+pages = (len(df.columns) + PER_FIG - 1) // PER_FIG
+for page in range(pages):
+    cols = list(df.columns)[page * PER_FIG:(page + 1) * PER_FIG]
+    nrows = (len(cols) + COLS - 1) // COLS
+    fig, axes = plt.subplots(nrows, COLS, figsize=(13, 2.4 * nrows))
+    axes = np.atleast_2d(axes)
+    for i, col in enumerate(cols):
+        ax = axes[i // COLS][i % COLS]
+        series = df[col].dropna()
+        numeric = pd.to_numeric(series, errors="coerce").dropna()
+        try:
+            if len(numeric) >= 0.9 * len(series) and numeric.nunique() > 8:
+                ax.hist(numeric, bins=20, color="#3b6ea5")
+            elif len(series) > 0 and series.nunique() > 30 and series.nunique() > 0.5 * len(series):
+                # Identifier-like or free-text column: its values are (near-)
+                # unique per row, so drawing them would put row-level values
+                # into the output. Counted, not drawn.
+                ax.text(0.5, 0.5, "identifier / free text\\n({{}} unique values)\\nnot drawn".format(series.nunique()),
+                        ha="center", va="center", fontsize=7, color="#888888")
+                ax.set_xticks([])
+                ax.set_yticks([])
+            else:
+                vc = series.astype(str).value_counts().head(8)
+                labels = [(v[:-2] if v.endswith(".0") else v)[:14] for v in vc.index]
+                ax.barh(range(len(vc))[::-1], vc.values, color="#7a9e58")
+                ax.set_yticks(range(len(vc))[::-1])
+                ax.set_yticklabels(labels, fontsize=6)
+        except Exception as e:
+            ax.text(0.5, 0.5, "not drawable", ha="center", va="center", fontsize=7)
+            wlog("example-analysis: could not draw {{}}: {{}}".format(col, e))
+        ax.set_title("{{}} (n={{}})".format(col[:34], len(series)), fontsize=8)
+        ax.tick_params(labelsize=6)
+    for j in range(len(cols), nrows * COLS):
+        axes[j // COLS][j % COLS].axis("off")
+    plt.tight_layout()
+    fig.savefig(os.path.join(output_dir, "columns_overview_p{{}}.png".format(page + 1)), dpi=120)
+    plt.close(fig)
+
+wlog("example-analysis: done - {{}} columns summarised over {{}} overview page(s)".format(len(df.columns), pages))
 """
 
 
