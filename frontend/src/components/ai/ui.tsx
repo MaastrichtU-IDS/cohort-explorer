@@ -351,6 +351,11 @@ export function MessageList({messages, streaming}: {messages: ChatMessage[]; str
       {messages.map((m, i) => (
         <React.Fragment key={i}>
           {m.role === 'assistant' && m.searches && m.searches.length > 0 && <SearchResultsPanel runs={m.searches} />}
+          {m.role === 'assistant' && m.searchError && (
+            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+              The assistant&rsquo;s catalog search could not run ({m.searchError}); the answer relies on the basic context only.
+            </div>
+          )}
           <MessageBubble message={m} streaming={streaming && i === messages.length - 1} />
         </React.Fragment>
       ))}

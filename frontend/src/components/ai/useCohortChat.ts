@@ -151,8 +151,16 @@ export function useCohortChat(): UseCohortChat {
               return next;
             });
           }
-        } catch {
-          /* planning is best-effort: the answer falls back to single-round retrieval */
+        } catch (e: any) {
+          // Planning is best-effort (the answer falls back to single-round
+          // retrieval), but the failure is shown, not swallowed.
+          const searchError = e?.message || 'catalog search failed';
+          setMessages(prev => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last && last.role === 'assistant') next[next.length - 1] = {...last, searchError};
+            return next;
+          });
         }
         if (controller.signal.aborted) {
           setIsStreaming(false);

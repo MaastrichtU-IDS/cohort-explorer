@@ -15,6 +15,9 @@ export interface ChatMessage {
   // dedicated search panel above the assistant's answer.
   searches?: SearchRun[];
   searchTerms?: string[];
+  // The planning round failed (endpoint error or server-side search error):
+  // shown as a small note so failures are visible instead of silent.
+  searchError?: string;
 }
 
 // ---- Catalog search (the chat's search tool) --------------------------------
@@ -71,6 +74,7 @@ export async function planSearch(question: string, cohortIds: string[], history:
   });
   if (!res.ok) throw new Error(`Search planning failed (${res.status})`);
   const j = await res.json();
+  if (j.error) throw new Error(String(j.error));
   return {needed: !!j.needed, terms: j.terms || [], searches: Array.isArray(j.searches) ? j.searches : []};
 }
 
