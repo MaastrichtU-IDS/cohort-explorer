@@ -87,7 +87,9 @@ async def get_cohort_eda_output(
     # Read and return the JSON file
     try:
         with open(eda_file_path, 'r') as f:
-            eda_data = json.load(f)
+            # NaN / Infinity are what Python wrote, but they are not valid JSON
+            # and every client rejects them: read them back as null.
+            eda_data = json.load(f, parse_constant=lambda _constant: None)
         return eda_data
     except json.JSONDecodeError as e:
         raise HTTPException(

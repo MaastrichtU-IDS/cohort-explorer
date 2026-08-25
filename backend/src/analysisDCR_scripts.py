@@ -855,6 +855,31 @@ def _isclose_compat(a, b, *args, **kwargs):
     return _np_isclose(_coerce_nullable(a), _coerce_nullable(b), *args, **kwargs)
 
 np.isclose = _isclose_compat
+
+# matplotlib's boxplot renamed `labels` to `tick_labels` in 3.9. cohortpool calls
+# it by the new name (visualize.py plot_temporal_coverage), but the enclave
+# imports matplotlib from the SYSTEM environment (/nix/store/...), which ships
+# 3.8 - the custom environment's newer copy is installed yet shadowed, the same
+# path-precedence that stops numpy being upgraded here. Accept the new keyword
+# on the old version; a no-op once matplotlib itself understands it.
+try:
+    import inspect
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.axes
+
+    if "tick_labels" not in inspect.signature(matplotlib.axes.Axes.boxplot).parameters:
+        _orig_boxplot = matplotlib.axes.Axes.boxplot
+
+        def _boxplot_compat(self, x, *args, **kwargs):
+            if "tick_labels" in kwargs and "labels" not in kwargs:
+                kwargs["labels"] = kwargs.pop("tick_labels")
+            return _orig_boxplot(self, x, *args, **kwargs)
+
+        matplotlib.axes.Axes.boxplot = _boxplot_compat
+except Exception as _e:
+    print("boxplot compatibility shim not applied:", _e)
 # ------------------------------------------------------------------------------
 
 from cohortpool import pool
