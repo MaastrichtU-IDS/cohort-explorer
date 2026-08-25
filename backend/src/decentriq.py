@@ -1230,6 +1230,13 @@ async def get_compute_dcr_definition(
                 script=merge_datasets_script(studies_info, merge_mappings_info, is_shuffled_data=merge_use_shuffled),
                 dependencies=merge_dependencies,
                 custom_environment=MERGE_ENV_NAME,
+                # Surface the container logs in the UI, so a merge failure shows
+                # its traceback instead of a bare error code (and a success shows
+                # cohortpool's log). The merge script's own stdout prints only
+                # aggregates - counts, file names, status tallies - never data
+                # rows, so nothing sensitive rides along.
+                enable_logs_on_error=True,
+                enable_logs_on_success=True,
             )
         )
         if merge_use_shuffled:
