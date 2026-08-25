@@ -60,6 +60,9 @@ function renderTable(rows: string[]): string {
 
 function renderRich(text: string, validEda?: Set<string>): string {
   const esc = text
+    // Models sometimes emit non-breaking/narrow spaces (U+00A0, U+202F, U+2007);
+    // a long list joined by those never wraps and runs out of its bubble.
+    .replace(/[\u00A0\u202F\u2007]/g, ' ')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
@@ -354,7 +357,7 @@ export function MessageBubble({message, streaming, validEda}: {message: ChatMess
         className={`rounded-2xl px-4 py-3 shadow-sm ${
           isUser
             ? 'max-w-[85%] bg-blue-100 text-blue-900 border border-blue-200 rounded-br-sm'
-            : 'max-w-[97%] grow bg-base-100 border border-base-300 rounded-bl-sm'
+            : 'max-w-[97%] grow min-w-0 overflow-hidden bg-base-100 border border-base-300 rounded-bl-sm'
         }`}
       >
         {!isUser && (
@@ -365,7 +368,7 @@ export function MessageBubble({message, streaming, validEda}: {message: ChatMess
         )}
         {shown ? (
           <div
-            className="prose prose-sm max-w-none leading-relaxed [&_*]:my-0"
+            className="prose prose-sm max-w-none leading-relaxed break-words [&_*]:my-0"
             onClick={e => {
               const t = (e.target as HTMLElement).closest?.('a.eda-open') as HTMLElement | null;
               if (t) {
