@@ -399,8 +399,30 @@ export function MessageBubble({message, streaming, validEda}: {message: ChatMess
 
 export function MessageList({messages, streaming}: {messages: ChatMessage[]; streaming: boolean}) {
   const endRef = useRef<HTMLDivElement>(null);
+  // Follow the stream only while the reader is already at the bottom. Scrolling
+  // up (say, to study the search panel mid-answer) sets nearBottom false and
+  // the auto-scroll stops fighting; scrolling back down resumes following. A
+  // NEW message (the user just sent one) always jumps to the end.
+  const nearBottom = useRef(true);
+  const prevCount = useRef(0);
   useEffect(() => {
-    endRef.current?.scrollIntoView({behavior: 'smooth', block: 'end'});
+    const check = () => {
+      const el = endRef.current;
+      if (!el) return;
+      nearBottom.current = el.getBoundingClientRect().top <= (window.innerHeight || document.documentElement.clientHeight) + 160;
+    };
+    // capture: also catches scrolling inside nested containers
+    window.addEventListener('scroll', check, {passive: true, capture: true});
+    return () => window.removeEventListener('scroll', check, {capture: true});
+  }, []);
+  useEffect(() => {
+    const isNewMessage = messages.length !== prevCount.current;
+    prevCount.current = messages.length;
+    if (isNewMessage || nearBottom.current) {
+      // instant while following chunk-by-chunk; smooth only on a new turn
+      endRef.current?.scrollIntoView({behavior: isNewMessage ? 'smooth' : 'auto', block: 'end'});
+      nearBottom.current = true;
+    }
   }, [messages]);
   // Chart markers are only trusted for variables the searches actually flagged
   // with an EDA; anything else the model wrote is dropped at render time.
