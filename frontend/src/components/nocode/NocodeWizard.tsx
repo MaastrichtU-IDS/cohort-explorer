@@ -2,7 +2,7 @@
 
 // No-code DCR wizard — the no-code path to a Data Clean Room for domain
 // experts (the other path being the Flexible DCR, i.e. the traditional wizard). Rendered inside the "Create analysis DCR" modal (Nav.tsx) behind
-// the Flexible / No-code chooser, and on its own page (/nocode-dcr).
+// the flexible wizard's 'switch to no-code' link, and on its own page (/nocode-dcr).
 //
 // The user says what they want to learn (an analysis class), picks cohorts,
 // chooses the data source (full data or shuffled samples) and participants,
