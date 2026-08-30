@@ -138,19 +138,25 @@ export function useCohortChat(): UseCohortChat {
       // results appear in the search panel and go into both answers' context.
       let payload: SearchPayload | undefined;
       let searchTerms: string[] = [];
+      let interpretations: string[] = [];
       if (!overrides?.contextOverride) {
         try {
           const plan = await planSearchWithRetry(content, selected, base);
           if (plan.needed && plan.searches.length > 0) {
             payload = {runs: plan.searches, concepts: plan.concepts, intersection: plan.intersection};
             searchTerms = plan.terms;
-            setMessages(prev => {
-              const next = [...prev];
-              const last = next[next.length - 1];
-              if (last && last.role === 'assistant')
-                next[next.length - 1] = {...last, searches: plan.searches, searchTerms, searchConcepts: plan.concepts, searchIntersection: plan.intersection};
-              return next;
-            });
+            interpretations = plan.interpretations || [];
+            // A disambiguation turn shows no search panel: the short clarifying
+            // reply carries the preliminary numbers itself.
+            if (interpretations.length < 2) {
+              setMessages(prev => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.role === 'assistant')
+                  next[next.length - 1] = {...last, searches: plan.searches, searchTerms, searchConcepts: plan.concepts, searchIntersection: plan.intersection};
+                return next;
+              });
+            }
           }
         } catch (e: any) {
           // Planning is best-effort (the answer falls back to single-round
@@ -168,6 +174,52 @@ export function useCohortChat(): UseCohortChat {
           abortRef.current = null;
           return;
         }
+      }
+
+      // Disambiguation turn: ONE short clarifying reply (no summary/detailed
+      // pair, no search panel) that sketches each reading and asks which one
+      // is meant. The user's next message re-plans from scratch.
+      if (payload && interpretations.length >= 2) {
+        setMessages(prev => {
+          const next = [...prev];
+          if (next[next.length - 1]?.role === 'assistant') next[next.length - 1] = {role: 'assistant', content: ''};
+          return next;
+        });
+        let clarifyText = '';
+        try {
+          await streamChat({
+            messages: historyForModel,
+            cohortIds: selected,
+            focus,
+            signal: controller.signal,
+            searchResults: payload,
+            clarifyInterpretations: interpretations,
+            onChunk: delta => {
+              clarifyText += delta;
+              setMessages(prev => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.role === 'assistant') next[next.length - 1] = {...last, content: (last.content || '') + delta};
+                return next;
+              });
+            }
+          });
+          if (conversationIdRef.current) {
+            void saveConversation({
+              conversationId: conversationIdRef.current,
+              startedAt: startedAtRef.current || new Date().toISOString(),
+              arrivalPath: arrivalPathRef.current,
+              entryContext: entryContextRef.current,
+              model,
+              messages: [...base, {role: 'user', content}, {role: 'assistant', content: clarifyText}]
+            });
+          }
+        } catch (e: any) {
+          if (e?.name !== 'AbortError') setError(e?.message || 'Something went wrong contacting the model.');
+        }
+        setIsStreaming(false);
+        abortRef.current = null;
+        return;
       }
 
       // Accumulate each variant locally too, so we can persist the final

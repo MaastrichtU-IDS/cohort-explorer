@@ -87,7 +87,14 @@ export async function planSearch(
   question: string,
   cohortIds: string[],
   history: ChatMessage[]
-): Promise<{needed: boolean; terms: string[]; searches: SearchRun[]; concepts?: SearchConcept[]; intersection?: IntersectionRow[] | null}> {
+): Promise<{
+  needed: boolean;
+  terms: string[];
+  searches: SearchRun[];
+  concepts?: SearchConcept[];
+  intersection?: IntersectionRow[] | null;
+  interpretations?: string[];
+}> {
   const res = await fetch(`${apiUrl}/api/chat/plan-search`, {
     method: 'POST',
     credentials: 'include',
@@ -106,7 +113,8 @@ export async function planSearch(
     terms: j.terms || [],
     searches: Array.isArray(j.searches) ? j.searches : [],
     concepts: Array.isArray(j.concepts) ? j.concepts : undefined,
-    intersection: Array.isArray(j.intersection) ? j.intersection : null
+    intersection: Array.isArray(j.intersection) ? j.intersection : null,
+    interpretations: Array.isArray(j.interpretations) ? j.interpretations : []
   };
 }
 
@@ -142,6 +150,9 @@ export interface SendOptions {
   // concept grouping and cross-concept intersection): injected into the model's
   // context server-side, identical to what the search panel shows.
   searchResults?: SearchPayload;
+  // Disambiguation turn: the readings the planner found. The server then asks
+  // for a short clarifying reply instead of a full answer.
+  clarifyInterpretations?: string[];
   onChunk: (delta: string) => void;
   signal?: AbortSignal;
 }
@@ -171,7 +182,8 @@ export async function streamChat(opts: SendOptions): Promise<void> {
       system_prompt: opts.systemPrompt || null,
       context: opts.contextOverride || null,
       style: opts.style || null,
-      search_results: opts.searchResults && opts.searchResults.runs.length > 0 ? opts.searchResults : null
+      search_results: opts.searchResults && opts.searchResults.runs.length > 0 ? opts.searchResults : null,
+      clarify_interpretations: opts.clarifyInterpretations && opts.clarifyInterpretations.length >= 2 ? opts.clarifyInterpretations : null
     })
   });
 

@@ -529,6 +529,18 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
     style = body.get("style")
     if isinstance(style, str) and style in STYLE_INSTRUCTIONS:
         full_messages.append({"role": "system", "content": STYLE_INSTRUCTIONS[style]})
+    # Disambiguation turn (the planner flagged the question as ambiguous): a
+    # short clarifying reply instead of a full answer.
+    clarify = body.get("clarify_interpretations")
+    if isinstance(clarify, list) and len(clarify) >= 2:
+        readings = "; ".join(str(c)[:120] for c in clarify[:4])
+        full_messages.append({"role": "system", "content": (
+            "CLARIFICATION MODE - the question is ambiguous between these readings: "
+            f"{readings}. Do NOT give a full answer and do NOT enumerate whole result lists. "
+            "For each reading give one or two lines of preliminary findings from the search "
+            "results (roughly how many cohorts/variables match, the two or three key cohorts), "
+            "then end with ONE short question asking which reading is meant. Nothing else."
+        )})
     full_messages.extend(messages)
     return full_messages, model, temperature
 
@@ -642,8 +654,12 @@ SEARCH_PLANNER_PROMPT = (
     "under discussion in the conversation, so the results cover that cohort too.\n"
     "If the question needs no catalog search (small talk, platform how-to, questions about "
     "already-shown results), return an empty list.\n"
-    'Return STRICT JSON only: {"concepts": [{"name": "<short label>", "terms": ["term", ...]}, ...]} '
-    '(empty list when no search is needed).'
+    'Return STRICT JSON only: '
+    '{"concepts": [{"name": "<short label>", "terms": ["term", ...]}, ...], '
+    '"interpretations": ["<reading 1>", "<reading 2>", ...]} '
+    'where "interpretations" is present ONLY when the question is genuinely ambiguous between '
+    'readings (then list each reading as a short phrase, and make sure the concepts cover all '
+    'of them); omit it or use [] for a clear question. Empty concepts when no search is needed.'
 )
 
 
@@ -705,9 +721,11 @@ def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
             if flat:
                 concepts = [{"name": "", "terms": flat}]
         terms = [t for c in concepts for t in c["terms"]][:10]
+        interpretations = [str(i).strip()[:120] for i in (parsed.get("interpretations") or [])
+                           if str(i).strip()][:4]
     except Exception as exc:
         logger.warning("Search planning failed: %s", exc)
-        concepts, terms = [], []
+        concepts, terms, interpretations = [], [], []
     # Backstop: an identification-shaped question always searches, with terms
     # from the question itself if the planner offered none.
     if not terms and _IDENTIFICATION_RE.search(question):
@@ -715,6 +733,7 @@ def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
 
         terms = extract_query_terms(question)[:6]
         concepts = [{"name": "", "terms": terms}] if terms else []
+        interpretations = []
         logger.info("Search planner returned no terms; identification backstop used: %s", terms)
     if not terms:
         return {"needed": False, "terms": [], "searches": []}
@@ -746,6 +765,7 @@ def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
         )
     return {"needed": True, "terms": terms, "searches": runs,
             "concepts": concept_summaries, "intersection": intersection,
+            "interpretations": interpretations if len(interpretations) >= 2 else [],
             "model": settings.litellm_model}
 
 
