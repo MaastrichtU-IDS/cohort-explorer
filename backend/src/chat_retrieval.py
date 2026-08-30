@@ -218,7 +218,7 @@ def retrieve_for_question(
 # can render them in a dedicated search-results panel, and formatted for the
 # model with explicit totals (ALL matching cohorts; per-cohort counts).
 
-SEARCH_VARS_SHOWN_PER_COHORT = 12
+SEARCH_VARS_SHOWN_PER_COHORT = 10
 # Variable details are expanded only for this many cohorts per term (the user's
 # selected cohorts first, then by match count) — ALL matching cohorts are still
 # named with their counts.
@@ -398,31 +398,58 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
             parts.append(
                 "COHORTS MATCHING EVERY CONCEPT - computed by the platform, this IS the answer to "
                 f"'which cohorts have all of these' ({len(intersection)} cohort(s)): " + "; ".join(rows))
-        else:
+        elif intersection is not None:
             parts.append("COHORTS MATCHING EVERY CONCEPT: none - no cohort matches all of the "
                          "concepts at once (each concept's own matches are below).")
-    for run in runs:
-        coh = run.get("cohorts") or []
-        if not coh:
-            parts.append(f'## Search "{run.get("term")}": no matching variables in any cohort.')
-            continue
-        counts = ", ".join(
+    def _counts_line(coh):
+        return ", ".join(
             f"{c['cohort_id']} ({c['matches']}{' incl. ' + str(c['code_matches']) + ' via code' if c.get('code_matches') else ''})"
             for c in coh
         )
+
+    def _present_full(run):
+        """The main presentation of one term: every matching cohort, details for the top ones."""
+        coh = run.get("cohorts") or []
+        if not coh:
+            parts.append(f'## Search "{run.get("term")}": no matching variables in any cohort.')
+            return
         parts.append(
             f'## Search "{run.get("term")}": {run.get("total_matches")} matching variables across '
-            f"{len(coh)} cohort(s) — ALL matching cohorts with their counts: {counts}"
+            f"{len(coh)} cohort(s) — ALL matching cohorts with their counts: {_counts_line(coh)}"
         )
         if run.get("codes"):
             parts.append("   (results include variables matched via shared standard codes: "
                          + "; ".join(c["display"] for c in run["codes"]) + ")")
+        _present_details(coh)
+
+    def _present_expansion(run, seen):
+        """An expansion term of the same concept: only what it ADDS is spelled out."""
+        coh = run.get("cohorts") or []
+        term = run.get("term")
+        if not coh:
+            parts.append(f'   Equivalent term "{term}": no matching variables.')
+            return
+        new = [c for c in coh if c["cohort_id"] not in seen]
+        known = len(coh) - len(new)
+        if new:
+            parts.append(
+                f'   Equivalent term "{term}": matches {len(coh)} cohort(s) — {known} already matched '
+                f"earlier terms of this concept, {len(new)} NEW. Cohorts discovered ONLY through this "
+                f"term expansion: {_counts_line(new)}"
+            )
+            _present_details([c for c in new if c.get("variables")], indent="   ")
+        else:
+            parts.append(
+                f'   Equivalent term "{term}": matches {len(coh)} cohort(s), all of which already '
+                "matched earlier terms of this concept — no new cohorts."
+            )
+
+    def _present_details(coh, indent=""):
         for c in coh:
             shown = c.get("variables") or []
             if not shown:
                 continue
-            head = f"### {c['cohort_id']} — showing {len(shown)} of {c['matches']} matching variables:"
-            parts.append(head)
+            parts.append(f"{indent}### {c['cohort_id']} — showing {len(shown)} of {c['matches']} matching variables:")
             for v in shown:
                 bits = [v.get("var_name") or "?"]
                 if v.get("var_label") and (v.get("var_label") or "").lower() != (v.get("var_name") or "").lower():
@@ -440,9 +467,36 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
                     bits.append(f"MATCHED VIA STANDARD CODE {v.get('matched_code')}")
                 if v.get("has_eda"):
                     bits.append(f"CHART-MARKER: \U0001F4CA[{c['cohort_id']}::{v.get('var_name')}]")
-                parts.append("  - " + " — ".join(bits[:2]) + (" " + " ".join(bits[2:]) if len(bits) > 2 else ""))
+                parts.append(indent + "  - " + " — ".join(bits[:2]) + (" " + " ".join(bits[2:]) if len(bits) > 2 else ""))
             if c["matches"] > len(shown):
-                parts.append(f"  (+{c['matches'] - len(shown)} more matching variables in {c['cohort_id']} not listed here)")
+                parts.append(f"{indent}  (+{c['matches'] - len(shown)} more matching variables in {c['cohort_id']} not listed here)")
+
+    # Named concepts: the concept's first term gets the full presentation; the
+    # remaining terms are its EXPANSIONS (synonyms, member drugs, related
+    # measurements the model proposed) and only what each one newly discovers is
+    # spelled out - a cohort found solely through an expansion is a win worth
+    # marking, a cohort repeated from the main term is noise. Terms outside any
+    # concept, and the flat single-concept fallback, keep the full presentation.
+    runs_by_term = {r.get("term"): r for r in runs}
+    presented = set()
+    grouped = [c for c in (concepts or []) if isinstance(c, dict) and c.get("name") and c.get("terms")]
+    for c in grouped:
+        c_terms = [t for t in c["terms"] if t in runs_by_term]
+        if not c_terms:
+            continue
+        parts.append(f"# CONCEPT: {c['name']}")
+        seen: set = set()
+        for i, t in enumerate(c_terms):
+            run = runs_by_term[t]
+            if i == 0:
+                _present_full(run)
+            else:
+                _present_expansion(run, seen)
+            seen.update(x["cohort_id"] for x in (run.get("cohorts") or []))
+            presented.add(t)
+    for run in runs:
+        if run.get("term") not in presented:
+            _present_full(run)
     text_so_far = "\n".join(parts)
     if len(text_so_far) > SEARCH_CONTEXT_CHAR_CAP:
         parts = [text_so_far[:SEARCH_CONTEXT_CHAR_CAP],
@@ -457,7 +511,9 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
         "something because its variables are not shown; the 'ALL matching cohorts' line of each "
         "search, and the COHORTS MATCHING EVERY CONCEPT line, are the complete truth. For "
         "multi-criteria questions, answer from the COHORTS MATCHING EVERY CONCEPT line exactly "
-        "as given. NEVER shorten an answer by dropping "
+        "as given. A concept's complete cohort set is its main term's ALL-cohorts line PLUS the "
+        "NEW cohorts of each of its expansion terms; when a cohort was found only through an "
+        "expansion, say so - e.g. 'GISSI-HF (found via the metoprolol expansion)'. NEVER shorten an answer by dropping "
         "cohorts: every cohort listed above must appear in your answer, even in the short/summary "
         "style — describe a few in detail if space is tight, then end with one line naming ALL the "
         "remaining matches and pointing at the search results for the details. Use the EQUIVALENT BY STANDARD CODE "
