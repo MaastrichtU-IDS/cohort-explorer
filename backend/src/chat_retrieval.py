@@ -338,8 +338,11 @@ def run_chat_searches(
             # text matches first, then the ones pulled in by a shared code
             candidates = [(v, None) for v in by_cohort.get(cohort_id, [])] + list(code_added.get(cohort_id, []))
             shown = []
-            eda_names = _eda_names(cohort_id) if cohort_id in detailed_ids else set()
-            for var, via_code in (candidates[:SEARCH_VARS_SHOWN_PER_COHORT] if cohort_id in detailed_ids else []):
+            # Variables are included for EVERY cohort (the search panel shows them
+            # on click); the "detailed" flag marks the top cohorts whose lists go
+            # into the model's context (format_search_context keeps that cap).
+            eda_names = _eda_names(cohort_id)
+            for var, via_code in candidates[:SEARCH_VARS_SHOWN_PER_COHORT]:
                 d = _var_public(var)
                 if via_code:
                     d["via_code"] = True
@@ -361,6 +364,7 @@ def run_chat_searches(
                 "text_matches": len(by_cohort.get(cohort_id, [])),
                 "code_matches": len(code_added.get(cohort_id, [])),
                 "in_selection": (not restrict) or cohort_id in restrict,
+                "detailed": cohort_id in detailed_ids,
                 "variables": shown,
             })
         runs.append({
@@ -407,6 +411,13 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
             for c in coh
         )
 
+    def _is_detailed(c):
+        # Since the panel change, every cohort carries a (capped) variables list
+        # and "detailed" marks the top cohorts whose list goes into the model's
+        # context. Runs saved before that change lack the flag: fall back to
+        # "has variables", which reproduces the old top-cohorts-only behavior.
+        return c.get("detailed", bool(c.get("variables")))
+
     def _present_full(run):
         """The main presentation of one term: every matching cohort, details for the top ones."""
         coh = run.get("cohorts") or []
@@ -420,7 +431,7 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
         if run.get("codes"):
             parts.append("   (results include variables matched via shared standard codes: "
                          + "; ".join(c["display"] for c in run["codes"]) + ")")
-        _present_details(coh)
+        _present_details([c for c in coh if _is_detailed(c)])
 
     def _present_expansion(run, seen):
         """An expansion term of the same concept: only what it ADDS is spelled out."""
@@ -437,7 +448,7 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
                 f"earlier terms of this concept, {len(new)} NEW. Cohorts discovered ONLY through this "
                 f"term expansion: {_counts_line(new)}"
             )
-            _present_details([c for c in new if c.get("variables")], indent="   ")
+            _present_details([c for c in new if _is_detailed(c)], indent="   ")
         else:
             parts.append(
                 f'   Equivalent term "{term}": matches {len(coh)} cohort(s), all of which already '

@@ -23,6 +23,9 @@ export interface ChatMessage {
   // The planning round failed (endpoint error or server-side search error):
   // shown as a small note so failures are visible instead of silent.
   searchError?: string;
+  // Disambiguation turn: the planner found the question ambiguous and this
+  // reply only asks which reading is meant (shown with its own pink tag).
+  clarify?: boolean;
 }
 
 // ---- Catalog search (the chat's search tool) --------------------------------
@@ -52,6 +55,9 @@ export interface SearchCohort {
   text_matches?: number;
   code_matches?: number;
   in_selection?: boolean;
+  // Top cohort whose variable list goes into the model's context; the panel
+  // shows every cohort's (capped) list on click regardless.
+  detailed?: boolean;
   variables: SearchVariable[];
 }
 

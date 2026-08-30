@@ -208,7 +208,7 @@ export function useCohortChat(): UseCohortChat {
       if (payload && interpretations.length >= 2) {
         setMessages(prev => {
           const next = [...prev];
-          if (next[next.length - 1]?.role === 'assistant') next[next.length - 1] = {role: 'assistant', content: ''};
+          if (next[next.length - 1]?.role === 'assistant') next[next.length - 1] = {role: 'assistant', content: '', clarify: true};
           return next;
         });
         let clarifyText = '';
@@ -237,7 +237,7 @@ export function useCohortChat(): UseCohortChat {
               arrivalPath: arrivalPathRef.current,
               entryContext: entryContextRef.current,
               model,
-              messages: [...base, {role: 'user', content}, {role: 'assistant', content: clarifyText}]
+              messages: [...base, {role: 'user', content}, {role: 'assistant', content: clarifyText, clarify: true}]
             });
           }
         } catch (e: any) {

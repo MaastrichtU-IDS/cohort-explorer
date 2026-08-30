@@ -68,11 +68,27 @@ function renderRich(text: string, validEda?: Set<string>): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  const withInline = esc
+  // Fenced code blocks (```sql ... ```) are lifted out BEFORE inline
+  // processing, so their backticks/asterisks stay literal, and rendered as one
+  // scrollable <pre> block instead of a chip per line. An unterminated fence
+  // (mid-stream) swallows to the end so the block looks right while streaming.
+  const codeBlocks: string[] = [];
+  const liftBlock = (body: string) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(
+      `<div class="my-2 overflow-x-auto"><pre class="bg-base-200 border border-base-300 rounded-lg px-3 py-2 text-[0.85em] font-mono leading-relaxed whitespace-pre text-base-content">${body.replace(/\n+$/, '')}</pre></div>`
+    );
+    return `\u0000CODE${idx}\u0000`;
+  };
+  const withBlocks = esc
+    .replace(/```[^\S\n]*\w*[^\S\n]*\n([\s\S]*?)```/g, (_m, body) => liftBlock(body))
+    .replace(/```[^\S\n]*\w*[^\S\n]*\n([\s\S]*)$/, (_m, body) => liftBlock(body));
+  const withInline = withBlocks
     // Inline code needs explicit foreground + background so it stays readable
-    // regardless of the surrounding prose/theme colors.
+    // regardless of the surrounding prose/theme colors. Single line only:
+    // pairing backticks across lines used to mangle everything between them.
     .replace(
-      /`([^`]+)`/g,
+      /`([^`\n]+)`/g,
       '<code class="px-1 py-0.5 rounded bg-base-200 border border-base-300 text-base-content text-[0.9em] font-mono">$1</code>'
     )
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
@@ -130,6 +146,8 @@ function renderRich(text: string, validEda?: Set<string>): string {
     }
   }
   closeList();
+  // Put the lifted code blocks back in place of their placeholders.
+  html = html.replace(/\u0000CODE(\d+)\u0000/g, (_m, i) => codeBlocks[Number(i)] || '');
   return html;
 }
 
@@ -186,18 +204,25 @@ function VariantToggle({
 // cohort with its counts, a capped variable list per cohort, and the
 // equivalent-by-code links across cohorts.
 
-function SearchCohortBlock({cohort, defaultOpen}: {cohort: SearchCohort; defaultOpen: boolean}) {
+// The variable list of one cohort, shown when its chip in the results row is
+// clicked (up to the per-cohort cap; the chip's count tells the full number).
+function CohortVariablesCard({cohort}: {cohort: SearchCohort}) {
   const shown = cohort.variables || [];
   return (
-    <details className="rounded-lg border border-base-300 bg-base-100" open={defaultOpen}>
-      <summary className="cursor-pointer select-none px-3 py-1.5 text-sm flex items-center gap-2">
+    <div className="rounded-lg border border-base-300 bg-base-100">
+      <div className="px-3 py-1.5 text-sm flex items-center gap-2">
         <span className="font-semibold">{cohort.cohort_id}</span>
         <span className="text-xs text-base-content/60">
           {cohort.matches} matching variable{cohort.matches === 1 ? '' : 's'}
           {(cohort.code_matches || 0) > 0 && <> ({cohort.code_matches} via standard code)</>}
-          {cohort.matches > shown.length && <> · showing {shown.length}</>}
+          {cohort.matches > shown.length && shown.length > 0 && <> · showing {shown.length}</>}
         </span>
-      </summary>
+      </div>
+      {shown.length === 0 && (
+        <div className="px-3 pb-2 text-xs text-base-content/50 italic">
+          No variable details were stored for this cohort in this search (full lists on the explore page).
+        </div>
+      )}
       <ul className="px-3 pb-2 space-y-1">
         {shown.map(v => (
           <li key={v.var_name} className="text-xs leading-snug">
@@ -226,12 +251,42 @@ function SearchCohortBlock({cohort, defaultOpen}: {cohort: SearchCohort; default
             )}
           </li>
         ))}
-        {cohort.matches > shown.length && (
+        {cohort.matches > shown.length && shown.length > 0 && (
           <li className="text-xs text-base-content/50 italic">+{cohort.matches - shown.length} more matching variables in this cohort (see the explore page for the full list)</li>
         )}
       </ul>
-    </details>
+    </div>
   );
+}
+
+// A run is an "expansion" when its term is not the FIRST term of its concept
+// (the planner groups equivalent terms under one concept). The panel then
+// reports only what the term ADDED beyond the concept's earlier terms,
+// mirroring how the results are presented to the model.
+type ExpansionInfo = {concept: string; known: number; newCohorts: SearchCohort[]};
+
+function classifyExpansions(runs: SearchRun[], concepts?: SearchConcept[]): (ExpansionInfo | null)[] {
+  const norm = (s: string) => (s || '').trim().toLowerCase();
+  const runByTerm = new Map<string, SearchRun>();
+  runs.forEach(r => {
+    if (!runByTerm.has(norm(r.term))) runByTerm.set(norm(r.term), r);
+  });
+  return runs.map(r => {
+    for (const c of concepts || []) {
+      const terms = (c.terms || []).map(norm);
+      const idx = terms.indexOf(norm(r.term));
+      if (idx === 0) return null; // the concept's main term: full presentation
+      if (idx > 0) {
+        const seen = new Set<string>();
+        for (const t of terms.slice(0, idx)) {
+          runByTerm.get(t)?.cohorts.forEach(x => seen.add(x.cohort_id));
+        }
+        const newCohorts = r.cohorts.filter(x => !seen.has(x.cohort_id));
+        return {concept: c.name || c.terms[0] || '', known: r.cohorts.length - newCohorts.length, newCohorts};
+      }
+    }
+    return null;
+  });
 }
 
 // `live` = the answer is still being written: the panel then sits ABOVE the
@@ -273,6 +328,84 @@ function IntersectionBlock({concepts, intersection}: {concepts?: SearchConcept[]
   );
 }
 
+// One search term's results: the header line, the clickable cohort chips
+// (click = show that cohort's top matching variables below), and — for an
+// expansion term — only the cohorts it newly discovered.
+function SearchRunBlock({run, expansion}: {run: SearchRun; expansion: ExpansionInfo | null}) {
+  const [openCohorts, setOpenCohorts] = useState<Record<string, boolean>>({});
+  const toggle = (id: string) => setOpenCohorts(prev => ({...prev, [id]: !prev[id]}));
+  const chipCohorts = expansion ? expansion.newCohorts : run.cohorts;
+  const openList = chipCohorts.filter(c => openCohorts[c.cohort_id]);
+  return (
+    <div className="space-y-1.5">
+      <div className="text-sm">
+        <span className="px-2 py-0.5 rounded-full bg-sky-100 border border-sky-300 text-sky-900 font-mono text-xs">{run.term}</span>
+        {expansion && (
+          <span className="ml-1 px-1.5 py-0.5 rounded bg-violet-100 border border-violet-300 text-violet-800 text-[10px] uppercase tracking-wide align-middle" title={`An equivalent term of the concept "${expansion.concept}": only the cohorts it newly discovered are listed`}>
+            equivalent term
+          </span>
+        )}{' '}
+        {run.total_matches === 0 ? (
+          <span className="text-base-content/60">no matching variables in any cohort</span>
+        ) : expansion ? (
+          expansion.newCohorts.length > 0 ? (
+            <span className="text-base-content/80">
+              matches <b>{run.cohorts.length}</b> cohort{run.cohorts.length === 1 ? '' : 's'} — {expansion.known} already matched
+              earlier terms of &ldquo;{expansion.concept}&rdquo;, <b>{expansion.newCohorts.length}</b> newly discovered:
+            </span>
+          ) : (
+            <span className="text-base-content/80">
+              matches <b>{run.cohorts.length}</b> cohort{run.cohorts.length === 1 ? '' : 's'}, all already matched by earlier terms of
+              &ldquo;{expansion.concept}&rdquo; — no new cohorts.
+            </span>
+          )
+        ) : (
+          <span className="text-base-content/80">
+            <b>{run.total_matches}</b> matching variable{run.total_matches === 1 ? '' : 's'} across <b>{run.cohorts.length}</b> cohort
+            {run.cohorts.length === 1 ? '' : 's'}:
+          </span>
+        )}
+      </div>
+      {run.codes && run.codes.length > 0 && (
+        <div className="text-xs text-violet-800">
+          includes variables matched via shared standard code{run.codes.length === 1 ? '' : 's'}: {run.codes.map(c => c.display).join('; ')}
+        </div>
+      )}
+      {chipCohorts.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 text-xs">
+          {chipCohorts.map(c => (
+            <button
+              key={c.cohort_id}
+              type="button"
+              onClick={() => toggle(c.cohort_id)}
+              className={`px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                openCohorts[c.cohort_id]
+                  ? 'bg-sky-100 border-sky-400 text-sky-900'
+                  : 'bg-base-100 border-base-300 hover:border-sky-400 hover:bg-sky-50'
+              }`}
+              title={
+                (c.code_matches ? `${c.text_matches || 0} by text + ${c.code_matches} via standard code. ` : '') +
+                'Click to show the top matching variables'
+              }
+            >
+              {c.cohort_id} <b>{c.matches}</b>
+              {(c.code_matches || 0) > 0 && (c.text_matches || 0) === 0 && <span className="text-violet-700"> code</span>}
+              <span className="ml-0.5 opacity-50">{openCohorts[c.cohort_id] ? '▾' : '▸'}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {openList.length > 0 && (
+        <div className="space-y-1">
+          {openList.map(c => (
+            <CohortVariablesCard key={c.cohort_id} cohort={c} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SearchResultsPanel({
   runs,
   concepts,
@@ -286,6 +419,7 @@ export function SearchResultsPanel({
 }) {
   const [open, setOpen] = useState(live);
   if (!runs || runs.length === 0) return null;
+  const expansions = classifyExpansions(runs, concepts);
   const hasIntersection = (concepts || []).filter(c => c && Object.keys(c.cohorts || {}).length > 0).length >= 2;
   const totalMatches = runs.reduce((sum, r) => sum + (r.total_matches || 0), 0);
   const cohortIds = new Set<string>();
@@ -333,51 +467,12 @@ export function SearchResultsPanel({
         )}
       </div>
       {hasIntersection && <IntersectionBlock concepts={concepts} intersection={intersection} />}
-      {runs.map(run => (
-        <div key={run.term} className="space-y-1.5">
-          <div className="text-sm">
-            <span className="px-2 py-0.5 rounded-full bg-sky-100 border border-sky-300 text-sky-900 font-mono text-xs">{run.term}</span>{' '}
-            {run.total_matches === 0 ? (
-              <span className="text-base-content/60">no matching variables in any cohort</span>
-            ) : (
-              <span className="text-base-content/80">
-                <b>{run.total_matches}</b> matching variable{run.total_matches === 1 ? '' : 's'} across <b>{run.cohorts.length}</b> cohort
-                {run.cohorts.length === 1 ? '' : 's'}:
-              </span>
-            )}
-          </div>
-          {run.codes && run.codes.length > 0 && (
-            <div className="text-xs text-violet-800">
-              includes variables matched via shared standard code{run.codes.length === 1 ? '' : 's'}: {run.codes.map(c => c.display).join('; ')}
-            </div>
-          )}
-          {run.cohorts.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 text-xs">
-              {run.cohorts.map(c => (
-                <span key={c.cohort_id} className="px-1.5 py-0.5 rounded bg-base-100 border border-base-300" title={c.code_matches ? `${c.text_matches || 0} by text + ${c.code_matches} via standard code` : undefined}>
-                  {c.cohort_id} <b>{c.matches}</b>
-                  {(c.code_matches || 0) > 0 && (c.text_matches || 0) === 0 && <span className="text-violet-700"> code</span>}
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="space-y-1">
-            {run.cohorts
-              .filter(c => c.variables.length > 0)
-              .map((c, i) => (
-                <SearchCohortBlock key={c.cohort_id} cohort={c} defaultOpen={i === 0 && runs.length === 1} />
-              ))}
-            {run.cohorts.some(c => c.matches > 0 && c.variables.length === 0) && (
-              <div className="text-xs text-base-content/50 italic">
-                Variable details are expanded for the top cohorts only; the counts above cover every matching cohort (full lists on the explore page).
-              </div>
-            )}
-          </div>
-        </div>
+      {runs.map((run, i) => (
+        <SearchRunBlock key={`${run.term}-${i}`} run={run} expansion={expansions[i]} />
       ))}
       <div className="flex items-center gap-3">
         <div className="text-[11px] text-base-content/50 flex-1">
-          Every matching cohort is listed; variable lists are capped per cohort — the counts show how many more there are.
+          Every matching cohort is listed — click a cohort to see its top matching variables (lists are capped per cohort; the counts show the full number). Equivalent terms list only the cohorts they newly discovered.
         </div>
         {!live && (
           <button className="btn btn-sm btn-ghost" onClick={() => setOpen(false)}>
@@ -427,6 +522,11 @@ export function MessageBubble({
         {!isUser && (
           <div className="flex items-center gap-3 mb-1.5">
             <span className="text-[11px] uppercase tracking-wide opacity-50 font-semibold">Assistant</span>
+            {message.clarify && (
+              <span className="px-4 py-1 rounded-full text-base font-semibold bg-pink-100 text-pink-900 border border-pink-300">
+                Request for disambiguation
+              </span>
+            )}
             {hasVariants && <VariantToggle variant={variant} onChange={pickVariant} />}
           </div>
         )}
