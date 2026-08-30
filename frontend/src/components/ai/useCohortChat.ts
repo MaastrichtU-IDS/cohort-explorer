@@ -3,7 +3,7 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {
   ArrivalPath,
   ChatMessage,
-  SearchRun,
+  SearchPayload,
   fetchChatConfig,
   planSearchWithRetry,
   saveConversation,
@@ -136,18 +136,19 @@ export function useCohortChat(): UseCohortChat {
       // Planning round: does this question involve finding cohorts/variables?
       // If so the model proposes terms, the server runs the catalog search, the
       // results appear in the search panel and go into both answers' context.
-      let searches: SearchRun[] = [];
+      let payload: SearchPayload | undefined;
       let searchTerms: string[] = [];
       if (!overrides?.contextOverride) {
         try {
           const plan = await planSearchWithRetry(content, selected, base);
           if (plan.needed && plan.searches.length > 0) {
-            searches = plan.searches;
+            payload = {runs: plan.searches, concepts: plan.concepts, intersection: plan.intersection};
             searchTerms = plan.terms;
             setMessages(prev => {
               const next = [...prev];
               const last = next[next.length - 1];
-              if (last && last.role === 'assistant') next[next.length - 1] = {...last, searches, searchTerms};
+              if (last && last.role === 'assistant')
+                next[next.length - 1] = {...last, searches: plan.searches, searchTerms, searchConcepts: plan.concepts, searchIntersection: plan.intersection};
               return next;
             });
           }
@@ -181,7 +182,7 @@ export function useCohortChat(): UseCohortChat {
           systemPrompt: overrides?.systemPrompt,
           contextOverride: overrides?.contextOverride,
           style,
-          searchResults: searches,
+          searchResults: payload,
           signal: controller.signal,
           onChunk: delta => {
             acc[style] += delta;
@@ -221,7 +222,7 @@ export function useCohortChat(): UseCohortChat {
           content: acc.detailed || acc.summary,
           summary: acc.summary,
           detailed: acc.detailed,
-          ...(searches.length > 0 ? {searches, searchTerms} : {})
+          ...(payload ? {searches: payload.runs, searchTerms, searchConcepts: payload.concepts, searchIntersection: payload.intersection} : {})
         };
         const transcript: ChatMessage[] = [...base, {role: 'user', content}, assistant];
         if (conversationIdRef.current) {

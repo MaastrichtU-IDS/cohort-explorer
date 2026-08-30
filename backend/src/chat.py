@@ -452,11 +452,18 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
         # results into both style variants, so the model and the user's search
         # panel see exactly the same thing.
         search_results = body.get("search_results")
-        if isinstance(search_results, list) and search_results:
+        runs_in, concepts_in, intersection_in = None, None, None
+        if isinstance(search_results, dict):
+            runs_in = search_results.get("runs")
+            concepts_in = search_results.get("concepts")
+            intersection_in = search_results.get("intersection")
+        elif isinstance(search_results, list):
+            runs_in = search_results
+        if isinstance(runs_in, list) and runs_in:
             try:
                 from src.chat_retrieval import format_search_context
 
-                section = format_search_context(search_results)
+                section = format_search_context(runs_in, concepts=concepts_in, intersection=intersection_in)
                 if section:
                     context = f"{context}\n\n{section}"
             except Exception as exc:
@@ -593,9 +600,10 @@ SEARCH_PLANNER_PROMPT = (
     "research cohorts and their variables. Given the user's question (and the conversation so "
     "far), decide whether answering involves IDENTIFYING COHORTS OR VARIABLES that meet some "
     "criteria (a topic, a measurement, a condition, a kind of data). If it does, the built-in "
-    "search tool MUST be used: propose 1 to 6 search terms. Questions like 'which studies have "
-    "X', 'which cohorts measure Y', 'is Z available anywhere' ALWAYS need searches. Terms should "
-    "be short (1-3 words) and concrete, and should COVER RELATED TERMINOLOGY: synonyms, common "
+    "search tool MUST be used. Questions like 'which studies have "
+    "X', 'which cohorts measure Y', 'is Z available anywhere' ALWAYS need searches.\n"
+    "GROUP YOUR TERMS BY CONCEPT: one concept per distinct criterion in the question, each with "
+    "1 to 4 short terms (1-3 words) covering its RELATED TERMINOLOGY: synonyms, common "
     "abbreviations and closely related measurements (kidney function: creatinine, eGFR, urea; "
     "ejection fraction: LVEF, ejection fraction). Expand medication CLASSES into the class name, "
     "its abbreviation and typical member drugs. Beta blockers matter a lot here: for them ALWAYS "
@@ -603,7 +611,8 @@ SEARCH_PLANNER_PROMPT = (
     "carvedilol). Other examples — RAS: ACE, ARB, sartan, ARNI; MRA: MRA, spironolactone, "
     "eplerenone. Prefer singular word forms ('beta blocker', not 'beta blockers'). "
     "German or other-language variable names are found via concept names, so English terms "
-    "suffice.\n"
+    "suffice. A question with several criteria ('beta blockers AND BNP AND an outcome') gets one "
+    "concept per criterion; the platform then computes which cohorts match every concept.\n"
     "COHORT NAMES: the catalog's cohort names are listed below. A word matching a cohort name or "
     "its first part (biostat -> BIOSTAT-CHF, aachen -> Aachen-HF, time -> TIME-CHF) refers to THE "
     "COHORT, never to a topic — NEVER turn it into search terms (no 'biostatistics'). For a "
@@ -611,7 +620,8 @@ SEARCH_PLANNER_PROMPT = (
     "under discussion in the conversation, so the results cover that cohort too.\n"
     "If the question needs no catalog search (small talk, platform how-to, questions about "
     "already-shown results), return an empty list.\n"
-    'Return STRICT JSON only: {"searches": ["term", ...]}'
+    'Return STRICT JSON only: {"concepts": [{"name": "<short label>", "terms": ["term", ...]}, ...]} '
+    '(empty list when no search is needed).'
 )
 
 
@@ -660,16 +670,29 @@ def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
         content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.M).strip()
         start, end = content.find("{"), content.rfind("}")
         parsed = json.loads(content[start:end + 1]) if start >= 0 else {}
-        terms = [str(t).strip() for t in (parsed.get("searches") or []) if str(t).strip()][:6]
+        concepts = []
+        for c in (parsed.get("concepts") or [])[:5]:
+            if isinstance(c, dict):
+                c_terms = [str(t).strip() for t in (c.get("terms") or []) if str(t).strip()][:4]
+                if c_terms:
+                    concepts.append({"name": str(c.get("name") or c_terms[0]).strip()[:60], "terms": c_terms})
+        if not concepts:
+            # older/simpler planner shape: a flat list, one unnamed concept (no
+            # intersection implied)
+            flat = [str(t).strip() for t in (parsed.get("searches") or []) if str(t).strip()][:6]
+            if flat:
+                concepts = [{"name": "", "terms": flat}]
+        terms = [t for c in concepts for t in c["terms"]][:10]
     except Exception as exc:
         logger.warning("Search planning failed: %s", exc)
-        terms = []
+        concepts, terms = [], []
     # Backstop: an identification-shaped question always searches, with terms
     # from the question itself if the planner offered none.
     if not terms and _IDENTIFICATION_RE.search(question):
         from src.chat_retrieval import extract_query_terms
 
         terms = extract_query_terms(question)[:6]
+        concepts = [{"name": "", "terms": terms}] if terms else []
         logger.info("Search planner returned no terms; identification backstop used: %s", terms)
     if not terms:
         return {"needed": False, "terms": [], "searches": []}
@@ -678,7 +701,30 @@ def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
     except Exception as exc:
         logger.warning("Chat search execution failed: %s", exc)
         return {"needed": False, "terms": terms, "searches": [], "error": str(exc)}
-    return {"needed": True, "terms": terms, "searches": runs, "model": settings.litellm_model}
+    # Per concept: the union of its terms' matching cohorts (count = max over
+    # the terms, so overlapping terms are not double-counted). Across concepts:
+    # the INTERSECTION - computed here, so the model never does set logic itself.
+    runs_by_term = {r["term"]: r for r in runs}
+    concept_summaries = []
+    for c in concepts:
+        cohort_counts: dict[str, int] = {}
+        for t in c["terms"]:
+            for coh in (runs_by_term.get(t) or {}).get("cohorts") or []:
+                cohort_counts[coh["cohort_id"]] = max(cohort_counts.get(coh["cohort_id"], 0), coh["matches"])
+        concept_summaries.append({"name": c["name"], "terms": c["terms"], "cohorts": cohort_counts})
+    named = [c for c in concept_summaries if c["cohorts"]]
+    intersection = None
+    if len(named) >= 2:
+        common = set.intersection(*(set(c["cohorts"]) for c in named))
+        intersection = sorted(
+            ({"cohort_id": cid,
+              "per_concept": {(c["name"] or " / ".join(c["terms"][:2])): c["cohorts"][cid] for c in named}}
+             for cid in common),
+            key=lambda row: -min(row["per_concept"].values()),
+        )
+    return {"needed": True, "terms": terms, "searches": runs,
+            "concepts": concept_summaries, "intersection": intersection,
+            "model": settings.litellm_model}
 
 
 # ---- Conversation starters ---------------------------------------------------

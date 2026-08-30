@@ -373,14 +373,34 @@ def run_chat_searches(
     return runs
 
 
-def format_search_context(runs: list[dict[str, Any]]) -> str:
-    """The search results as the model sees them, totals spelled out."""
+def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] = None,
+                          intersection: Optional[list] = None) -> str:
+    """The search results as the model sees them, totals spelled out. When the
+    searches were grouped into concepts, the cross-concept INTERSECTION is
+    stated up front - computed by the platform, never left to the model."""
     if not runs:
         return ""
     parts = [
         "CATALOG SEARCH RESULTS (from the platform's built-in search tool; the user sees these "
         "same results in a search panel above your answer):"
     ]
+    named = [c for c in (concepts or []) if isinstance(c, dict) and c.get("cohorts")]
+    if len(named) >= 2:
+        labels = [c.get("name") or " / ".join((c.get("terms") or [])[:2]) for c in named]
+        parts.append("CONCEPTS SEARCHED: " + "; ".join(
+            f"{label} (terms: {', '.join(c.get('terms') or [])}; {len(c['cohorts'])} cohorts match)"
+            for label, c in zip(labels, named)))
+        if intersection:
+            rows = []
+            for row in intersection:
+                counts = ", ".join(f"{k}: {v}" for k, v in (row.get("per_concept") or {}).items())
+                rows.append(f"{row.get('cohort_id')} ({counts})")
+            parts.append(
+                "COHORTS MATCHING EVERY CONCEPT - computed by the platform, this IS the answer to "
+                f"'which cohorts have all of these' ({len(intersection)} cohort(s)): " + "; ".join(rows))
+        else:
+            parts.append("COHORTS MATCHING EVERY CONCEPT: none - no cohort matches all of the "
+                         "concepts at once (each concept's own matches are below).")
     for run in runs:
         coh = run.get("cohorts") or []
         if not coh:
@@ -432,7 +452,12 @@ def format_search_context(runs: list[dict[str, Any]]) -> str:
         "which cohorts have something, name ALL the matching cohorts listed above with their "
         "counts — never drop any. When listing variables, name at most 10-15 per cohort and "
         "ALWAYS state the full counts explicitly (e.g. \"TIME-CHF has 57 matching variables; "
-        "here are 12\"), so the user knows there are more. NEVER shorten an answer by dropping "
+        "here are 12\"), so the user knows there are more. The per-cohort variable lists are "
+        "CAPPED and only the top cohorts are expanded - NEVER conclude that a cohort lacks "
+        "something because its variables are not shown; the 'ALL matching cohorts' line of each "
+        "search, and the COHORTS MATCHING EVERY CONCEPT line, are the complete truth. For "
+        "multi-criteria questions, answer from the COHORTS MATCHING EVERY CONCEPT line exactly "
+        "as given. NEVER shorten an answer by dropping "
         "cohorts: every cohort listed above must appear in your answer, even in the short/summary "
         "style — describe a few in detail if space is tight, then end with one line naming ALL the "
         "remaining matches and pointing at the search results for the details. Use the EQUIVALENT BY STANDARD CODE "

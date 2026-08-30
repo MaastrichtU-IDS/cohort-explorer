@@ -2,7 +2,7 @@
 
 // Small shared UI atoms for the experimental AI chat layouts.
 import React, {useEffect, useRef, useState} from 'react';
-import {ChatMessage, SearchCohort, SearchRun} from '@/components/ai/chatClient';
+import {ChatMessage, IntersectionRow, SearchCohort, SearchConcept, SearchRun} from '@/components/ai/chatClient';
 import EdaOverlayHost, {openEda} from '@/components/ai/EdaOverlay';
 import {apiUrl} from '@/utils';
 
@@ -63,6 +63,8 @@ function renderRich(text: string, validEda?: Set<string>): string {
     // Models sometimes emit non-breaking/narrow spaces (U+00A0, U+202F, U+2007);
     // a long list joined by those never wraps and runs out of its bubble.
     .replace(/[\u00A0\u202F\u2007]/g, ' ')
+    // literal <br> tags the model sometimes writes would otherwise render as text
+    .replace(/<br\s*\/?>/gi, ' ')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
@@ -236,9 +238,55 @@ function SearchCohortBlock({cohort, defaultOpen}: {cohort: SearchCohort; default
 // answer, expanded, so the user can watch what was searched. Once the answer is
 // done the panel is rendered BELOW it, collapsed to a summary rectangle with a
 // button to review the full results.
-export function SearchResultsPanel({runs, live = false}: {runs: SearchRun[]; live?: boolean}) {
+function IntersectionBlock({concepts, intersection}: {concepts?: SearchConcept[]; intersection?: IntersectionRow[] | null}) {
+  const named = (concepts || []).filter(c => c && Object.keys(c.cohorts || {}).length > 0);
+  if (named.length < 2) return null;
+  const labels = named.map(c => c.name || c.terms.slice(0, 2).join(' / '));
+  return (
+    <div className="rounded-lg border border-emerald-300 bg-emerald-50/70 px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wide font-semibold text-emerald-900/70">
+        Cohorts matching all criteria: {labels.join(' + ')}
+      </div>
+      {intersection && intersection.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5 mt-1.5">
+          {intersection.map(row => (
+            <span
+              key={row.cohort_id}
+              className="px-2 py-0.5 rounded bg-base-100 border border-emerald-300 text-sm"
+              title={Object.entries(row.per_concept)
+                .map(([k, v]) => `${k}: ${v} variable${v === 1 ? '' : 's'}`)
+                .join(' · ')}
+            >
+              <b>{row.cohort_id}</b>{' '}
+              <span className="text-xs text-base-content/60">
+                {Object.entries(row.per_concept).map(([k, v]) => `${k} ${v}`).join(' · ')}
+              </span>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="text-sm text-base-content/70 mt-1">
+          None - no cohort matches every criterion at once; the per-criterion matches are below.
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function SearchResultsPanel({
+  runs,
+  concepts,
+  intersection,
+  live = false
+}: {
+  runs: SearchRun[];
+  concepts?: SearchConcept[];
+  intersection?: IntersectionRow[] | null;
+  live?: boolean;
+}) {
   const [open, setOpen] = useState(live);
   if (!runs || runs.length === 0) return null;
+  const hasIntersection = (concepts || []).filter(c => c && Object.keys(c.cohorts || {}).length > 0).length >= 2;
   const totalMatches = runs.reduce((sum, r) => sum + (r.total_matches || 0), 0);
   const cohortIds = new Set<string>();
   runs.forEach(r => r.cohorts.forEach(c => cohortIds.add(c.cohort_id)));
@@ -250,11 +298,12 @@ export function SearchResultsPanel({runs, live = false}: {runs: SearchRun[]; liv
 
   if (!open) {
     return (
-      <div className="rounded-2xl border border-sky-200 bg-sky-50/60 px-4 py-3">
+      <div className="rounded-2xl border border-sky-200 bg-sky-50/60 px-4 py-3 space-y-2">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] uppercase tracking-wide font-semibold text-sky-900/70">
           <span aria-hidden>🔎</span> Catalog search
           <span className="normal-case tracking-normal text-sm font-semibold text-base-content/80">{headline}</span>
         </div>
+        {hasIntersection && <IntersectionBlock concepts={concepts} intersection={intersection} />}
         <div className="flex flex-wrap gap-1.5 mt-2">
           {runs.map(r => (
             <span key={r.term} className="px-2 py-0.5 rounded-full bg-sky-100 border border-sky-300 text-sky-900 font-mono text-xs">
@@ -283,6 +332,7 @@ export function SearchResultsPanel({runs, live = false}: {runs: SearchRun[]; liv
           </button>
         )}
       </div>
+      {hasIntersection && <IntersectionBlock concepts={concepts} intersection={intersection} />}
       {runs.map(run => (
         <div key={run.term} className="space-y-1.5">
           <div className="text-sm">
@@ -442,7 +492,7 @@ export function MessageList({messages, streaming}: {messages: ChatMessage[]; str
       {messages.map((m, i) => (
         <React.Fragment key={i}>
           {m.role === 'assistant' && m.searches && m.searches.length > 0 && streaming && i === messages.length - 1 && (
-            <SearchResultsPanel runs={m.searches} live />
+            <SearchResultsPanel runs={m.searches} concepts={m.searchConcepts} intersection={m.searchIntersection} live />
           )}
           {m.role === 'assistant' && m.searchError && (
             <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
@@ -451,7 +501,7 @@ export function MessageList({messages, streaming}: {messages: ChatMessage[]; str
           )}
           <MessageBubble message={m} streaming={streaming && i === messages.length - 1} validEda={validEda} />
           {m.role === 'assistant' && m.searches && m.searches.length > 0 && !(streaming && i === messages.length - 1) && (
-            <SearchResultsPanel runs={m.searches} />
+            <SearchResultsPanel runs={m.searches} concepts={m.searchConcepts} intersection={m.searchIntersection} />
           )}
         </React.Fragment>
       ))}

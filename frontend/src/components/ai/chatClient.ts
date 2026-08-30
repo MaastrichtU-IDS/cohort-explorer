@@ -15,6 +15,8 @@ export interface ChatMessage {
   // dedicated search panel above the assistant's answer.
   searches?: SearchRun[];
   searchTerms?: string[];
+  searchConcepts?: SearchConcept[];
+  searchIntersection?: IntersectionRow[] | null;
   // The planning round failed (endpoint error or server-side search error):
   // shown as a small note so failures are visible instead of silent.
   searchError?: string;
@@ -59,9 +61,33 @@ export interface SearchRun {
   cohorts: SearchCohort[];
 }
 
+// A concept groups the terms that stand for one criterion of the question
+// (e.g. "beta blockers" = beta blocker, bisoprolol, ...). When a question has
+// several criteria, the server also computes which cohorts match EVERY concept.
+export interface SearchConcept {
+  name: string;
+  terms: string[];
+  cohorts: Record<string, number>;
+}
+
+export interface IntersectionRow {
+  cohort_id: string;
+  per_concept: Record<string, number>;
+}
+
+export interface SearchPayload {
+  runs: SearchRun[];
+  concepts?: SearchConcept[];
+  intersection?: IntersectionRow[] | null;
+}
+
 // Planning round: the model proposes search terms for the question; the server
 // runs them through the catalog search and returns the structured results.
-export async function planSearch(question: string, cohortIds: string[], history: ChatMessage[]): Promise<{needed: boolean; terms: string[]; searches: SearchRun[]}> {
+export async function planSearch(
+  question: string,
+  cohortIds: string[],
+  history: ChatMessage[]
+): Promise<{needed: boolean; terms: string[]; searches: SearchRun[]; concepts?: SearchConcept[]; intersection?: IntersectionRow[] | null}> {
   const res = await fetch(`${apiUrl}/api/chat/plan-search`, {
     method: 'POST',
     credentials: 'include',
@@ -75,7 +101,13 @@ export async function planSearch(question: string, cohortIds: string[], history:
   if (!res.ok) throw new Error(`Search planning failed (${res.status})`);
   const j = await res.json();
   if (j.error) throw new Error(String(j.error));
-  return {needed: !!j.needed, terms: j.terms || [], searches: Array.isArray(j.searches) ? j.searches : []};
+  return {
+    needed: !!j.needed,
+    terms: j.terms || [],
+    searches: Array.isArray(j.searches) ? j.searches : [],
+    concepts: Array.isArray(j.concepts) ? j.concepts : undefined,
+    intersection: Array.isArray(j.intersection) ? j.intersection : null
+  };
 }
 
 // One retry on failure: the first call after a deploy can hit a cold model.
@@ -106,9 +138,10 @@ export interface SendOptions {
   // Answer style: the backend appends a matching instruction (short summary vs
   // in-depth). Omit for the default, unconstrained style.
   style?: AnswerStyle;
-  // Structured results of the planning round's catalog searches: injected into
-  // the model's context server-side, identical to what the search panel shows.
-  searchResults?: SearchRun[];
+  // Structured results of the planning round's catalog searches (runs plus the
+  // concept grouping and cross-concept intersection): injected into the model's
+  // context server-side, identical to what the search panel shows.
+  searchResults?: SearchPayload;
   onChunk: (delta: string) => void;
   signal?: AbortSignal;
 }
@@ -138,7 +171,7 @@ export async function streamChat(opts: SendOptions): Promise<void> {
       system_prompt: opts.systemPrompt || null,
       context: opts.contextOverride || null,
       style: opts.style || null,
-      search_results: opts.searchResults && opts.searchResults.length > 0 ? opts.searchResults : null
+      search_results: opts.searchResults && opts.searchResults.runs.length > 0 ? opts.searchResults : null
     })
   });
 
