@@ -646,6 +646,7 @@ async def get_compute_dcr_definition(
     research_question: str = None,
     merge_use_shuffled: bool = False,
     nocode_analyses: list[dict] = None,
+    include_merge_chain: bool = True,
 ) -> Any:
     # The creator must never be excluded from their own DCR.
     excluded_data_owners = [e for e in (excluded_data_owners or []) if e != user["email"]]
@@ -673,6 +674,17 @@ async def get_compute_dcr_definition(
     all_cohorts = get_cohorts_from_cache(admin_email)
     metadata_time = datetime.now() - metadata_start
     logging.info(f"Retrieved cohorts metadata from cache in {metadata_time.total_seconds():.3f}s")
+
+    # Merge/pool chain opt-out (wizard question "Should the DCR include compute
+    # nodes to merge and pool the results?"). A single-cohort DCR is always
+    # treated as "no": there is nothing to pool. When the chain is off the
+    # mapping-file nodes are omitted too - they exist only to feed the merge.
+    if len(cohorts_request.get("cohorts", {})) < 2:
+        include_merge_chain = False
+    if not include_merge_chain:
+        selected_mapping_files = []
+        include_mapping_upload_slot = False
+        merge_use_shuffled = False
 
     # Pre-compute mapping file info for visualization scripts
     # This needs to be done before the cohort loop so we can pass it to visualization_script
@@ -1122,7 +1134,7 @@ async def get_compute_dcr_definition(
         merge_warnings.append(msg)
         merge_use_shuffled = False
     studies_info = []
-    for cohort_id in ([] if nocode_room else list(selected_cohorts.keys())):
+    for cohort_id in ([] if (nocode_room or not include_merge_chain) else list(selected_cohorts.keys())):
         raw_data_node_id = cohort_id.replace(" ", "-")
         metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
 
@@ -1331,6 +1343,10 @@ async def get_compute_dcr_definition(
         )
     elif nocode_room:
         logging.info("No-code room: merge/pooling chain intentionally not added")
+    elif not include_merge_chain:
+        # User answered "no" in the wizard (or selected a single cohort, which is
+        # treated as "no"). Deliberate, so no warning.
+        logging.info("Merge/pooling chain not added: user opted out or single cohort selected")
     else:
         msg = ("Merge / pooling chain NOT added: no poolable studies"
                + (" (none of the selected cohorts has a shuffled sample)" if merge_use_shuffled else "")
@@ -1412,6 +1428,7 @@ async def create_live_compute_dcr(
     research_question: str = None,
     merge_use_shuffled: bool = False,
     nocode_analyses: list[dict] = None,
+    include_merge_chain: bool = True,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -1435,7 +1452,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, nocode_node_names = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses)
+    dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, nocode_node_names = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1810,6 +1827,10 @@ async def api_create_live_compute_dcr(
     # full cohort data.
     merge_use_shuffled = cohorts_request.get("merge_use_shuffled", False)
 
+    # Whether to add the merge/pool compute chain at all (wizard question).
+    # Defaults to True; a single-cohort request is forced to False downstream.
+    include_merge_chain = bool(cohorts_request.get("include_merge_chain", True))
+
     # No-code DCR analysis specs from the /nocode-dcr wizard, if any.
     nocode_analyses = cohorts_request.get("nocode_analyses", []) or []
 
@@ -1853,12 +1874,13 @@ async def api_create_live_compute_dcr(
         include_shuffled_samples=include_shuffled_samples,
         selected_mapping_files=[m.get("filename") for m in (selected_mapping_files or []) if isinstance(m, dict)],
         include_mapping_upload_slot=include_mapping_upload_slot,
+        include_merge_chain=include_merge_chain,
         participants=participants_for_log,
     )
 
     # Create and publish the live compute DCR
     try:
-        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses)
+        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain)
         duration_ms = int((datetime.now() - publish_started_at).total_seconds() * 1000)
         log_dcr_event(
             "dcr_publish_succeeded",
@@ -1942,7 +1964,7 @@ async def api_get_compute_dcr_definition(
         include_shuffled_samples=include_shuffled_samples,
     )
 
-    dcr_definition, _dcr_title, _participants, _mapping_nodes, _merge_warnings, _nocode = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name)
+    dcr_definition, _dcr_title, _participants, _mapping_nodes, _merge_warnings, _nocode = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name, include_merge_chain=bool(cohorts_request.get("include_merge_chain", True)))
 
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }

@@ -50,10 +50,15 @@ export function Nav() {
   const [availableMappingFiles, setAvailableMappingFiles] = useState<any[]>([]);
   const [selectedMappingFiles, setSelectedMappingFiles] = useState<Record<string, boolean>>({});
   const [loadingMappingFiles, setLoadingMappingFiles] = useState(false);
-  const [includeMappingUploadSlot, setIncludeMappingUploadSlot] = useState(false);
+  // Wizard question: should the DCR include the merge/pool compute nodes?
+  // Default yes. Only asked when 2+ cohorts are selected; with fewer than 2
+  // cohorts the question is hidden and treated as "no" (nothing to pool).
+  const [includeMergeChain, setIncludeMergeChain] = useState(true);
   // Whether the merge/pool node should combine the shuffled samples (true) instead
   // of the full cohort data (false, default).
   const [mergeUseShuffled, setMergeUseShuffled] = useState(false);
+  const mergeChainAvailable = Object.keys(dataCleanRoom?.cohorts || {}).length >= 2;
+  const mergeChainOn = mergeChainAvailable && includeMergeChain;
   // True when at least one selected cohort still has its shuffled sample enabled
   // (Data Samples step). Pooling shuffled samples is impossible without any.
   const anyShuffledEnabled = Object.values(shuffledSampleSettings).some(v => v !== false);
@@ -99,7 +104,7 @@ export function Nav() {
     { id: 'participants', title: 'Participants' },
     { id: 'research-goals', title: 'Research Goals' },
     { id: 'data-samples', title: 'Data Samples' },
-    { id: 'mapping', title: 'Mapping Files' },
+    { id: 'merging', title: 'Merging & Pooling' },
     { id: 'review', title: 'Review & Create' },
   ];
 
@@ -257,7 +262,7 @@ export function Nav() {
     setCohortsWithoutShuffledSamples([]);
     setAvailableMappingFiles([]);
     setSelectedMappingFiles({});
-    setIncludeMappingUploadSlot(false);
+    setIncludeMergeChain(true);
     setMergeUseShuffled(false);
     setPublishedDCR(null);
     setDcrCreated(false);
@@ -471,11 +476,13 @@ export function Nav() {
           dcr_name: dcrName || defaultDcrName,
           research_question: researchQuestion,
           session_id: sessionIdRef.current,
-          selected_mapping_files: availableMappingFiles
-            .filter(m => selectedMappingFiles[m.filename] !== false)
-            .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name, cohorts: m.cohorts })),
-          include_mapping_upload_slot: includeMappingUploadSlot,
-          merge_use_shuffled: mergeUseShuffled
+          include_merge_chain: mergeChainOn,
+          selected_mapping_files: mergeChainOn
+            ? availableMappingFiles
+                .filter(m => selectedMappingFiles[m.filename] !== false)
+                .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name, cohorts: m.cohorts }))
+            : [],
+          merge_use_shuffled: mergeChainOn ? mergeUseShuffled : false
         })
       });
       
@@ -606,7 +613,8 @@ export function Nav() {
     setManuallyIncludedOwners([]);
     setAvailableMappingFiles([]);
     setSelectedMappingFiles({});
-    setIncludeMappingUploadSlot(false);
+    setIncludeMergeChain(true);
+    setMergeUseShuffled(false);
     setWizardStep(0);
   };
 
@@ -1165,98 +1173,129 @@ export function Nav() {
                     </>
                   )}
                   
-                  {/* Step 4: Mapping Files */}
+                  {/* Step 4: Merging & Pooling */}
                   {wizardStep === 4 && (
                     <>
-                      <h3 className="font-bold text-lg mb-4">Step 5: Mapping Files (Optional)</h3>
-                      {loadingMappingFiles ? (
-                        <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
-                      ) : availableMappingFiles.length > 0 ? (
-                        <>
-                          <p className="text-sm text-base-content/70 mb-4">Select which mapping files to include in the DCR (optional):</p>
-                          <div className="space-y-2">
-                            {availableMappingFiles.map((mapping) => (
-                              <div key={mapping.filename} className="form-control">
-                                <label className="label cursor-pointer justify-start gap-3">
-                                  <input 
-                                    type="checkbox"
-                                    checked={selectedMappingFiles[mapping.filename] ?? true}
-                                    onChange={(e) => {
-                                      setSelectedMappingFiles({...selectedMappingFiles, [mapping.filename]: e.target.checked});
-                                    }}
-                                    className="checkbox checkbox-primary"
-                                  />
-                                  <span className="label-text text-base">{mapping.display_name}</span>
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      ) : Object.keys(dataCleanRoom?.cohorts || {}).length < 2 ? (
-                        <p className="text-sm text-base-content/50 italic">Select at least 2 cohorts to see available mapping files.</p>
-                      ) : (
-                        <p className="text-sm text-base-content/50 italic">No mapping files available for the selected cohorts.</p>
-                      )}
-                      
-                      <div className="form-control mt-6">
-                        <label className="label cursor-pointer justify-start gap-3">
-                          <input 
-                            type="checkbox"
-                            checked={includeMappingUploadSlot}
-                            onChange={(e) => setIncludeMappingUploadSlot(e.target.checked)}
-                            className="checkbox checkbox-primary"
-                          />
-                          <span className="label-text text-base">Include a file upload slot for cross-study mapping</span>
-                        </label>
-                      </div>
-
-                      {/* Merge/pool data source: full cohort data vs shuffled samples */}
-                      <div className="mt-8 pt-4 border-t">
-                        <p className="text-sm font-semibold mb-1">Merge / pool data source</p>
-                        <p className="text-xs text-base-content/60 mb-3">
-                          Choose whether the merge-datasets (pooling) step combines the full cohort data or the shuffled samples.
+                      <h3 className="font-bold text-lg mb-4">Step 5: Merging & Pooling</h3>
+                      {!mergeChainAvailable ? (
+                        <p className="text-sm text-base-content/60 italic">
+                          Merging and pooling applies only when 2 or more cohorts are selected. This DCR will be created without merge/pool compute nodes.
                         </p>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                              !mergeUseShuffled
-                                ? 'bg-primary text-primary-content'
-                                : 'bg-base-200 text-base-content/70 hover:bg-base-300'
-                            }`}
-                            onClick={() => setMergeUseShuffled(false)}
-                          >
-                            Full cohort data
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!anyShuffledEnabled}
-                            title={anyShuffledEnabled ? undefined : 'Enable shuffled samples for at least one cohort (Data Samples step) to pool them'}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                              mergeUseShuffled
-                                ? 'bg-primary text-primary-content'
-                                : 'bg-base-200 text-base-content/70 hover:bg-base-300'
-                            } disabled:opacity-40 disabled:cursor-not-allowed`}
-                            onClick={() => setMergeUseShuffled(true)}
-                          >
-                            Shuffled samples
-                          </button>
-                        </div>
-                        {!anyShuffledEnabled && (
-                          <p className="text-xs text-base-content/60 mt-2">
-                            No shuffled samples are included in this DCR, so the merge pools the full cohort data.
-                          </p>
-                        )}
-                        {mergeUseShuffled && (
-                          <p className="text-xs text-warning mt-2">
-                            Make sure shuffled samples are enabled (Data Samples step) for the cohorts you want to pool; cohorts without a shuffled sample will be excluded from the merge.
-                          </p>
-                        )}
-                      </div>
+                      ) : (
+                        <>
+                          <p className="text-sm font-semibold mb-1">Should the DCR include compute nodes to merge and pool the results?</p>
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              type="button"
+                              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                includeMergeChain
+                                  ? 'bg-primary text-primary-content'
+                                  : 'bg-base-200 text-base-content/70 hover:bg-base-300'
+                              }`}
+                              onClick={() => setIncludeMergeChain(true)}
+                            >
+                              Yes
+                            </button>
+                            <button
+                              type="button"
+                              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                !includeMergeChain
+                                  ? 'bg-primary text-primary-content'
+                                  : 'bg-base-200 text-base-content/70 hover:bg-base-300'
+                              }`}
+                              onClick={() => setIncludeMergeChain(false)}
+                            >
+                              No
+                            </button>
+                          </div>
 
-                      <p className="text-xs text-base-content/50 mt-4 italic">
-                        Missing a mapping file? Generate it from the <Link href="/mapping" className="underline hover:text-primary">Mapping page</Link>.
-                      </p>
+                          {includeMergeChain ? (
+                            <>
+                              {/* Mapping files feeding the merge/pool step */}
+                              <div className="mt-6 pt-4 border-t">
+                                <p className="text-sm font-semibold mb-1">Mapping files</p>
+                                {loadingMappingFiles ? (
+                                  <p className="text-sm text-base-content/70">Checking for available mapping files...</p>
+                                ) : availableMappingFiles.length > 0 ? (
+                                  <>
+                                    <p className="text-xs text-base-content/60 mb-3">Select which mapping files the merge/pool step should use:</p>
+                                    <div className="space-y-2">
+                                      {availableMappingFiles.map((mapping) => (
+                                        <div key={mapping.filename} className="form-control">
+                                          <label className="label cursor-pointer justify-start gap-3">
+                                            <input
+                                              type="checkbox"
+                                              checked={selectedMappingFiles[mapping.filename] ?? true}
+                                              onChange={(e) => {
+                                                setSelectedMappingFiles({...selectedMappingFiles, [mapping.filename]: e.target.checked});
+                                              }}
+                                              className="checkbox checkbox-primary"
+                                            />
+                                            <span className="label-text text-base">{mapping.display_name}</span>
+                                          </label>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <p className="text-sm text-base-content/50 italic">No mapping files available for the selected cohorts.</p>
+                                )}
+                                <p className="text-xs text-base-content/50 mt-3 italic">
+                                  Missing a mapping file? Generate it from the <Link href="/mapping" className="underline hover:text-primary">Mapping page</Link>.
+                                </p>
+                              </div>
+
+                              {/* Merge/pool data source: full cohort data vs shuffled samples */}
+                              <div className="mt-6 pt-4 border-t">
+                                <p className="text-sm font-semibold mb-1">Merge / pool data source</p>
+                                <p className="text-xs text-base-content/60 mb-3">
+                                  Choose whether the merge-datasets (pooling) step combines the full cohort data or the shuffled samples.
+                                </p>
+                                <div className="flex gap-2">
+                                  <button
+                                    type="button"
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                      !mergeUseShuffled
+                                        ? 'bg-primary text-primary-content'
+                                        : 'bg-base-200 text-base-content/70 hover:bg-base-300'
+                                    }`}
+                                    onClick={() => setMergeUseShuffled(false)}
+                                  >
+                                    Full cohort data
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={!anyShuffledEnabled}
+                                    title={anyShuffledEnabled ? undefined : 'Enable shuffled samples for at least one cohort (Data Samples step) to pool them'}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                      mergeUseShuffled
+                                        ? 'bg-primary text-primary-content'
+                                        : 'bg-base-200 text-base-content/70 hover:bg-base-300'
+                                    } disabled:opacity-40 disabled:cursor-not-allowed`}
+                                    onClick={() => setMergeUseShuffled(true)}
+                                  >
+                                    Shuffled samples
+                                  </button>
+                                </div>
+                                {!anyShuffledEnabled && (
+                                  <p className="text-xs text-base-content/60 mt-2">
+                                    No shuffled samples are included in this DCR, so the merge pools the full cohort data.
+                                  </p>
+                                )}
+                                {mergeUseShuffled && (
+                                  <p className="text-xs text-warning mt-2">
+                                    Make sure shuffled samples are enabled (Data Samples step) for the cohorts you want to pool; cohorts without a shuffled sample will be excluded from the merge.
+                                  </p>
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-sm text-base-content/60 mt-4">
+                              The DCR will be created without merge/pool compute nodes, so no mapping files are needed.
+                            </p>
+                          )}
+                        </>
+                      )}
                     </>
                   )}
                   
@@ -1286,12 +1325,18 @@ export function Nav() {
                           <strong>Shuffled Samples:</strong> {Object.entries(shuffledSampleSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None'}
                         </div>
                         <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Mapping Files:</strong> {availableMappingFiles.filter(m => selectedMappingFiles[m.filename] !== false).map(m => m.display_name).join(', ') || 'None'}
-                          {includeMappingUploadSlot && ' + Upload slot'}
+                          <strong>Merge / pool nodes:</strong> {mergeChainOn ? 'Included' : 'Not included'}
                         </div>
-                        <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Merge / pool data source:</strong> {mergeUseShuffled ? 'Shuffled samples' : 'Full cohorts data'}
-                        </div>
+                        {mergeChainOn && (
+                          <div className="p-3 bg-base-200 rounded-lg">
+                            <strong>Mapping Files:</strong> {availableMappingFiles.filter(m => selectedMappingFiles[m.filename] !== false).map(m => m.display_name).join(', ') || 'None'}
+                          </div>
+                        )}
+                        {mergeChainOn && (
+                          <div className="p-3 bg-base-200 rounded-lg">
+                            <strong>Merge / pool data source:</strong> {mergeUseShuffled ? 'Shuffled samples' : 'Full cohorts data'}
+                          </div>
+                        )}
                       </div>
                       
                       <div className="flex flex-wrap gap-2 mt-6">
