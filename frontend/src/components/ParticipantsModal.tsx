@@ -6,8 +6,9 @@ export type DataOwner = { email: string; cohorts: string[] };
 
 // Data owners are INCLUDED by default: whenever an owner email appears for the
 // first time it is added to the included list. Owners the user unticks stay
-// unticked (they have been seen already). Shared by every participants list
-// (flexible DCR wizard, no-code DCR wizard, provision/upload flow).
+// unticked (they have been seen already). Used by the no-code DCR wizard and
+// the provision/upload flow; the analysis-DCR wizard (Nav.tsx) instead
+// EXCLUDES all owners by default and does not use this hook.
 export function useOwnersIncludedByDefault(
   dataOwners: DataOwner[],
   included: string[],

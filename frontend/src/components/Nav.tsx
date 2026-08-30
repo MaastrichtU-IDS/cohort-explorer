@@ -8,7 +8,7 @@ import NocodeWizard from '@/components/nocode/NocodeWizard';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon, SparklesIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
-import {ParticipantsModal, useOwnersIncludedByDefault} from '@/components/ParticipantsModal';
+import {ParticipantsModal} from '@/components/ParticipantsModal';
 
 // Not used: Next Auth.js: https://authjs.dev/getting-started/providers/oauth-tutorial
 // Auth0: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/auth0.ts
@@ -784,10 +784,16 @@ export function Nav() {
     return [];
   }, [participantsPreview]);
 
-  // Data owners are included by default (see useOwnersIncludedByDefault); the
-  // user can untick them in the participants modal. Whoever is not in
-  // manuallyIncludedOwners is sent as excluded.
-  useOwnersIncludedByDefault(dataOwners, manuallyIncludedOwners, setManuallyIncludedOwners);
+  // In the analysis-DCR wizard data owners are EXCLUDED by default (boxes
+  // unchecked); the user ticks the ones to include. Whoever is not in
+  // manuallyIncludedOwners is sent as excluded. The one exception is the
+  // creator: the backend never excludes them from their own DCR, so their own
+  // row is kept ticked to match what actually happens.
+  useEffect(() => {
+    if (userEmail && dataOwners.some(o => o.email === userEmail) && !manuallyIncludedOwners.includes(userEmail)) {
+      setManuallyIncludedOwners([...manuallyIncludedOwners, userEmail]);
+    }
+  }, [dataOwners, userEmail, manuallyIncludedOwners]);
   const excludedDataOwners = useMemo(
     () => dataOwners.map(o => o.email).filter(e => !manuallyIncludedOwners.includes(e)),
     [dataOwners, manuallyIncludedOwners]
