@@ -76,10 +76,16 @@ def _ensure_schema() -> None:
                 user_message_count        INTEGER,
                 assistant_message_count   INTEGER,
                 user_chars                INTEGER,
-                assistant_chars           INTEGER
+                assistant_chars           INTEGER,
+                summary_clicked           INTEGER DEFAULT 0
             )
             """
         )
+        # Databases created before the column existed: add it in place.
+        try:
+            conn.execute("ALTER TABLE conversations ADD COLUMN summary_clicked INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
         conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_user ON conversations(user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_created ON conversations(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_path ON conversations(arrival_path)")
@@ -140,6 +146,7 @@ def upsert_conversation(
     entry_context: Any,
     messages: list[dict],
     started_at: Optional[str],
+    summary_clicked: bool = False,
 ) -> None:
     """Insert or update a conversation, recomputing derived metrics.
 
@@ -172,8 +179,8 @@ def upsert_conversation(
                 id, user_id, arrival_path, model, entry_context, messages,
                 started_at, created_at, updated_at, duration_seconds,
                 message_count, user_message_count, assistant_message_count,
-                user_chars, assistant_chars
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                user_chars, assistant_chars, summary_clicked
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 arrival_path            = excluded.arrival_path,
                 model                   = excluded.model,
@@ -186,7 +193,8 @@ def upsert_conversation(
                 user_message_count      = excluded.user_message_count,
                 assistant_message_count = excluded.assistant_message_count,
                 user_chars              = excluded.user_chars,
-                assistant_chars         = excluded.assistant_chars
+                assistant_chars         = excluded.assistant_chars,
+                summary_clicked         = MAX(conversations.summary_clicked, excluded.summary_clicked)
             """,
             (
                 conv_id,
@@ -204,6 +212,9 @@ def upsert_conversation(
                 metrics["assistant_message_count"],
                 metrics["user_chars"],
                 metrics["assistant_chars"],
+                # Once true it stays true (MAX in the upsert): a later save
+                # without clicks must not erase that the summary was viewed.
+                1 if summary_clicked or any(m.get("summaryViewed") for m in (messages or [])) else 0,
             ),
         )
 
@@ -213,7 +224,7 @@ def upsert_conversation(
 _SUMMARY_COLS = (
     "id, user_id, arrival_path, model, started_at, created_at, updated_at, "
     "duration_seconds, message_count, user_message_count, assistant_message_count, "
-    "user_chars, assistant_chars, entry_context, messages"
+    "user_chars, assistant_chars, summary_clicked, entry_context, messages"
 )
 
 
@@ -244,6 +255,7 @@ def _row_to_summary(row: sqlite3.Row) -> dict:
         "assistant_message_count": row["assistant_message_count"],
         "user_chars": row["user_chars"],
         "assistant_chars": row["assistant_chars"],
+        "summary_clicked": bool(row["summary_clicked"]),
         "preview": preview,
         "entry_context": entry_context,
     }

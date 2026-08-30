@@ -1303,6 +1303,7 @@ def save_conversation(body: dict[str, Any], user: Any = Depends(get_current_user
             arrival_path=_clean(body.get("arrival_path")) or "chat",
             model=_clean(body.get("model")) or settings.litellm_model,
             entry_context=body.get("entry_context") or {},
+            summary_clicked=bool(body.get("summary_clicked")),
             messages=messages,
             started_at=_clean(body.get("started_at")) or None,
         )

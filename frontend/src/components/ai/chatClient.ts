@@ -17,6 +17,9 @@ export interface ChatMessage {
   searchTerms?: string[];
   searchConcepts?: SearchConcept[];
   searchIntersection?: IntersectionRow[] | null;
+  // The user opened this answer's Summary tab at least once (Detailed is the
+  // default view); stored with the conversation history.
+  summaryViewed?: boolean;
   // The planning round failed (endpoint error or server-side search error):
   // shown as a small note so failures are visible instead of silent.
   searchError?: string;
@@ -500,7 +503,8 @@ export async function saveConversation(payload: SaveConversationPayload): Promis
         arrival_path: payload.arrivalPath,
         entry_context: payload.entryContext || {},
         model: payload.model || null,
-        messages: payload.messages
+        messages: payload.messages,
+        summary_clicked: payload.messages.some(m => (m as ChatMessage).summaryViewed) || false
       })
     });
   } catch (err) {

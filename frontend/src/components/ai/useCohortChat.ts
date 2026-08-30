@@ -48,6 +48,7 @@ export interface UseCohortChat {
   configLoaded: boolean;
   error: string | null;
   send: (text?: string, overrides?: SendOverrides) => Promise<void>;
+  markSummaryViewed: (index: number) => void;
   stop: () => void;
   reset: () => void;
 }
@@ -90,6 +91,31 @@ export function useCohortChat(): UseCohortChat {
     abortRef.current = null;
     setIsStreaming(false);
   }, []);
+
+  // The user opened an answer's Summary tab: record it on the message and
+  // re-save the conversation so the history carries the fact.
+  const markSummaryViewed = useCallback(
+    (index: number) => {
+      setMessages(prev => {
+        const target = prev[index];
+        if (!target || target.role !== 'assistant' || target.summaryViewed) return prev;
+        const next = [...prev];
+        next[index] = {...target, summaryViewed: true};
+        if (conversationIdRef.current) {
+          void saveConversation({
+            conversationId: conversationIdRef.current,
+            startedAt: startedAtRef.current || new Date().toISOString(),
+            arrivalPath: arrivalPathRef.current,
+            entryContext: entryContextRef.current,
+            model,
+            messages: next
+          });
+        }
+        return next;
+      });
+    },
+    [model]
+  );
 
   const reset = useCallback(() => {
     stop();
@@ -309,6 +335,7 @@ export function useCohortChat(): UseCohortChat {
     configLoaded,
     error,
     send,
+    markSummaryViewed,
     stop,
     reset
   };

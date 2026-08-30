@@ -174,8 +174,8 @@ function VariantToggle({
   );
   return (
     <span className="inline-flex gap-1.5">
-      {btn('summary', 'Summary')}
       {btn('detailed', 'Detailed')}
+      {btn('summary', 'Summary')}
     </span>
   );
 }
@@ -389,11 +389,25 @@ export function SearchResultsPanel({
   );
 }
 
-export function MessageBubble({message, streaming, validEda}: {message: ChatMessage; streaming?: boolean; validEda?: Set<string>}) {
+export function MessageBubble({
+  message,
+  streaming,
+  validEda,
+  onSummaryViewed
+}: {
+  message: ChatMessage;
+  streaming?: boolean;
+  validEda?: Set<string>;
+  onSummaryViewed?: () => void;
+}) {
   const isUser = message.role === 'user';
-  // Assistant turns carry two answer variants (short summary / in-depth);
-  // default to the summary and let the user toggle.
-  const [variant, setVariant] = useState<'summary' | 'detailed'>('summary');
+  // Assistant turns carry two answer variants; the in-depth one is the
+  // default view and the user can switch to the short summary.
+  const [variant, setVariant] = useState<'summary' | 'detailed'>('detailed');
+  const pickVariant = (v: 'summary' | 'detailed') => {
+    setVariant(v);
+    if (v === 'summary') onSummaryViewed?.();
+  };
   if (message.role === 'system') return null;
 
   const hasVariants = !isUser && (message.summary !== undefined || message.detailed !== undefined);
@@ -413,7 +427,7 @@ export function MessageBubble({message, streaming, validEda}: {message: ChatMess
         {!isUser && (
           <div className="flex items-center gap-3 mb-1.5">
             <span className="text-[11px] uppercase tracking-wide opacity-50 font-semibold">Assistant</span>
-            {hasVariants && <VariantToggle variant={variant} onChange={setVariant} />}
+            {hasVariants && <VariantToggle variant={variant} onChange={pickVariant} />}
           </div>
         )}
         {shown ? (
@@ -439,7 +453,7 @@ export function MessageBubble({message, streaming, validEda}: {message: ChatMess
             doesn't require scrolling up. */}
         {hasVariants && shown.length > 700 && !streaming && (
           <div className="mt-3 pt-2 border-t border-base-200">
-            <VariantToggle variant={variant} onChange={setVariant} />
+            <VariantToggle variant={variant} onChange={pickVariant} />
           </div>
         )}
       </div>
@@ -447,7 +461,15 @@ export function MessageBubble({message, streaming, validEda}: {message: ChatMess
   );
 }
 
-export function MessageList({messages, streaming}: {messages: ChatMessage[]; streaming: boolean}) {
+export function MessageList({
+  messages,
+  streaming,
+  onSummaryViewed
+}: {
+  messages: ChatMessage[];
+  streaming: boolean;
+  onSummaryViewed?: (index: number) => void;
+}) {
   const endRef = useRef<HTMLDivElement>(null);
   // Follow the stream only while the reader is already at the bottom. Scrolling
   // up (say, to study the search panel mid-answer) sets nearBottom false and
@@ -499,7 +521,12 @@ export function MessageList({messages, streaming}: {messages: ChatMessage[]; str
               The assistant&rsquo;s catalog search could not run ({m.searchError}); the answer relies on the basic context only.
             </div>
           )}
-          <MessageBubble message={m} streaming={streaming && i === messages.length - 1} validEda={validEda} />
+          <MessageBubble
+            message={m}
+            streaming={streaming && i === messages.length - 1}
+            validEda={validEda}
+            onSummaryViewed={onSummaryViewed ? () => onSummaryViewed(i) : undefined}
+          />
           {m.role === 'assistant' && m.searches && m.searches.length > 0 && !(streaming && i === messages.length - 1) && (
             <SearchResultsPanel runs={m.searches} concepts={m.searchConcepts} intersection={m.searchIntersection} />
           )}
