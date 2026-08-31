@@ -48,7 +48,7 @@ MAX_CONTEXT_CHARS = 120_000
 PLATFORM_OVERVIEW = (
     "About the iCARE4CVD Cohort Explorer platform:\n"
     "- The Explorer's main (explore) page lets analysts discover cardiovascular studies/cohorts "
-    "of interest and the variables each has uploaded (its metadata).\n"
+    "of interest and each cohort's variables (its metadata / data dictionary in the catalog).\n"
     "- The explore page has a proper SEARCH BOX. It offers exactly two settings: WHERE to search "
     "(cohorts metadata, variables information, or all) and the MODE (OR search, AND search, or "
     "exact phrase). It searches variable names, labels, concept names and codes. There are NO "
@@ -100,13 +100,16 @@ SYSTEM_PROMPT = (
     "name ALL the matching cohorts with their counts, list at most 10-15 variables per cohort, "
     "always state the full match counts so it is clear there are more, and use the "
     "equivalent-by-standard-code links to point out cross-cohort correspondences. "
-    "IMPORTANT: focus your search, comparisons and suggestions on cohorts that "
-    "have variables (metadata) uploaded to the Explorer — these are the only "
-    "cohorts whose data can actually be explored here. Cohorts with 0 uploaded "
-    "variables should not be suggested as places to find data; mention them only "
-    "if the user asks about them directly. If the context does not contain the "
-    "answer, say so plainly and suggest cohorts WITH uploaded variables the user "
-    "could select or ask about instead. Be concise, use short paragraphs and "
+    "IMPORTANT: focus your search, comparisons and suggestions on cohorts whose "
+    "variable metadata is in the catalog — these are the only cohorts whose data "
+    "can actually be explored here. Cohorts with no variable metadata should not "
+    "be suggested as places to find data; mention them only if the user asks "
+    "about them directly. If the context does not contain the answer, say so "
+    "plainly and suggest cohorts that do have variable metadata instead. "
+    "TERMINOLOGY: never call variables 'uploaded' (no 'uploaded variables', no "
+    "'uploaded-variable cohorts') — a cohort either has its metadata in the "
+    "catalog or it does not; say 'variables' or 'variables in the catalog'. "
+    "Be concise, use short paragraphs and "
     "bullet points, reference cohorts and variables by name, and never invent "
     "variables, values, or statistics that are not present in the context."
 )
@@ -237,7 +240,7 @@ def build_context(cohort_ids: list[str], focus: Optional[str] = None) -> str:
         with_vars = [c for c in all_cohorts.values() if getattr(c, "variables", None)]
         parts.append(
             f"No specific cohort is selected. Catalog of {len(all_cohorts)} cohorts "
-            f"({len(with_vars)} with uploaded variables):"
+            f"({len(with_vars)} with variable metadata in the catalog):"
         )
         catalog = []
         for cohort in list(all_cohorts.values())[:MAX_CATALOG_COHORTS]:
@@ -807,14 +810,13 @@ STARTER_GENERATION_INSTRUCTIONS = (
     "You generate conversation starters for iCARE-AI, an assistant that helps researchers "
     "explore a catalog of cardiovascular research cohorts. Based ONLY on the catalog "
     "context provided, produce questions a user could ask the assistant.\n\n"
-    "IMPORTANT: only reference cohorts that have variables (metadata) uploaded to the "
-    "Explorer — i.e. those listed with 1 or more variables in the context. Never build a "
-    "question around a cohort that has 0 uploaded variables, as there is no data to explore "
-    "for it.\n\n"
+    "IMPORTANT: only reference cohorts that have variable metadata in the catalog — i.e. "
+    "those listed with 1 or more variables in the context. Never build a question around a "
+    "cohort with 0 variables, as there is no data to explore for it.\n\n"
     "Return STRICT JSON, no markdown fences and no commentary, exactly of the form:\n"
     '{"interesting": ["...", "..."], "basic": ["...", "..."]}\n\n'
     "- \"interesting\": 8 specific, research-oriented questions. Reference actual cohorts "
-    "(WITH uploaded variables), domains or variables from the context where possible; favour "
+    "(with variable metadata), domains or variables from the context where possible; favour "
     "cross-cohort angles.\n"
     "- \"basic\": 6 simple orientation questions a first-time user might ask.\n"
     "- Each question must be a single sentence under 140 characters, ending with a question mark."

@@ -2,7 +2,7 @@
 
 // Small shared UI atoms for the experimental AI chat layouts.
 import React, {useEffect, useRef, useState} from 'react';
-import {ChatMessage, IntersectionRow, SearchCohort, SearchConcept, SearchRun} from '@/components/ai/chatClient';
+import {ChatMessage, IntersectionRow, SearchCohort, SearchConcept, SearchRun, SearchVariable} from '@/components/ai/chatClient';
 import EdaOverlayHost, {openEda} from '@/components/ai/EdaOverlay';
 import {apiUrl} from '@/utils';
 
@@ -204,6 +204,32 @@ function VariantToggle({
 // cohort with its counts, a capped variable list per cohort, and the
 // equivalent-by-code links across cohorts.
 
+// One variable in a results list: name, label, [units, OMOP domain] and the
+// EDA chart button. Deliberately no data type / 'categorical' flag, no
+// standard-code badges and no equivalent-variable links — those stay in the
+// model's context but only add noise here.
+function VariableLine({cohortId, v}: {cohortId: string; v: SearchVariable}) {
+  return (
+    <li className="text-xs leading-snug">
+      <span className="font-mono font-semibold">{v.var_name}</span>
+      {v.var_label && v.var_label.toLowerCase() !== v.var_name.toLowerCase() && <span className="text-base-content/70"> — {v.var_label}</span>}
+      {(v.units || v.omop_domain) && (
+        <span className="text-base-content/50"> [{[v.units, v.omop_domain].filter(Boolean).join(', ')}]</span>
+      )}
+      {v.has_eda && (
+        <button
+          type="button"
+          className="ml-1 align-middle hover:scale-110 transition-transform"
+          title={`Open the EDA graph of ${v.var_name} (${cohortId})`}
+          onClick={() => openEda(cohortId, v.var_name)}
+        >
+          📊
+        </button>
+      )}
+    </li>
+  );
+}
+
 // The variable list of one cohort, shown when its chip in the results row is
 // clicked (up to the per-cohort cap; the chip's count tells the full number).
 function CohortVariablesCard({cohort}: {cohort: SearchCohort}) {
@@ -214,7 +240,6 @@ function CohortVariablesCard({cohort}: {cohort: SearchCohort}) {
         <span className="font-semibold">{cohort.cohort_id}</span>
         <span className="text-xs text-base-content/60">
           {cohort.matches} matching variable{cohort.matches === 1 ? '' : 's'}
-          {(cohort.code_matches || 0) > 0 && <> ({cohort.code_matches} via standard code)</>}
           {cohort.matches > shown.length && shown.length > 0 && <> · showing {shown.length}</>}
         </span>
       </div>
@@ -225,31 +250,7 @@ function CohortVariablesCard({cohort}: {cohort: SearchCohort}) {
       )}
       <ul className="px-3 pb-2 space-y-1">
         {shown.map(v => (
-          <li key={v.var_name} className="text-xs leading-snug">
-            <span className="font-mono font-semibold">{v.var_name}</span>
-            {v.var_label && v.var_label.toLowerCase() !== v.var_name.toLowerCase() && <span className="text-base-content/70"> — {v.var_label}</span>}
-            {(v.var_type || v.units || v.omop_domain || v.categorical) && (
-              <span className="text-base-content/50"> [{[v.var_type, v.units, v.omop_domain, v.categorical ? 'categorical' : ''].filter(Boolean).join(', ')}]</span>
-            )}
-            {v.via_code && (
-              <span className="ml-1 px-1 py-0.5 rounded bg-violet-100 border border-violet-300 text-violet-800 text-[10px]" title={v.matched_code ? `Shares the standard code ${v.matched_code}` : 'Matched via a shared standard code'}>
-                same code
-              </span>
-            )}
-            {v.has_eda && (
-              <button
-                type="button"
-                className="ml-1 align-middle hover:scale-110 transition-transform"
-                title={`Open the EDA graph of ${v.var_name} (${cohort.cohort_id})`}
-                onClick={() => openEda(cohort.cohort_id, v.var_name)}
-              >
-                📊
-              </button>
-            )}
-            {v.equivalents && v.equivalents.length > 0 && (
-              <span className="text-violet-700"> ⇄ {v.equivalents.map(e => `${e.cohort_id}::${e.var_name}`).join(', ')}</span>
-            )}
-          </li>
+          <VariableLine key={v.var_name} cohortId={cohort.cohort_id} v={v} />
         ))}
         {cohort.matches > shown.length && shown.length > 0 && (
           <li className="text-xs text-base-content/50 italic">+{cohort.matches - shown.length} more matching variables in this cohort (see the explore page for the full list)</li>
@@ -293,32 +294,112 @@ function classifyExpansions(runs: SearchRun[], concepts?: SearchConcept[]): (Exp
 // answer, expanded, so the user can watch what was searched. Once the answer is
 // done the panel is rendered BELOW it, collapsed to a summary rectangle with a
 // button to review the full results.
-function IntersectionBlock({concepts, intersection}: {concepts?: SearchConcept[]; intersection?: IntersectionRow[] | null}) {
+// For one cohort in the intersection: its matching variables grouped by
+// concept, gathered from every run of each concept's terms (deduped by name).
+function gatherConceptVariables(
+  runs: SearchRun[],
+  concept: SearchConcept,
+  cohortId: string
+): SearchVariable[] {
+  const terms = new Set((concept.terms || []).map(t => (t || '').trim().toLowerCase()));
+  const seen = new Set<string>();
+  const vars: SearchVariable[] = [];
+  (runs || []).forEach(r => {
+    if (!terms.has((r.term || '').trim().toLowerCase())) return;
+    const c = r.cohorts.find(x => x.cohort_id === cohortId);
+    (c?.variables || []).forEach(v => {
+      const k = (v.var_name || '').toLowerCase();
+      if (k && !seen.has(k)) {
+        seen.add(k);
+        vars.push(v);
+      }
+    });
+  });
+  return vars;
+}
+
+const INTERSECTION_VARS_SHOWN = 10;
+
+function IntersectionBlock({
+  concepts,
+  intersection,
+  runs
+}: {
+  concepts?: SearchConcept[];
+  intersection?: IntersectionRow[] | null;
+  runs: SearchRun[];
+}) {
+  const [openCohorts, setOpenCohorts] = useState<Record<string, boolean>>({});
   const named = (concepts || []).filter(c => c && Object.keys(c.cohorts || {}).length > 0);
   if (named.length < 2) return null;
   const labels = named.map(c => c.name || c.terms.slice(0, 2).join(' / '));
+  const toggle = (id: string) => setOpenCohorts(prev => ({...prev, [id]: !prev[id]}));
+  const openRows = (intersection || []).filter(row => openCohorts[row.cohort_id]);
   return (
     <div className="rounded-lg border border-emerald-300 bg-emerald-50/70 px-3 py-2">
       <div className="text-[11px] uppercase tracking-wide font-semibold text-emerald-900/70">
         Cohorts matching all criteria: {labels.join(' + ')}
       </div>
       {intersection && intersection.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5 mt-1.5">
-          {intersection.map(row => (
-            <span
-              key={row.cohort_id}
-              className="px-2 py-0.5 rounded bg-base-100 border border-emerald-300 text-sm"
-              title={Object.entries(row.per_concept)
-                .map(([k, v]) => `${k}: ${v} variable${v === 1 ? '' : 's'}`)
-                .join(' · ')}
-            >
-              <b>{row.cohort_id}</b>{' '}
-              <span className="text-xs text-base-content/60">
-                {Object.entries(row.per_concept).map(([k, v]) => `${k} ${v}`).join(' · ')}
-              </span>
-            </span>
+        <>
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {intersection.map(row => (
+              <button
+                key={row.cohort_id}
+                type="button"
+                onClick={() => toggle(row.cohort_id)}
+                className={`px-2 py-0.5 rounded border text-sm text-left transition-colors cursor-pointer ${
+                  openCohorts[row.cohort_id]
+                    ? 'bg-emerald-100 border-emerald-500'
+                    : 'bg-base-100 border-emerald-300 hover:border-emerald-500 hover:bg-emerald-50'
+                }`}
+                title="Click to show this cohort's matching variables per criterion"
+              >
+                <b>{row.cohort_id}</b>{' '}
+                <span className="text-xs text-base-content/60">
+                  {Object.entries(row.per_concept).map(([k, v]) => `${k} ${v}`).join(' · ')}
+                </span>
+                <span className="ml-0.5 text-xs opacity-50">{openCohorts[row.cohort_id] ? '▾' : '▸'}</span>
+              </button>
+            ))}
+          </div>
+          {openRows.map(row => (
+            <div key={row.cohort_id} className="mt-2 rounded-lg border border-emerald-300 bg-base-100 px-3 py-2">
+              <div className="text-sm font-semibold mb-1">{row.cohort_id}</div>
+              <div className="space-y-1.5">
+                {named.map((c, i) => {
+                  const vars = gatherConceptVariables(runs, c, row.cohort_id);
+                  const total = row.per_concept[labels[i]] ?? row.per_concept[c.name] ?? vars.length;
+                  return (
+                    <div key={labels[i]}>
+                      <div className="text-xs font-semibold text-emerald-900/80">
+                        {labels[i]}{' '}
+                        <span className="font-normal text-base-content/60">
+                          — {total} matching variable{total === 1 ? '' : 's'}
+                          {total > vars.length && vars.length > 0 && <> · showing {Math.min(vars.length, INTERSECTION_VARS_SHOWN)}</>}
+                        </span>
+                      </div>
+                      {vars.length > 0 ? (
+                        <ul className="mt-0.5 space-y-0.5">
+                          {vars.slice(0, INTERSECTION_VARS_SHOWN).map(v => (
+                            <VariableLine key={v.var_name} cohortId={row.cohort_id} v={v} />
+                          ))}
+                          {vars.length > INTERSECTION_VARS_SHOWN && (
+                            <li className="text-xs text-base-content/50 italic">+{vars.length - INTERSECTION_VARS_SHOWN} more (see the explore page)</li>
+                          )}
+                        </ul>
+                      ) : (
+                        <div className="text-xs text-base-content/50 italic">
+                          No variable details were stored for this cohort in this search (full lists on the explore page).
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           ))}
-        </div>
+        </>
       ) : (
         <div className="text-sm text-base-content/70 mt-1">
           None - no cohort matches every criterion at once; the per-criterion matches are below.
@@ -366,11 +447,19 @@ function SearchRunBlock({run, expansion}: {run: SearchRun; expansion: ExpansionI
           </span>
         )}
       </div>
-      {run.codes && run.codes.length > 0 && (
-        <div className="text-xs text-violet-800">
-          includes variables matched via shared standard code{run.codes.length === 1 ? '' : 's'}: {run.codes.map(c => c.display).join('; ')}
-        </div>
-      )}
+      {(() => {
+        // Only the standard concept NAMES the search matched through — no raw
+        // codes, no matched-via wording. (Older saved runs lack the name field:
+        // it is parsed out of the "code (name)" display string.)
+        const names: string[] = [];
+        (run.codes || []).forEach(c => {
+          const n = (c.name || c.display.match(/\(([^()]+)\)\s*$/)?.[1] || '').trim();
+          if (n && !names.some(x => x.toLowerCase() === n.toLowerCase())) names.push(n);
+        });
+        return names.length > 0 ? (
+          <div className="text-xs text-violet-800">standard concepts: {names.join('; ')}</div>
+        ) : null;
+      })()}
       {chipCohorts.length > 0 && (
         <div className="flex flex-wrap gap-1.5 text-xs">
           {chipCohorts.map(c => (
@@ -383,13 +472,9 @@ function SearchRunBlock({run, expansion}: {run: SearchRun; expansion: ExpansionI
                   ? 'bg-sky-100 border-sky-400 text-sky-900'
                   : 'bg-base-100 border-base-300 hover:border-sky-400 hover:bg-sky-50'
               }`}
-              title={
-                (c.code_matches ? `${c.text_matches || 0} by text + ${c.code_matches} via standard code. ` : '') +
-                'Click to show the top matching variables'
-              }
+              title="Click to show the top matching variables"
             >
               {c.cohort_id} <b>{c.matches}</b>
-              {(c.code_matches || 0) > 0 && (c.text_matches || 0) === 0 && <span className="text-violet-700"> code</span>}
               <span className="ml-0.5 opacity-50">{openCohorts[c.cohort_id] ? '▾' : '▸'}</span>
             </button>
           ))}
@@ -437,7 +522,7 @@ export function SearchResultsPanel({
           <span aria-hidden>🔎</span> Catalog search
           <span className="normal-case tracking-normal text-sm font-semibold text-base-content/80">{headline}</span>
         </div>
-        {hasIntersection && <IntersectionBlock concepts={concepts} intersection={intersection} />}
+        {hasIntersection && <IntersectionBlock concepts={concepts} intersection={intersection} runs={runs} />}
         <div className="flex flex-wrap gap-1.5 mt-2">
           {runs.map(r => (
             <span key={r.term} className="px-2 py-0.5 rounded-full bg-sky-100 border border-sky-300 text-sky-900 font-mono text-xs">
@@ -466,7 +551,7 @@ export function SearchResultsPanel({
           </button>
         )}
       </div>
-      {hasIntersection && <IntersectionBlock concepts={concepts} intersection={intersection} />}
+      {hasIntersection && <IntersectionBlock concepts={concepts} intersection={intersection} runs={runs} />}
       {runs.map((run, i) => (
         <SearchRunBlock key={`${run.term}-${i}`} run={run} expansion={expansions[i]} />
       ))}

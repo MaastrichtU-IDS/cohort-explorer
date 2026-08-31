@@ -309,7 +309,7 @@ def run_chat_searches(
         # Standard-code expansion: any code carried by a text match pulls in the
         # other variables sharing it, in every cohort (marked "via code").
         seen_pairs = {(cid, _clean(getattr(v, "var_name", ""))) for cid, vs in by_cohort.items() for v in vs}
-        codes_used: dict[str, str] = {}
+        codes_used: dict[str, dict] = {}
         code_added: dict[str, list[tuple[Any, str]]] = {}
         for cid, vs in list(by_cohort.items()):
             for var in vs:
@@ -328,7 +328,9 @@ def run_chat_searches(
                         code_added.setdefault(ocid, []).append((ovar, display))
                         expanded = True
                     if expanded:
-                        codes_used[code] = display
+                        # display (code + name) goes to the model's context; the
+                        # bare concept name is what the search panel shows.
+                        codes_used[code] = {"display": display, "name": name}
         cohorts_out = []
         all_cohort_ids = set(by_cohort) | set(code_added)
         totals = {cid: len(by_cohort.get(cid, [])) + len(code_added.get(cid, [])) for cid in all_cohort_ids}
@@ -371,7 +373,7 @@ def run_chat_searches(
             "term": str(raw_term),
             "total_matches": sum(c["matches"] for c in cohorts_out),
             "cohorts_matched": len(cohorts_out),
-            "codes": [{"code": c, "display": d} for c, d in codes_used.items()],
+            "codes": [{"code": c, "display": v["display"], "name": v["name"]} for c, v in codes_used.items()],
             "cohorts": cohorts_out,
         })
     return runs

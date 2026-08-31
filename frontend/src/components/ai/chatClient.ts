@@ -65,8 +65,9 @@ export interface SearchRun {
   term: string;
   total_matches: number;
   cohorts_matched: number;
-  // Standard codes that pulled equivalent variables into the results.
-  codes?: {code: string; display: string}[];
+  // Standard codes that pulled equivalent variables into the results
+  // (display = code + name for the model; name = what the panel shows).
+  codes?: {code: string; display: string; name?: string}[];
   cohorts: SearchCohort[];
 }
 
