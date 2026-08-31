@@ -784,10 +784,18 @@ export function Nav() {
     return [];
   }, [participantsPreview]);
 
-  // In the analysis-DCR wizard ALL data owners are EXCLUDED by default (every
-  // box unchecked); the user ticks the ones to include. Whoever is not in
-  // manuallyIncludedOwners is sent as excluded. (Server-side the backend still
-  // refuses to exclude the creator from their own DCR.)
+  // In the analysis-DCR wizard data owners are EXCLUDED by default (boxes
+  // unchecked); the user ticks the ones to include. Whoever is not in
+  // manuallyIncludedOwners is sent as excluded. The one exception is the
+  // creator: they are always part of their own DCR (the backend refuses to
+  // exclude them), so their own row stays ticked.
+  useEffect(() => {
+    if (!userEmail) return;
+    const mine = dataOwners.find(o => o.email.toLowerCase() === userEmail.toLowerCase());
+    if (mine && !manuallyIncludedOwners.includes(mine.email)) {
+      setManuallyIncludedOwners([...manuallyIncludedOwners, mine.email]);
+    }
+  }, [dataOwners, userEmail, manuallyIncludedOwners]);
   const excludedDataOwners = useMemo(
     () => dataOwners.map(o => o.email).filter(e => !manuallyIncludedOwners.includes(e)),
     [dataOwners, manuallyIncludedOwners]
