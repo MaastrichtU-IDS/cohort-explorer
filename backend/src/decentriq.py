@@ -28,7 +28,7 @@ from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
 from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script
 from src.models import Cohort
-from src.utils import retrieve_cohorts_metadata
+from src.utils import retrieve_cohorts_metadata, split_emails
 from datetime import datetime
 
 router = APIRouter()
@@ -269,10 +269,9 @@ def create_provision_dcr(
     )
     logging.info(f"[TIMING] Adding 5 EDA script nodes took {time.time() - t0:.2f}s")
 
-    # Determine the formal data owners from the cohort metadata
-    formal_owners = set(cohort.cohort_email) if cohort.cohort_email else set()
-    if cohort.administrator_email:
-        formal_owners.add(cohort.administrator_email)
+    # Determine the formal data owners from the cohort metadata (split_emails:
+    # a field may hold several ';'-joined addresses).
+    formal_owners = set(split_emails(cohort.cohort_email, cohort.administrator_email))
 
     # Track all participants already added to the builder to avoid duplicates
     added_participants: set[str] = set()
@@ -2285,21 +2284,17 @@ def build_dcr_participants(
         
         # Add data owners (in non-dev mode)
         if not settings.dev_mode:
-            # Add all cohort_email owners (unless excluded)
-            for owner in cohort.cohort_email:
+            # All cohort_email owners plus administrator_email (unless excluded).
+            # split_emails: a metadata field may hold several ';'-joined
+            # addresses (and the cohort cache can still carry such combined
+            # strings), so normalize to one participant per person here.
+            for owner in split_emails(cohort.cohort_email, cohort.administrator_email):
                 if owner in excluded_data_owners:
                     continue
                 if owner not in participants:
                     participants[owner] = {"data_owner_of": set(), "analyst_of": set()}
                 participants[owner]["data_owner_of"].add(data_node_id)
                 participants[owner]["data_owner_of"].add(metadata_node_id)
-            
-            # Also add administrator_email if it exists (unless excluded)
-            if cohort.administrator_email and cohort.administrator_email not in excluded_data_owners:
-                if cohort.administrator_email not in participants:
-                    participants[cohort.administrator_email] = {"data_owner_of": set(), "analyst_of": set()}
-                participants[cohort.administrator_email]["data_owner_of"].add(data_node_id)
-                participants[cohort.administrator_email]["data_owner_of"].add(metadata_node_id)
         else:
             # In dev_mode the requester is added as data owner
             participants[user_email]["data_owner_of"].add(data_node_id)

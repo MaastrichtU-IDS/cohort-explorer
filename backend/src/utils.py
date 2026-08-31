@@ -15,6 +15,34 @@ from src.models import Cohort, CohortVariable, VariableCategory
 # Define the namespaces
 ICARE = Namespace("https://w3id.org/icare4cvd/")
 
+
+def split_emails(*values: Any) -> list[str]:
+    """Individual, lowercased email addresses out of raw metadata email values.
+
+    A value may be a single address, a ';'/','-joined string of several (a
+    common spreadsheet entry: "person1@org.com;person2@org.com"), or a list of
+    such strings. Order is kept, duplicates and non-address junk are dropped.
+    Every place that turns cohort metadata emails into participants or
+    permissions must go through this, or a combined cell becomes one bogus
+    "person1@org.com;person2@org.com" participant."""
+    out: list[str] = []
+
+    def _one(v: Any) -> None:
+        if not v:
+            return
+        if isinstance(v, (list, tuple, set)):
+            for x in v:
+                _one(x)
+            return
+        for part in re.split(r"[;,\s]+", str(v)):
+            e = part.strip().lower()
+            if e and "@" in e and e not in out:
+                out.append(e)
+
+    for v in values:
+        _one(v)
+    return out
+
 class OntologyNamespaces(Enum):
     CMEO = Namespace("https://w3id.org/CMEO/")
     OMOP = Namespace("http://omop.org/OMOP/")
@@ -594,13 +622,11 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
         # Get both email fields for data owners
         admin_email = get_value("administrator_email", row).lower() if get_value("administrator_email", row) else ""
         contact_email = get_value("study_contact_person_email", row).lower() if get_value("study_contact_person_email", row) else ""
-        
-        # Build list of data owner emails (both administrator and study contact person)
-        data_owner_emails = []
-        if admin_email:
-            data_owner_emails.append(admin_email)
-        if contact_email and contact_email not in data_owner_emails:
-            data_owner_emails.append(contact_email)
+
+        # Build list of data owner emails (both administrator and study contact
+        # person). A field may hold several ';'-joined addresses: split them so
+        # each person becomes their own owner entry.
+        data_owner_emails = split_emails(admin_email, contact_email)
         
         cohort = Cohort(
             cohort_id=cohort_id,
