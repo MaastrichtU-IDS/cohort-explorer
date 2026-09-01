@@ -438,11 +438,12 @@ def pandas_script_merge_cohorts(merged_cohorts: dict[str, list[str]], all_cohort
 
 def find_patient_id_variable(cohort_id: str) -> str | None:
     """Find the patient ID variable in a cohort using SNOMED code (preferred) or OMOP ID (fallback).
-    
+
     Searches for:
     1. SNOMED code snomed:184107009 (preferred) - checks concept_code field
-    2. OMOP ID 4086934 (fallback) - checks omop_id field
-    
+    2. OMOP ID 4086934 - checks omop_id field
+    3. OMOP concept code omop:4086934 (last fallback) - checks concept_code field
+
     Args:
         cohort_id: The ID of the cohort to search in
         
@@ -503,7 +504,21 @@ def find_patient_id_variable(cohort_id: str) -> str | None:
                     elapsed = time.time() - start_time
                     logging.info(f"Found patient ID variable '{var_name}' with OMOP ID {omop_id} in cohort {cohort_id} (took {elapsed:.3f}s)")
                     return var_name
-        
+
+        # Third pass (last fallback): the OMOP patient-id concept written into
+        # the concept_code field itself (e.g. "omop:4086934"), for variables
+        # mapped to the OMOP concept without a SNOMED code or omop_id.
+        for var_name, variable in cohort.variables.items():
+            concept_code = getattr(variable, 'concept_code', None)
+            if concept_code:
+                cc = str(concept_code).strip().lower()
+                if cc.endswith('.0'):
+                    cc = cc[:-2]
+                if cc == OMOP_PATIENT_ID or cc == f"omop:{OMOP_PATIENT_ID}":
+                    elapsed = time.time() - start_time
+                    logging.info(f"Found patient ID variable '{var_name}' with OMOP concept code {concept_code} in cohort {cohort_id} (took {elapsed:.3f}s)")
+                    return var_name
+
         elapsed = time.time() - start_time
         logging.info(f"No patient ID variable found in cohort {cohort_id} (took {elapsed:.3f}s)")
         return None
@@ -1160,7 +1175,8 @@ async def get_compute_dcr_definition(
             patient_id = find_patient_id_variable(cohort_id) or ""
             if not patient_id:
                 msg = (f"{cohort_id}: no patient-ID variable found (SNOMED 184107009 / "
-                       f"OMOP 4086934); passed to the merge without a patient ID.")
+                       f"OMOP 4086934 in omop_id or concept code); passed to the merge "
+                       f"without a patient ID.")
                 logging.warning(msg)
                 merge_warnings.append(msg)
 

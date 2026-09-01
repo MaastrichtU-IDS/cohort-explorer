@@ -940,7 +940,14 @@ def _is_patient_id(details):
         omop_id = omop_id[:-2]
     if omop_id == _PATIENT_OMOP_ID:
         return True
-    return _PATIENT_CONCEPT_CODE in _meta_value(details, 'concept_code')
+    concept_code = _meta_value(details, 'concept_code').strip().lower()
+    if _PATIENT_CONCEPT_CODE in concept_code:
+        return True
+    # Last fallback: the OMOP patient-id concept written into the concept code
+    # itself (e.g. "omop:4086934"), when neither of the two checks above hit.
+    if concept_code.endswith('.0'):
+        concept_code = concept_code[:-2]
+    return concept_code == _PATIENT_OMOP_ID or concept_code == 'omop:' + _PATIENT_OMOP_ID
 
 patient_id_cols = set()
 for _v in list(vars_details.columns):
@@ -2366,7 +2373,8 @@ _PATIENT_CONCEPT_CODE = 'snomed:184107009'
 patient_id_col = None
 for v, m in var_meta.items():
     if (m['omop_id'] == _PATIENT_OMOP_ID or
-            (m['concept_code'] and m['concept_code'].lower() == _PATIENT_CONCEPT_CODE)):
+            (m['concept_code'] and m['concept_code'].lower() == _PATIENT_CONCEPT_CODE) or
+            (m['concept_code'] and m['concept_code'].lower().strip() in ('omop:' + _PATIENT_OMOP_ID, _PATIENT_OMOP_ID))):
         patient_id_col = v
         break
 
@@ -3046,22 +3054,30 @@ dictionary_df = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
 # Clean column names to ensure uniformity
 dictionary_df.columns = dictionary_df.columns.str.strip().str.upper()
 
-# Find the patient ID variable (OMOP ID 4086934)
+# Find the patient ID variable: OMOP ID 4086934 first, then the patient-id
+# concept in the VARIABLE CONCEPT CODE column (snomed:184107009, or
+# omop:4086934 as the last fallback).
 patient_id_var = None
-if 'VARIABLE OMOP ID' in dictionary_df.columns:
-    varname_col = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in dictionary_df.columns]
-    if varname_col:
-        varname_col = varname_col[0]
+varname_cols = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in dictionary_df.columns]
+if varname_cols:
+    varname_col = varname_cols[0]
+    if 'VARIABLE OMOP ID' in dictionary_df.columns:
         patient_id_rows = dictionary_df[dictionary_df['VARIABLE OMOP ID'] == '4086934']
         if not patient_id_rows.empty:
             patient_id_var = patient_id_rows.iloc[0][varname_col]
             print(f"Found patient ID variable with OMOP ID 4086934: {patient_id_var}")
-        else:
-            print("No variable found with OMOP ID 4086934 in metadata dictionary")
     else:
-        print("Could not find variable name column in metadata dictionary")
+        print("'VARIABLE OMOP ID' column not found in metadata dictionary")
+    if patient_id_var is None and 'VARIABLE CONCEPT CODE' in dictionary_df.columns:
+        codes = dictionary_df['VARIABLE CONCEPT CODE'].astype(str).str.strip().str.lower()
+        code_rows = dictionary_df[codes.isin(['snomed:184107009', '184107009', 'omop:4086934', '4086934'])]
+        if not code_rows.empty:
+            patient_id_var = code_rows.iloc[0][varname_col]
+            print(f"Found patient ID variable via concept code: {patient_id_var}")
+    if patient_id_var is None:
+        print("No patient ID variable found in metadata dictionary (OMOP ID 4086934 / concept code)")
 else:
-    print("'VARIABLE OMOP ID' column not found in metadata dictionary")
+    print("Could not find variable name column in metadata dictionary")
 
 # EXPLICITLY DEFINE PII COLUMNS TO REMOVE
 # Modify this list based on the cohort

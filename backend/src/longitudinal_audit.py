@@ -232,12 +232,15 @@ def _identify_families(var_meta: dict[str, dict[str, Any]]) -> list[dict[str, An
         key, concept, context, var_type, var_label, units,
         members, visit_labels, visit_sort_keys
     """
-    # Identify patient-id column
+    # Identify patient-id column (last fallback: the OMOP patient-id concept
+    # written into the concept code itself, e.g. "omop:4086934")
     patient_id_col = None
     for v, m in var_meta.items():
         if (
             m["omop_id"] == _PATIENT_OMOP_ID
             or (m["concept_code"] and m["concept_code"].lower() == _PATIENT_CONCEPT_CODE)
+            or (m["concept_code"] and m["concept_code"].lower().strip()
+                in (f"omop:{_PATIENT_OMOP_ID}", _PATIENT_OMOP_ID))
         ):
             patient_id_col = v
             break
