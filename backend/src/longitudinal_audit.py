@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 # Constants — kept in sync with the c4 script in eda_scripts.py
 # ---------------------------------------------------------------------------
 
-_PATIENT_OMOP_ID = "4086934"
+_PATIENT_OMOP_IDS = ("4086934", "40757164")
 _PATIENT_CONCEPT_CODE = "snomed:184107009"
 
 _BASELINE_RE = re.compile(
@@ -237,10 +237,10 @@ def _identify_families(var_meta: dict[str, dict[str, Any]]) -> list[dict[str, An
     patient_id_col = None
     for v, m in var_meta.items():
         if (
-            m["omop_id"] == _PATIENT_OMOP_ID
+            m["omop_id"] in _PATIENT_OMOP_IDS
             or (m["concept_code"] and m["concept_code"].lower() == _PATIENT_CONCEPT_CODE)
             or (m["concept_code"] and m["concept_code"].lower().strip()
-                in (f"omop:{_PATIENT_OMOP_ID}", _PATIENT_OMOP_ID))
+                in tuple(f"omop:{pid}" for pid in _PATIENT_OMOP_IDS) + _PATIENT_OMOP_IDS)
         ):
             patient_id_col = v
             break

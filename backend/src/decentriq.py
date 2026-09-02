@@ -441,8 +441,8 @@ def find_patient_id_variable(cohort_id: str) -> str | None:
 
     Searches for:
     1. SNOMED code snomed:184107009 (preferred) - checks concept_code field
-    2. OMOP ID 4086934 - checks omop_id field
-    3. OMOP concept code omop:4086934 (last fallback) - checks concept_code field
+    2. OMOP ID 4086934 or 40757164 - checks omop_id field
+    3. OMOP concept code omop:4086934 / omop:40757164 (last fallback) - checks concept_code field
 
     Args:
         cohort_id: The ID of the cohort to search in
@@ -455,7 +455,7 @@ def find_patient_id_variable(cohort_id: str) -> str | None:
     
     # Patient ID identifiers (in order of preference)
     SNOMED_PATIENT_ID = "snomed:184107009"
-    OMOP_PATIENT_ID = "4086934"
+    OMOP_PATIENT_IDS = ("4086934", "40757164")
     
     try:
         from src.cohort_cache import get_cohorts_from_cache
@@ -500,7 +500,7 @@ def find_patient_id_variable(cohort_id: str) -> str | None:
             omop_id = getattr(variable, 'omop_id', None)
             if omop_id:
                 omop_id_str = str(omop_id).strip()
-                if omop_id_str == OMOP_PATIENT_ID or OMOP_PATIENT_ID in omop_id_str:
+                if any(omop_id_str == pid or pid in omop_id_str for pid in OMOP_PATIENT_IDS):
                     elapsed = time.time() - start_time
                     logging.info(f"Found patient ID variable '{var_name}' with OMOP ID {omop_id} in cohort {cohort_id} (took {elapsed:.3f}s)")
                     return var_name
@@ -514,7 +514,7 @@ def find_patient_id_variable(cohort_id: str) -> str | None:
                 cc = str(concept_code).strip().lower()
                 if cc.endswith('.0'):
                     cc = cc[:-2]
-                if cc == OMOP_PATIENT_ID or cc == f"omop:{OMOP_PATIENT_ID}":
+                if any(cc == pid or cc == f"omop:{pid}" for pid in OMOP_PATIENT_IDS):
                     elapsed = time.time() - start_time
                     logging.info(f"Found patient ID variable '{var_name}' with OMOP concept code {concept_code} in cohort {cohort_id} (took {elapsed:.3f}s)")
                     return var_name
@@ -1175,8 +1175,8 @@ async def get_compute_dcr_definition(
             patient_id = find_patient_id_variable(cohort_id) or ""
             if not patient_id:
                 msg = (f"{cohort_id}: no patient-ID variable found (SNOMED 184107009 / "
-                       f"OMOP 4086934 in omop_id or concept code); passed to the merge "
-                       f"without a patient ID.")
+                       f"OMOP 4086934 or 40757164 in omop_id or concept code); passed to "
+                       f"the merge without a patient ID.")
                 logging.warning(msg)
                 merge_warnings.append(msg)
 

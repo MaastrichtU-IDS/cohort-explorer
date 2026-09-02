@@ -931,23 +931,23 @@ else:
 # Patient/subject identifiers hold no analytical signal and must never be
 # profiled or charted. Every cohort names that column differently, so they are
 # recognised by their standardised concept instead of by name.
-_PATIENT_OMOP_ID = '4086934'
+_PATIENT_OMOP_IDS = ('4086934', '40757164')
 _PATIENT_CONCEPT_CODE = '184107009'
 
 def _is_patient_id(details):
     omop_id = _meta_value(details, 'omop_id')
     if omop_id.endswith('.0'):
         omop_id = omop_id[:-2]
-    if omop_id == _PATIENT_OMOP_ID:
+    if omop_id in _PATIENT_OMOP_IDS:
         return True
     concept_code = _meta_value(details, 'concept_code').strip().lower()
     if _PATIENT_CONCEPT_CODE in concept_code:
         return True
-    # Last fallback: the OMOP patient-id concept written into the concept code
+    # Last fallback: a patient-id OMOP concept written into the concept code
     # itself (e.g. "omop:4086934"), when neither of the two checks above hit.
     if concept_code.endswith('.0'):
         concept_code = concept_code[:-2]
-    return concept_code == _PATIENT_OMOP_ID or concept_code == 'omop:' + _PATIENT_OMOP_ID
+    return any(concept_code == pid or concept_code == 'omop:' + pid for pid in _PATIENT_OMOP_IDS)
 
 patient_id_cols = set()
 for _v in list(vars_details.columns):
@@ -955,7 +955,7 @@ for _v in list(vars_details.columns):
         patient_id_cols.add(str(_v).strip().lower())
         data_issues.append(
             f"Variable {_v} is a patient identifier (SNOMED:{_PATIENT_CONCEPT_CODE} / "
-            f"OMOP {_PATIENT_OMOP_ID}); excluded from profiling."
+            f"OMOP {'/'.join(_PATIENT_OMOP_IDS)}); excluded from profiling."
         )
 
 vars_to_graph = list(vars_details.columns)
@@ -2368,13 +2368,14 @@ for v in list(vars_details.columns):
     }
 
 # ---- Identify the patient-id column (never charted/shown) -----------------
-_PATIENT_OMOP_ID = '4086934'
+_PATIENT_OMOP_IDS = ('4086934', '40757164')
 _PATIENT_CONCEPT_CODE = 'snomed:184107009'
+_PATIENT_ID_CODES = tuple(['omop:' + pid for pid in _PATIENT_OMOP_IDS] + list(_PATIENT_OMOP_IDS))
 patient_id_col = None
 for v, m in var_meta.items():
-    if (m['omop_id'] == _PATIENT_OMOP_ID or
+    if (m['omop_id'] in _PATIENT_OMOP_IDS or
             (m['concept_code'] and m['concept_code'].lower() == _PATIENT_CONCEPT_CODE) or
-            (m['concept_code'] and m['concept_code'].lower().strip() in ('omop:' + _PATIENT_OMOP_ID, _PATIENT_OMOP_ID))):
+            (m['concept_code'] and m['concept_code'].lower().strip() in _PATIENT_ID_CODES)):
         patient_id_col = v
         break
 
@@ -3054,23 +3055,23 @@ dictionary_df = decentriq_util.read_tabular_data("/input/{cohort_id}-metadata")
 # Clean column names to ensure uniformity
 dictionary_df.columns = dictionary_df.columns.str.strip().str.upper()
 
-# Find the patient ID variable: OMOP ID 4086934 first, then the patient-id
-# concept in the VARIABLE CONCEPT CODE column (snomed:184107009, or
-# omop:4086934 as the last fallback).
+# Find the patient ID variable: OMOP ID 4086934 or 40757164 first, then the
+# patient-id concept in the VARIABLE CONCEPT CODE column (snomed:184107009,
+# or the OMOP concept codes as the last fallback).
 patient_id_var = None
 varname_cols = [x for x in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME'] if x in dictionary_df.columns]
 if varname_cols:
     varname_col = varname_cols[0]
     if 'VARIABLE OMOP ID' in dictionary_df.columns:
-        patient_id_rows = dictionary_df[dictionary_df['VARIABLE OMOP ID'] == '4086934']
+        patient_id_rows = dictionary_df[dictionary_df['VARIABLE OMOP ID'].isin(['4086934', '40757164'])]
         if not patient_id_rows.empty:
             patient_id_var = patient_id_rows.iloc[0][varname_col]
-            print(f"Found patient ID variable with OMOP ID 4086934: {patient_id_var}")
+            print(f"Found patient ID variable by OMOP ID: {patient_id_var}")
     else:
         print("'VARIABLE OMOP ID' column not found in metadata dictionary")
     if patient_id_var is None and 'VARIABLE CONCEPT CODE' in dictionary_df.columns:
         codes = dictionary_df['VARIABLE CONCEPT CODE'].astype(str).str.strip().str.lower()
-        code_rows = dictionary_df[codes.isin(['snomed:184107009', '184107009', 'omop:4086934', '4086934'])]
+        code_rows = dictionary_df[codes.isin(['snomed:184107009', '184107009', 'omop:4086934', '4086934', 'omop:40757164', '40757164'])]
         if not code_rows.empty:
             patient_id_var = code_rows.iloc[0][varname_col]
             print(f"Found patient ID variable via concept code: {patient_id_var}")
