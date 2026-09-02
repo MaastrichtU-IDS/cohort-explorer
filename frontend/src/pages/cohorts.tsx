@@ -15,6 +15,7 @@ import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/se
 import {apiUrl} from '@/utils';
 import EdaDashboard from '@/components/eda/EdaDashboard';
 import VariableGraphModal from '@/components/VariableGraphModal';
+import {parseEdaJson} from '@/utils/edaParsing';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import {InfoIcon} from '@/components/Icons';
 
@@ -441,6 +442,30 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
   const {cohortsData, updateCohortData} = useCohorts();
   const [openedModal, setOpenedModal] = useState('');
   const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
+  // Names (lowercased) of this cohort's variables that have summary statistics
+  // on record: those names render in teal with a clickable stats chip; null
+  // while loading (renders plain until known).
+  const [statsVars, setStatsVars] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/cohort-eda-output/${encodeURIComponent(cohortId)}`);
+        if (!res.ok) {
+          if (alive) setStatsVars(new Set());
+          return;
+        }
+        const data = parseEdaJson(await res.json());
+        if (alive) setStatsVars(new Set((data?.variables || []).map(v => v.name.toLowerCase().trim())));
+      } catch {
+        if (alive) setStatsVars(new Set());
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [cohortId]);
+  const hasStats = (name: string) => !!statsVars?.has(String(name || '').toLowerCase().trim());
 
   // When concept is selected, insert the triples into the database
   const handleConceptSelect = (varId: any, concept: any, categoryId: any = null) => {
@@ -529,6 +554,11 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
         <span className="text-gray-600 dark:text-gray-400">🔍 </span>
         Found <strong className="text-primary">{matchedMetadata.length}</strong> metadata section{matchedMetadata.length !== 1 ? 's' : ''} and{' '}
         <strong className="text-primary">{matchedVariables.length}</strong> variable{matchedVariables.length !== 1 ? 's' : ''}
+        {statsVars && matchedVariables.some((v: any) => hasStats(v.var_name)) && (
+          <span className="ml-2 text-xs text-teal-700 dark:text-teal-400">
+            · <span className="font-semibold">teal</span> variable names have summary statistics — click the name or 📊 to view
+          </span>
+        )}
       </div>
 
       {matchedMetadata.length > 0 && (
@@ -553,7 +583,15 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
               <div className="card-body">
                 <div className="flex justify-between">
                   <div className="flex flex-wrap items-center space-x-3">
-                    <h2 className="font-bold text-lg">
+                    <h2
+                      className={`font-bold text-lg ${
+                        hasStats(variable.var_name)
+                          ? 'text-teal-700 dark:text-teal-400 cursor-pointer hover:underline decoration-dotted underline-offset-4'
+                          : ''
+                      }`}
+                      title={hasStats(variable.var_name) ? 'Summary statistics available — click to view' : undefined}
+                      onClick={hasStats(variable.var_name) ? () => setOpenedGraphModal(variable.var_name) : undefined}
+                    >
                       <HighlightedText text={variable.var_name} searchTerms={searchTerms} searchMode={searchMode} />
                     </h2>
                     <span className="badge badge-ghost">{variable.var_type}</span>
@@ -585,14 +623,17 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
                     >
                       <InfoIcon />
                     </button>
-                    <button
-                      className="btn-sm hover:bg-base-300 rounded-lg"
-                      onClick={() => {
-                        setOpenedGraphModal(variable.var_name);
-                      }}
-                    >
-                      📊
-                    </button>
+                    {hasStats(variable.var_name) && (
+                      <button
+                        className="btn-sm rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-100 dark:bg-teal-900/30 dark:border-teal-700"
+                        title="Summary statistics available — click to view"
+                        onClick={() => {
+                          setOpenedGraphModal(variable.var_name);
+                        }}
+                      >
+                        📊
+                      </button>
+                    )}
                   </div>
                 </div>
                 <p>
