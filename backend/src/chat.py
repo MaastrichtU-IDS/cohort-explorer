@@ -555,9 +555,24 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
         {"role": "system", "content": system_prompt},
         {"role": "system", "content": f"Cohort context:\n\n{context}"},
     ]
+    summarize_text = body.get("summarize_text")
+    summarize_mode = isinstance(summarize_text, str) and summarize_text.strip()
     style = body.get("style")
-    if isinstance(style, str) and style in STYLE_INSTRUCTIONS:
+    if isinstance(style, str) and style in STYLE_INSTRUCTIONS and not summarize_mode:
         full_messages.append({"role": "system", "content": STYLE_INSTRUCTIONS[style]})
+    # Summary variant: condensed FROM the detailed answer (which the user can
+    # already see), so the two variants never diverge.
+    if summarize_mode:
+        full_messages.append({"role": "system", "content": (
+            "SUMMARY VARIANT MODE - the user already has the DETAILED answer below; write the "
+            "short Summary variant OF THAT ANSWER, not a fresh answer from the context. "
+            "Condense it while staying perfectly consistent with it: every cohort it names "
+            "must still appear (a closing line naming the rest is enough), keep the same "
+            "numbers, caveats and \U0001F4CA chart markers for whatever you keep, and end "
+            "with the same clarifying question if the detailed answer ends with one. Add NO "
+            "claims that are not in the detailed answer. A few short paragraphs or bullet "
+            "points at most.\n\nDETAILED ANSWER TO SUMMARIZE:\n" + summarize_text.strip()[:24000]
+        )})
     # Disambiguation turn (the planner flagged the question as ambiguous): a
     # short clarifying reply instead of a full answer.
     clarify = body.get("clarify_interpretations")

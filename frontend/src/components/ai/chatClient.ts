@@ -187,6 +187,10 @@ export interface SendOptions {
   // EDA follow-up turn: the profile block from /api/chat/eda-followup; the
   // server switches into EDA FOLLOW-UP MODE and grounds the reply in it.
   edaContext?: string;
+  // Summary variant: the finished detailed answer to condense. The server then
+  // asks for a summary OF THIS TEXT instead of a fresh answer, so the two
+  // variants stay consistent.
+  summarizeText?: string;
   // Disambiguation turn: the readings the planner found. The server then asks
   // for a short clarifying reply instead of a full answer.
   clarifyInterpretations?: string[];
@@ -221,7 +225,8 @@ export async function streamChat(opts: SendOptions): Promise<void> {
       style: opts.style || null,
       search_results: opts.searchResults && opts.searchResults.runs.length > 0 ? opts.searchResults : null,
       clarify_interpretations: opts.clarifyInterpretations && opts.clarifyInterpretations.length >= 2 ? opts.clarifyInterpretations : null,
-      eda_context: opts.edaContext || null
+      eda_context: opts.edaContext || null,
+      summarize_text: opts.summarizeText || null
     })
   });
 

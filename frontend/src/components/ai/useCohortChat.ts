@@ -253,7 +253,7 @@ export function useCohortChat(): UseCohortChat {
       // transcript without reading React state back out.
       const acc: {summary: string; detailed: string} = {summary: '', detailed: ''};
 
-      const streamVariant = (style: 'summary' | 'detailed') =>
+      const streamVariant = (style: 'summary' | 'detailed', summarizeText?: string) =>
         streamChat({
           messages: historyForModel,
           cohortIds: selected,
@@ -261,7 +261,10 @@ export function useCohortChat(): UseCohortChat {
           systemPrompt: overrides?.systemPrompt,
           contextOverride: overrides?.contextOverride,
           style,
-          searchResults: payload,
+          // In summarize mode the summary condenses the detailed answer, so
+          // the search context would only be dead weight there.
+          searchResults: summarizeText ? undefined : payload,
+          summarizeText,
           signal: controller.signal,
           onChunk: delta => {
             acc[style] += delta;
@@ -276,7 +279,25 @@ export function useCohortChat(): UseCohortChat {
           }
         });
 
-      const results = await Promise.allSettled([streamVariant('summary'), streamVariant('detailed')]);
+      // Detailed first (it is the default view); the summary is then produced
+      // BY SUMMARIZING the finished detailed answer, so the two variants can
+      // never diverge. If the detailed stream produced nothing, the summary
+      // falls back to answering from the context on its own.
+      const results: PromiseSettledResult<void>[] = [];
+      try {
+        await streamVariant('detailed');
+        results.push({status: 'fulfilled', value: undefined});
+      } catch (e: any) {
+        results.push({status: 'rejected', reason: e});
+      }
+      if (!controller.signal.aborted) {
+        try {
+          await streamVariant('summary', acc.detailed.trim() || undefined);
+          results.push({status: 'fulfilled', value: undefined});
+        } catch (e: any) {
+          results.push({status: 'rejected', reason: e});
+        }
+      }
       const failures = results.filter(
         (r): r is PromiseRejectedResult => r.status === 'rejected' && r.reason?.name !== 'AbortError'
       );
