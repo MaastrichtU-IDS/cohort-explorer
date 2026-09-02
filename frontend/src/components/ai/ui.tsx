@@ -621,7 +621,13 @@ export function MessageBubble({
   const isUser = message.role === 'user';
   // Assistant turns carry two answer variants; the in-depth one is the
   // default view and the user can switch to the short summary.
-  const [variant, setVariant] = useState<'summary' | 'detailed'>('detailed');
+  const [variant, setVariant] = useState<'summary' | 'detailed'>(message.preferredVariant || 'detailed');
+  // A preference set later (e.g. the main answer collapses to its summary when
+  // a statistics follow-up arrives) switches the view without counting as the
+  // user opening the Summary tab; manual toggling still works afterwards.
+  useEffect(() => {
+    if (message.preferredVariant) setVariant(message.preferredVariant);
+  }, [message.preferredVariant]);
   const pickVariant = (v: 'summary' | 'detailed') => {
     setVariant(v);
     if (v === 'summary') onSummaryViewed?.();

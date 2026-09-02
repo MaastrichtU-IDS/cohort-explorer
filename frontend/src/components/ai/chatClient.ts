@@ -29,6 +29,11 @@ export interface ChatMessage {
   // EDA follow-up bubble: an extra answer grounded in the selected variables'
   // distribution profiles (shown with its own tag).
   followup?: boolean;
+  // Which variant the bubble should show by default. Set to 'summary' on the
+  // main answer when a statistics follow-up arrives (the concrete numbers land
+  // in the follow-up, so the main bubble collapses to its summary); the user
+  // can still toggle manually.
+  preferredVariant?: 'summary' | 'detailed';
 }
 
 // ---- Catalog search (the chat's search tool) --------------------------------

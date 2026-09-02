@@ -356,6 +356,20 @@ export function useCohortChat(): UseCohortChat {
           try {
             const fu = await fetchEdaFollowup(content, payload, selected, controller.signal);
             if (fu.needed && fu.context && !controller.signal.aborted) {
+              // The concrete numbers land in the follow-up bubble, so the main
+              // answer collapses to its summary view (when one exists; the
+              // user can still switch back to Detailed).
+              if (acc.summary.trim()) {
+                setMessages(prev => {
+                  const next = [...prev];
+                  const mainIdx = next.length - 2;
+                  const main = next[mainIdx];
+                  if (main && main.role === 'assistant' && !main.followup) {
+                    next[mainIdx] = {...main, preferredVariant: 'summary'};
+                  }
+                  return next;
+                });
+              }
               let fuText = '';
               await streamChat({
                 messages: historyForModel,
@@ -383,7 +397,12 @@ export function useCohortChat(): UseCohortChat {
                   arrivalPath: arrivalPathRef.current,
                   entryContext: entryContextRef.current,
                   model,
-                  messages: [...transcript, {role: 'assistant', content: fuText, followup: true}]
+                  messages: [
+                    ...base,
+                    {role: 'user', content},
+                    acc.summary.trim() ? {...assistant, preferredVariant: 'summary' as const} : assistant,
+                    {role: 'assistant', content: fuText, followup: true}
+                  ]
                 });
               } else if (!fuText) {
                 dropEmptyFollowup();
