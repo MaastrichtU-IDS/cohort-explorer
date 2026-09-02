@@ -55,13 +55,19 @@ const matchesSearchTerms = (text: string | null | undefined, searchTerms: string
 };
 
 // Table-based search results component — one row per cohort, columns show matched elements
-const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, searchScope, onCohortClick}: {
+const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, searchScope, onCohortClick, statsVarsByCohort}: {
   cohortsData: Record<string, Cohort>,
   searchTerms: string[],
   searchMode: 'or' | 'and' | 'exact',
   searchScope: 'cohorts' | 'variables' | 'all',
-  onCohortClick: (cohortId: string) => void
+  onCohortClick: (cohortId: string) => void,
+  // cohortId -> lowercased names of variables with summary statistics; those
+  // get a 📊 chip that opens the graph modal directly.
+  statsVarsByCohort?: Record<string, Set<string>>
 }) => {
+  const [graphModal, setGraphModal] = useState<{cohortId: string; varName: string} | null>(null);
+  const varHasStats = (cohortId: string, varName: string) =>
+    !!statsVarsByCohort?.[cohortId]?.has(String(varName || '').toLowerCase().trim());
   const results = useMemo(() => {
     if (searchTerms.length === 0) return [] as {cohortId: string; matchedSections: string[]; matchedVariables: string[]}[];
 
@@ -141,6 +147,11 @@ const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, se
         Found <strong className="text-primary">{results.length}</strong> cohort{results.length !== 1 ? 's' : ''} with matches
         {totalMetadataMatches > 0 && <> · <strong className="text-primary">{totalMetadataMatches}</strong> metadata section{totalMetadataMatches !== 1 ? 's' : ''}</>}
         {totalVariableMatches > 0 && <> · <strong className="text-primary">{totalVariableMatches}</strong> variable{totalVariableMatches !== 1 ? 's' : ''}</>}
+        {results.some(r => r.matchedVariables.some(v => varHasStats(r.cohortId, v))) && (
+          <span className="ml-2 text-xs text-teal-700 dark:text-teal-400">
+            · 📊 = summary statistics available (click the variable to view)
+          </span>
+        )}
       </div>
       <div className="overflow-x-auto max-h-64 overflow-y-auto border border-base-300 rounded-lg">
         <table className="table table-zebra table-sm">
@@ -179,11 +190,26 @@ const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, se
                 <td>
                   {matchedVariables.length > 0 ? (
                     <div className="flex flex-wrap gap-1 max-w-md">
-                      {matchedVariables.slice(0, 5).map((varName, idx) => (
-                        <span key={idx} className="badge badge-sm badge-outline">
-                          <HighlightedText text={varName} searchTerms={searchTerms} searchMode={searchMode} noHighlight />
-                        </span>
-                      ))}
+                      {matchedVariables.slice(0, 5).map((varName, idx) =>
+                        varHasStats(cohortId, varName) ? (
+                          <span
+                            key={idx}
+                            className="badge badge-sm badge-outline border-teal-400 text-teal-700 dark:text-teal-400 cursor-pointer hover:bg-teal-50 dark:hover:bg-teal-900/30"
+                            title="Summary statistics available — click to view"
+                            onClick={e => {
+                              e.stopPropagation();
+                              setGraphModal({cohortId, varName});
+                            }}
+                          >
+                            <HighlightedText text={varName} searchTerms={searchTerms} searchMode={searchMode} noHighlight />
+                            <span className="ml-0.5">📊</span>
+                          </span>
+                        ) : (
+                          <span key={idx} className="badge badge-sm badge-outline">
+                            <HighlightedText text={varName} searchTerms={searchTerms} searchMode={searchMode} noHighlight />
+                          </span>
+                        )
+                      )}
                       {matchedVariables.length > 5 && (
                         <span className="badge badge-sm badge-ghost">
                           +{matchedVariables.length - 5} more
@@ -205,6 +231,20 @@ const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, se
       <div className="text-xs text-gray-500 mt-1">
         Click any row to open that cohort and search within it
       </div>
+      {graphModal && (() => {
+        const varData: any = (cohortsData[graphModal.cohortId]?.variables as any)?.[graphModal.varName] || {};
+        return (
+          <VariableGraphModal
+            isOpen={true}
+            cohortId={graphModal.cohortId}
+            variableName={graphModal.varName}
+            variableLabel={varData.var_label}
+            omopId={varData.omop_id}
+            conceptCode={varData.concept_code}
+            onClose={() => setGraphModal(null)}
+          />
+        );
+      })()}
     </div>
   );
 });
@@ -819,6 +859,27 @@ export default function CohortsList() {
   const [activeSubTab, setActiveSubTab] = useState<{[key: string]: 'metadata' | 'graphs' | 'list' | 'eda'}>({});
   // State to track which cohorts have EDA data available
   const [edaAvailability, setEdaAvailability] = useState<{[key: string]: boolean}>({});
+  // cohortId -> variables (lowercased) with summary statistics: marks matched
+  // variables in the cross-cohort search results table with a 📊 chip. One
+  // small names-only fetch for the whole page.
+  const [statsVarsByCohort, setStatsVarsByCohort] = useState<Record<string, Set<string>>>({});
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/eda-variable-names')
+      .then(res => (res.ok ? res.json() : {}))
+      .then((data: Record<string, string[]>) => {
+        if (!alive) return;
+        const sets: Record<string, Set<string>> = {};
+        Object.entries(data || {}).forEach(([cid, names]) => {
+          sets[cid] = new Set((names || []).map(n => String(n).toLowerCase().trim()));
+        });
+        setStatsVarsByCohort(sets);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
   // State to track shimmer effect for each cohort
   const [shimmerActive, setShimmerActive] = useState<{[key: string]: boolean}>({});
   // Search configuration states
@@ -1375,6 +1436,7 @@ export default function CohortsList() {
                     searchMode={searchMode}
                     searchScope={searchScope}
                     onCohortClick={handleSearchResultClick}
+                    statsVarsByCohort={statsVarsByCohort}
                   />
                   <EquivalentVariableNames
                     cohortsData={cohortsData as Record<string, Cohort>}
