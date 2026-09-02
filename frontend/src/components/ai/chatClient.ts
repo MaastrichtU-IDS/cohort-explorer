@@ -26,6 +26,9 @@ export interface ChatMessage {
   // Disambiguation turn: the planner found the question ambiguous and this
   // reply only asks which reading is meant (shown with its own pink tag).
   clarify?: boolean;
+  // EDA follow-up bubble: an extra answer grounded in the selected variables'
+  // distribution profiles (shown with its own tag).
+  followup?: boolean;
 }
 
 // ---- Catalog search (the chat's search tool) --------------------------------
@@ -137,6 +140,27 @@ export async function planSearchWithRetry(question: string, cohortIds: string[],
   }
 }
 
+// EDA follow-up round: after the main answer, ask the server whether the
+// profiled variables among the search matches can turn the answer into
+// concrete numbers. When needed, `context` holds the selected variables'
+// profiles, ready to be passed back as `edaContext` for one extra bubble.
+export async function fetchEdaFollowup(
+  question: string,
+  payload: SearchPayload,
+  cohortIds: string[],
+  signal?: AbortSignal
+): Promise<{needed: boolean; context?: string; focus?: string; variables?: {cohort_id: string; var_name: string}[]}> {
+  const res = await fetch(`${apiUrl}/api/chat/eda-followup`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {'Content-Type': 'application/json'},
+    signal,
+    body: JSON.stringify({question, search_results: payload, cohort_ids: cohortIds})
+  });
+  if (!res.ok) throw new Error(`EDA follow-up failed (${res.status})`);
+  return res.json();
+}
+
 export type AnswerStyle = 'summary' | 'detailed';
 
 export interface ChatConfig {
@@ -160,6 +184,9 @@ export interface SendOptions {
   // concept grouping and cross-concept intersection): injected into the model's
   // context server-side, identical to what the search panel shows.
   searchResults?: SearchPayload;
+  // EDA follow-up turn: the profile block from /api/chat/eda-followup; the
+  // server switches into EDA FOLLOW-UP MODE and grounds the reply in it.
+  edaContext?: string;
   // Disambiguation turn: the readings the planner found. The server then asks
   // for a short clarifying reply instead of a full answer.
   clarifyInterpretations?: string[];
@@ -193,7 +220,8 @@ export async function streamChat(opts: SendOptions): Promise<void> {
       context: opts.contextOverride || null,
       style: opts.style || null,
       search_results: opts.searchResults && opts.searchResults.runs.length > 0 ? opts.searchResults : null,
-      clarify_interpretations: opts.clarifyInterpretations && opts.clarifyInterpretations.length >= 2 ? opts.clarifyInterpretations : null
+      clarify_interpretations: opts.clarifyInterpretations && opts.clarifyInterpretations.length >= 2 ? opts.clarifyInterpretations : null,
+      eda_context: opts.edaContext || null
     })
   });
 

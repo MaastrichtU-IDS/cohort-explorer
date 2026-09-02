@@ -612,6 +612,14 @@ export function MessageBubble({
                 Request for disambiguation
               </span>
             )}
+            {message.followup && (
+              <span
+                className="px-4 py-1 rounded-full text-base font-semibold bg-teal-100 text-teal-900 border border-teal-300"
+                title="An extra answer grounded in the variable profiles (EDA) relevant to the question"
+              >
+                EDA follow-up
+              </span>
+            )}
             {hasVariants && <VariantToggle variant={variant} onChange={pickVariant} />}
           </div>
         )}

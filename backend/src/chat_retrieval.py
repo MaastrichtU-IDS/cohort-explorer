@@ -367,6 +367,8 @@ def run_chat_searches(
                 "code_matches": len(code_added.get(cohort_id, [])),
                 "in_selection": (not restrict) or cohort_id in restrict,
                 "detailed": cohort_id in detailed_ids,
+                # EDA / variable profiling exists for this cohort (any variable)
+                "has_eda_profile": len(eda_names) > 0,
                 "variables": shown,
             })
         runs.append({
@@ -433,6 +435,14 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
         if run.get("codes"):
             parts.append("   (results include variables matched via shared standard codes: "
                          + "; ".join(c["display"] for c in run["codes"]) + ")")
+        prof = [c["cohort_id"] for c in coh if c.get("has_eda_profile")]
+        if prof and len(prof) < len(coh):
+            parts.append("   EDA / variable profiling on record for: " + ", ".join(prof)
+                         + ". The other matching cohorts have no profiling yet.")
+        elif prof:
+            parts.append("   EDA / variable profiling is on record for ALL of these cohorts.")
+        else:
+            parts.append("   None of these cohorts has EDA / variable profiling on record.")
         _present_details([c for c in coh if _is_detailed(c)])
 
     def _present_expansion(run, seen):
@@ -517,7 +527,9 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
     parts.append(
         "HOW TO USE THESE RESULTS: base your answer on them, not on memory. When the user asks "
         "which cohorts have something, name ALL the matching cohorts listed above with their "
-        "counts — never drop any. When listing variables, name at most 10-15 per cohort and "
+        "counts — never drop any. When you name cohorts, also say which of them have EDA / "
+        "variable profiling on record (stated per search above): profiling means the catalog "
+        "holds real distribution statistics for that cohort's variables. When listing variables, name at most 10-15 per cohort and "
         "ALWAYS state the full counts explicitly (e.g. \"TIME-CHF has 57 matching variables; "
         "here are 12\"), so the user knows there are more. The per-cohort variable lists are "
         "CAPPED and only the top cohorts are expanded - NEVER conclude that a cohort lacks "

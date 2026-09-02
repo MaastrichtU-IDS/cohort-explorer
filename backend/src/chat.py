@@ -77,7 +77,9 @@ SYSTEM_PROMPT = (
     "of cohorts, an inventory of what is tracked (e.g. 'medications of X patients' = ALL "
     "medication variables, not one drug class), or data about a subgroup ('patients with X'). "
     "If the question supports different readings, SAY SO - the users are analysts and value "
-    "having the ambiguity in their own question pinned down, even a subtle one. When one "
+    "having the ambiguity in their own question pinned down, even a subtle one. Asking for "
+    "disambiguation is ENCOURAGED here: a short clarifying question is a good outcome, not a "
+    "failure to answer. When one "
     "reading contains the other (an inventory contains a single flag), answer the broader and "
     "point out the narrower inside it. When the readings genuinely diverge, present each "
     "interpretation, sketch in a line what the search results say under each, and END BY "
@@ -184,6 +186,16 @@ def _summarize_variable(var: Any) -> str:
     return f"{name}{suffix}"
 
 
+def _has_eda_profile(cohort_id: str) -> bool:
+    """Whether EDA / variable profiling output exists for this cohort (mtime-cached)."""
+    try:
+        from src.nocode import _load_eda
+
+        return bool(_load_eda(str(cohort_id)))
+    except Exception:
+        return False
+
+
 def _summarize_cohort(cohort: Any, include_variables: bool = True) -> str:
     """Multi-line summary of one cohort with an optional sample of its variables."""
     lines = [f"### Cohort: {cohort.cohort_id}"]
@@ -205,6 +217,9 @@ def _summarize_cohort(cohort: Any, include_variables: bool = True) -> str:
 
     variables = getattr(cohort, "variables", {}) or {}
     lines.append(f"- Variable count: {len(variables)}")
+    lines.append("- EDA / variable profiling: "
+                 + ("on record (distribution statistics available)"
+                    if _has_eda_profile(cohort.cohort_id) else "not available"))
     if include_variables and variables:
         sample = list(variables.values())[:MAX_VARS_PER_COHORT]
         lines.append("- Variables (sample):")
@@ -247,7 +262,8 @@ def build_context(cohort_ids: list[str], focus: Optional[str] = None) -> str:
             variables = getattr(cohort, "variables", {}) or {}
             stype = _clean(getattr(cohort, "study_type", ""))
             descr = f" ({stype})" if stype else ""
-            catalog.append(f"- {cohort.cohort_id}{descr}: {len(variables)} variables")
+            eda_tag = ", EDA profiling on record" if _has_eda_profile(cohort.cohort_id) else ""
+            catalog.append(f"- {cohort.cohort_id}{descr}: {len(variables)} variables{eda_tag}")
             # A sample of actual variable names so catalog-wide questions
             # ("which cohorts measure X?") can be answered without selecting
             # cohorts first. Deep dives still require selecting cohorts.
@@ -544,6 +560,26 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
             "results (roughly how many cohorts/variables match, the two or three key cohorts), "
             "then end with ONE short question asking which reading is meant. Nothing else."
         )})
+    # EDA follow-up turn: a second, short answer bubble grounded in the actual
+    # variable profiles (per-category patient counts, numeric summaries) that
+    # the /api/chat/eda-followup round selected for this question.
+    eda_ctx = body.get("eda_context")
+    if isinstance(eda_ctx, str) and eda_ctx.strip():
+        full_messages.append({"role": "system", "content": (
+            "EDA FOLLOW-UP MODE - the main answer was already given; you now add ONE short "
+            "follow-up grounded ONLY in the variable profiles below. Lead with the concrete "
+            "numbers that bear on the user's question (per-category patient counts for "
+            "categorical variables, the n/mean/median/min-max summary for numeric ones), naming "
+            "the variable and cohort for every number and copying the variable's \U0001F4CA "
+            "chart marker verbatim where one is shown. Where several readings are possible "
+            "(e.g. a diabetes-type variable vs a cause-of-death variable), give the number "
+            "under each and say which variable answers which reading. Then at most one line of "
+            "caveats when relevant: counts are records within one cohort (not pooled or "
+            "de-duplicated across cohorts), note the missing-data percentage, and read category "
+            "labels exactly as recorded. If the profiles do not settle the question, say which "
+            "variable comes closest and what is missing. Do NOT repeat the main answer and do "
+            "NOT re-list cohorts.\n\n" + eda_ctx.strip()[:20000]
+        )})
     full_messages.extend(messages)
     return full_messages, model, temperature
 
@@ -654,7 +690,9 @@ SEARCH_PLANNER_PROMPT = (
     "(b) general medication variables to cross-reference against an atrial-fibrillation status "
     "variable; declare both and search both. Litmus test: if a careful answer would have to open "
     "with 'Interpreting this as ...', the question IS ambiguous - declare the readings instead of "
-    "silently picking one. Do not manufacture ambiguity for a clearly phrased question. "
+    "silently picking one. Declaring interpretations is ENCOURAGED: these users are analysts who "
+    "find a clarification round genuinely useful, so when torn between one reading and several, "
+    "declare several. Do not manufacture ambiguity for a clearly phrased question. "
     "Treat a follow-up as a NEW question unless it clearly refines the previous one; do not "
     "just re-run the previous turn's terms.\n"
     "COHORT NAMES: the catalog's cohort names are listed below. A word matching a cohort name or "
@@ -777,6 +815,158 @@ def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
             "concepts": concept_summaries, "intersection": intersection,
             "interpretations": interpretations if len(interpretations) >= 2 else [],
             "model": settings.litellm_model}
+
+
+# ---- EDA follow-up -----------------------------------------------------------
+#
+# After a search-grounded answer, a second round can turn it into concrete
+# numbers: the model picks, from the matched variables that HAVE an EDA profile,
+# the few whose distribution actually bears on the question (e.g. a
+# diabetes-TYPE variable with per-category patient counts for "how many type 1
+# diabetics"), the server loads those profiles, and the client streams one
+# extra follow-up bubble grounded in them (see EDA FOLLOW-UP MODE in
+# _assemble_payload).
+
+EDA_FOLLOWUP_SELECTION_PROMPT = (
+    "You decide whether VARIABLE PROFILES can sharpen a catalog answer into concrete numbers, "
+    "for iCARE-AI (an assistant over a catalog of cardiovascular research cohorts). The user's "
+    "question was just answered from catalog search results that list matching variables per "
+    "cohort. For the variables listed below, an EDA profile is on record: the variable's value "
+    "type and its real distribution - per-category patient counts for categorical variables, "
+    "n/mean/median/min/max for numeric ones.\n"
+    "First judge what the user is actually after (e.g. 'how many type 1 diabetes patients' -> "
+    "variables whose CATEGORIES distinguish diabetes types; 'patients who died of X' -> "
+    "cause-of-death variables; a lab value's range -> the numeric profile). Then select ONLY "
+    "the variables whose profile directly bears on that - the fewer and sharper the better, at "
+    "most 8. Prefer variables from different cohorts over near-duplicates within one cohort. "
+    "If no profile would add concrete, question-relevant numbers (the question is not about "
+    "counts, values or distributions), return needed=false.\n"
+    'Return STRICT JSON only: {"needed": true|false, '
+    '"focus": "<one short line: what to extract from the profiles>", '
+    '"selections": [{"cohort_id": "<exact id>", "var_name": "<exact name>"}, ...]}'
+)
+
+
+def _format_eda_profiles(rows: list[dict]) -> str:
+    """The selected variables' EDA profiles as model-ready text. Each row:
+    {cohort_id, var_name, var_label, stats} with stats from nocode._load_eda."""
+    parts = ["VARIABLE PROFILES (EDA) - real distribution statistics from the catalog:"]
+    for r in rows:
+        s = r.get("stats") or {}
+        head = f"## {r['cohort_id']} :: {r['var_name']}"
+        if r.get("var_label"):
+            head += f" — {r['var_label']}"
+        bits = []
+        if s.get("type"):
+            bits.append(str(s["type"]))
+        if s.get("n") is not None:
+            bits.append(f"n={int(s['n'])}")
+        if s.get("missing_pct") is not None:
+            bits.append(f"missing {s['missing_pct']}%")
+        if bits:
+            head += " [" + ", ".join(bits) + "]"
+        head += f" \U0001F4CA[{r['cohort_id']}::{r['var_name']}]"
+        parts.append(head)
+        dist = s.get("distribution") or []
+        if dist:
+            vals = "; ".join(
+                f"'{d.get('label') or d.get('value')}': {int(d['count']) if d.get('count') is not None else '?'}"
+                + (f" ({d['pct']}%)" if d.get("pct") is not None else "")
+                for d in dist
+            )
+            parts.append(f"   values: {vals}")
+        nums = [(k, s.get(k)) for k in ("mean", "std", "median", "min", "max", "q1", "q3")]
+        nums = [(k, v) for k, v in nums if v is not None]
+        if nums:
+            parts.append("   " + ", ".join(f"{k}={v}" for k, v in nums))
+        if s.get("n_unique") is not None:
+            parts.append(f"   distinct values: {int(s['n_unique'])}")
+    return "\n".join(parts)
+
+
+@router.post("/api/chat/eda-followup")
+def eda_followup(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Selection round for the EDA follow-up bubble: given the question and the
+    search results, the model picks the profiled variables whose distributions
+    answer the question; their profiles are returned as a context block the
+    client passes back into one extra streamed answer."""
+    from src.nocode import _load_eda
+
+    question = _clean(body.get("question"))
+    runs = ((body.get("search_results") or {}).get("runs")
+            if isinstance(body.get("search_results"), dict) else None) or body.get("searches") or []
+    candidates: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for r in runs:
+        for c in (r.get("cohorts") or []) if isinstance(r, dict) else []:
+            for v in c.get("variables") or []:
+                if not v.get("has_eda"):
+                    continue
+                key = (str(c.get("cohort_id")), str(v.get("var_name") or "").strip().lower())
+                if not key[1] or key in seen:
+                    continue
+                seen.add(key)
+                candidates.append({"cohort_id": str(c.get("cohort_id")),
+                                   "var_name": str(v.get("var_name")),
+                                   "var_label": _clean(v.get("var_label") or ""),
+                                   "term": str(r.get("term") or "")})
+                if len(candidates) >= 60:
+                    break
+    if not question or not candidates:
+        return {"needed": False}
+
+    listing = "\n".join(
+        f"- {c['cohort_id']} :: {c['var_name']}"
+        + (f" — {c['var_label']}" if c["var_label"] else "")
+        + (f" (matched '{c['term']}')" if c["term"] else "")
+        for c in candidates
+    )
+    client = _get_openai_client()
+    try:
+        resp = client.chat.completions.create(
+            model=settings.litellm_model,
+            messages=[
+                {"role": "system", "content": EDA_FOLLOWUP_SELECTION_PROMPT},
+                {"role": "user", "content": f"Question: {question}\n\nProfiled variables from the search results:\n{listing}"},
+            ],
+            temperature=0.0,
+        )
+        content = (resp.choices[0].message.content or "").strip()
+        content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.M).strip()
+        start, end = content.find("{"), content.rfind("}")
+        parsed = json.loads(content[start:end + 1]) if start >= 0 else {}
+    except Exception as exc:
+        logger.warning("EDA follow-up selection failed: %s", exc)
+        return {"needed": False}
+    if not parsed.get("needed"):
+        return {"needed": False}
+    by_key = {(c["cohort_id"], c["var_name"].strip().lower()): c for c in candidates}
+    rows: list[dict] = []
+    eda_by_cohort: dict[str, dict] = {}
+    for sel in (parsed.get("selections") or [])[:8]:
+        if not isinstance(sel, dict):
+            continue
+        cand = by_key.get((str(sel.get("cohort_id")), str(sel.get("var_name") or "").strip().lower()))
+        if not cand:
+            continue
+        cid = cand["cohort_id"]
+        if cid not in eda_by_cohort:
+            try:
+                eda_by_cohort[cid] = _load_eda(cid) or {}
+            except Exception:
+                eda_by_cohort[cid] = {}
+        stats = eda_by_cohort[cid].get(cand["var_name"].strip().lower())
+        if stats:
+            rows.append({**cand, "stats": stats})
+    if not rows:
+        return {"needed": False}
+    focus = _clean(parsed.get("focus") or "")[:200]
+    context_block = _format_eda_profiles(rows)
+    if focus:
+        context_block += f"\nFOCUS: {focus}"
+    return {"needed": True, "focus": focus,
+            "variables": [{"cohort_id": r["cohort_id"], "var_name": r["var_name"]} for r in rows],
+            "context": context_block, "model": settings.litellm_model}
 
 
 # ---- Conversation starters ---------------------------------------------------

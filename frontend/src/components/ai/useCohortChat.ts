@@ -5,6 +5,7 @@ import {
   ChatMessage,
   SearchPayload,
   fetchChatConfig,
+  fetchEdaFollowup,
   planSearchWithRetry,
   saveConversation,
   streamChat
@@ -312,6 +313,61 @@ export function useCohortChat(): UseCohortChat {
             model,
             messages: transcript
           });
+        }
+
+        // EDA follow-up: when the matched variables' profiles can turn this
+        // answer into concrete numbers (per-category patient counts, numeric
+        // summaries), the server selects the relevant profiles and ONE extra
+        // bubble is streamed, grounded in them. Best-effort: failures are
+        // silent and the main answer stands.
+        const dropEmptyFollowup = () =>
+          setMessages(prev => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last && last.role === 'assistant' && last.followup && !last.content) next.pop();
+            return next;
+          });
+        if (payload && !controller.signal.aborted) {
+          try {
+            const fu = await fetchEdaFollowup(content, payload, selected, controller.signal);
+            if (fu.needed && fu.context && !controller.signal.aborted) {
+              setMessages(prev => [...prev, {role: 'assistant', content: '', followup: true}]);
+              let fuText = '';
+              await streamChat({
+                messages: historyForModel,
+                cohortIds: selected,
+                focus,
+                searchResults: payload,
+                edaContext: fu.context,
+                signal: controller.signal,
+                onChunk: delta => {
+                  fuText += delta;
+                  setMessages(prev => {
+                    const next = [...prev];
+                    const last = next[next.length - 1];
+                    if (last && last.role === 'assistant' && last.followup) {
+                      next[next.length - 1] = {...last, content: (last.content || '') + delta};
+                    }
+                    return next;
+                  });
+                }
+              });
+              if (fuText && conversationIdRef.current) {
+                void saveConversation({
+                  conversationId: conversationIdRef.current,
+                  startedAt: startedAtRef.current || new Date().toISOString(),
+                  arrivalPath: arrivalPathRef.current,
+                  entryContext: entryContextRef.current,
+                  model,
+                  messages: [...transcript, {role: 'assistant', content: fuText, followup: true}]
+                });
+              } else if (!fuText) {
+                dropEmptyFollowup();
+              }
+            }
+          } catch {
+            dropEmptyFollowup();
+          }
         }
       }
       setIsStreaming(false);
