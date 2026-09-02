@@ -58,22 +58,36 @@ function renderTable(rows: string[]): string {
   return html;
 }
 
-// Cohort names get their own color in the rendered answers so they stand out.
-// Case-sensitive on the exact catalog ids (so the cohort "Believe" colors, the
-// verb "believe" does not), applied only to text OUTSIDE html tags.
+// Cohort names get their own color (purple) in the rendered answers so they
+// stand out. Matching is flexible - case-insensitive, and hyphens/spaces
+// interchange ("GISSI-HF Outcomes" also matches "GISSI-HF-Outcomes") - EXCEPT
+// for names that are a single plain word (e.g. "Believe"): those must match
+// the catalog casing exactly, so the verb "believe" stays uncolored. Applied
+// only to text OUTSIDE html tags.
 function highlightCohortNames(html: string, names?: string[]): string {
   if (!names || names.length === 0) return html;
-  const escaped = Array.from(new Set(names.filter(n => n && n.length >= 3)))
-    .sort((a, b) => b.length - a.length)
-    .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  if (escaped.length === 0) return html;
-  const re = new RegExp(`(^|[^\\w-])(${escaped.join('|')})(?![\\w-])`, 'g');
+  const canon = Array.from(new Set(names.filter(n => n && n.length >= 3)));
+  if (canon.length === 0) return html;
+  const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const flexible = (n: string) => n.split(/[\s-]+/).map(escRe).join('[\\s-]+');
+  const norm = (s: string) => s.toLowerCase().replace(/[\s-]+/g, ' ');
+  const byNorm = new Map(canon.map(n => [norm(n), n]));
+  const re = new RegExp(
+    `(^|[^\\w-])(${canon.sort((a, b) => b.length - a.length).map(flexible).join('|')})(?![\\w-])`,
+    'gi'
+  );
   return html
     .split(/(<[^>]*>)/)
     .map(part =>
       part.startsWith('<')
         ? part
-        : part.replace(re, (_m, pre, name) => `${pre}<span class="text-sky-700 font-semibold">${name}</span>`)
+        : part.replace(re, (m, pre, hit) => {
+            const canonical = byNorm.get(norm(hit));
+            if (!canonical) return m;
+            // Word-like names color only when written exactly as in the catalog.
+            if (/^[A-Za-z]+$/.test(canonical) && hit !== canonical) return m;
+            return `${pre}<span class="text-purple-700 dark:text-purple-400 font-semibold">${hit}</span>`;
+          })
     )
     .join('');
 }
