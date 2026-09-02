@@ -160,8 +160,8 @@ const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, se
           <thead className="sticky top-0 z-10">
             <tr>
               <th>Cohort</th>
-              <th>Matched Metadata</th>
-              <th>Matched Variables</th>
+              {searchScope !== 'variables' && <th>Matched Metadata</th>}
+              {searchScope !== 'cohorts' && <th>Matched Variables</th>}
               <th className="text-right">Total</th>
             </tr>
           </thead>
@@ -176,19 +176,22 @@ const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, se
                 <td className="font-semibold whitespace-nowrap">
                   <HighlightedText text={cohortId} searchTerms={searchTerms} searchMode={searchMode} noHighlight />
                 </td>
-                <td>
-                  {matchedSections.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {matchedSections.map((section, idx) => (
-                        <span key={idx} className="badge badge-sm badge-ghost">
-                          {section}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-gray-400">—</span>
-                  )}
-                </td>
+                {searchScope !== 'variables' && (
+                  <td>
+                    {matchedSections.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {matchedSections.map((section, idx) => (
+                          <span key={idx} className="badge badge-sm badge-ghost">
+                            {section}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                  </td>
+                )}
+                {searchScope !== 'cohorts' && (
                 <td>
                   {matchedVariables.length > 0 ? (
                     <div className="flex flex-wrap gap-1 max-w-md">
@@ -222,6 +225,7 @@ const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, se
                     <span className="text-gray-400">—</span>
                   )}
                 </td>
+                )}
                 <td className="text-right font-semibold text-primary whitespace-nowrap">
                   {matchedSections.length + matchedVariables.length}
                 </td>
