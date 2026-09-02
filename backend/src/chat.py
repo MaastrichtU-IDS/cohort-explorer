@@ -567,10 +567,15 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
     if isinstance(eda_ctx, str) and eda_ctx.strip():
         full_messages.append({"role": "system", "content": (
             "EDA FOLLOW-UP MODE - the main answer was already given; you now add ONE short "
-            "follow-up grounded ONLY in the variable profiles below. Lead with the concrete "
-            "numbers that bear on the user's question (per-category patient counts for "
-            "categorical variables, the n/mean/median/min-max summary for numeric ones), naming "
-            "the variable and cohort for every number and copying the variable's \U0001F4CA "
+            "follow-up grounded ONLY in the variable profiles below. READ each profile's "
+            "'values:' line and extract the category that answers the question: for 'how many "
+            "patients with X', the number is the count of the matching category (the "
+            "'yes'/'1'/'type 1' value), NOT n - n is merely how many records have any value "
+            "(including 'no'), and presenting n as a patient count is WRONG. Spell the "
+            "extraction out, e.g. \"CHECK-HF, Comorbiditeit_DM1: 'yes' 812 of 10,802 recorded "
+            "(7.5%)\". A variable whose profile says per-category counts are NOT available "
+            "cannot give a patient count - say so for that cohort rather than substituting n. "
+            "Name the variable and cohort for every number and copy the variable's \U0001F4CA "
             "chart marker verbatim where one is shown. Where several readings are possible "
             "(e.g. a diabetes-type variable vs a cause-of-death variable), give the number "
             "under each and say which variable answers which reading. Then at most one line of "
@@ -839,6 +844,10 @@ EDA_FOLLOWUP_SELECTION_PROMPT = (
     "cause-of-death variables; a lab value's range -> the numeric profile). Then select ONLY "
     "the variables whose profile directly bears on that - the fewer and sharper the better, at "
     "most 8. Prefer variables from different cohorts over near-duplicates within one cohort. "
+    "Each candidate is tagged: '[per-category counts available]' means its profile lists the "
+    "patient count per value (what a 'how many patients with X' question needs); '[no per-value "
+    "breakdown in profile]' means only n and summary statistics exist. For count questions "
+    "STRONGLY prefer the candidates with per-category counts. "
     "If no profile would add concrete, question-relevant numbers (the question is not about "
     "counts, values or distributions), return needed=false.\n"
     'Return STRICT JSON only: {"needed": true|false, '
@@ -850,7 +859,13 @@ EDA_FOLLOWUP_SELECTION_PROMPT = (
 def _format_eda_profiles(rows: list[dict]) -> str:
     """The selected variables' EDA profiles as model-ready text. Each row:
     {cohort_id, var_name, var_label, stats} with stats from nocode._load_eda."""
-    parts = ["VARIABLE PROFILES (EDA) - real distribution statistics from the catalog:"]
+    parts = [
+        "VARIABLE PROFILES (EDA) - real distribution statistics from the catalog.",
+        "READ CAREFULLY: n is the number of records with ANY value for the variable - it is "
+        "NEVER the count of patients with a condition. The count of patients with a condition "
+        "is the count of the matching category on a 'values:' line (e.g. the 'yes' / 'type 1' "
+        "category).",
+    ]
     for r in rows:
         s = r.get("stats") or {}
         head = f"## {r['cohort_id']} :: {r['var_name']}"
@@ -875,6 +890,9 @@ def _format_eda_profiles(rows: list[dict]) -> str:
                 for d in dist
             )
             parts.append(f"   values: {vals}")
+        elif str(s.get("type") or "").lower().startswith("categor"):
+            parts.append("   per-category counts NOT available in this profile (older EDA format) - "
+                         "the breakdown by value is unknown; do NOT infer it from n.")
         nums = [(k, s.get(k)) for k in ("mean", "std", "median", "min", "max", "q1", "q3")]
         nums = [(k, v) for k, v in nums if v is not None]
         if nums:
@@ -915,10 +933,28 @@ def eda_followup(body: dict[str, Any], user: Any = Depends(get_current_user)) ->
     if not question or not candidates:
         return {"needed": False}
 
+    # One EDA load per cohort (mtime-cached), reused for the profile block below.
+    eda_by_cohort: dict[str, dict] = {}
+
+    def _stats_for(cid: str, vname: str):
+        if cid not in eda_by_cohort:
+            try:
+                eda_by_cohort[cid] = _load_eda(cid) or {}
+            except Exception:
+                eda_by_cohort[cid] = {}
+        return eda_by_cohort[cid].get(vname.strip().lower())
+
+    for c in candidates:
+        s = _stats_for(c["cohort_id"], c["var_name"]) or {}
+        # Only v2 EDA outputs carry per-value counts; the tag lets the model
+        # prefer variables it can actually count patients from.
+        c["has_counts"] = bool(s.get("distribution"))
+
     listing = "\n".join(
         f"- {c['cohort_id']} :: {c['var_name']}"
         + (f" — {c['var_label']}" if c["var_label"] else "")
         + (f" (matched '{c['term']}')" if c["term"] else "")
+        + (" [per-category counts available]" if c["has_counts"] else " [no per-value breakdown in profile]")
         for c in candidates
     )
     client = _get_openai_client()
@@ -942,20 +978,13 @@ def eda_followup(body: dict[str, Any], user: Any = Depends(get_current_user)) ->
         return {"needed": False}
     by_key = {(c["cohort_id"], c["var_name"].strip().lower()): c for c in candidates}
     rows: list[dict] = []
-    eda_by_cohort: dict[str, dict] = {}
     for sel in (parsed.get("selections") or [])[:8]:
         if not isinstance(sel, dict):
             continue
         cand = by_key.get((str(sel.get("cohort_id")), str(sel.get("var_name") or "").strip().lower()))
         if not cand:
             continue
-        cid = cand["cohort_id"]
-        if cid not in eda_by_cohort:
-            try:
-                eda_by_cohort[cid] = _load_eda(cid) or {}
-            except Exception:
-                eda_by_cohort[cid] = {}
-        stats = eda_by_cohort[cid].get(cand["var_name"].strip().lower())
+        stats = _stats_for(cand["cohort_id"], cand["var_name"])
         if stats:
             rows.append({**cand, "stats": stats})
     if not rows:
