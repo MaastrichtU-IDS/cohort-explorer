@@ -636,7 +636,13 @@ export function MessageBubble({
             dangerouslySetInnerHTML={{__html: renderRich(shown, validEda)}}
           />
         ) : streaming ? (
-          <TypingDots />
+          message.followup ? (
+            <span className="text-sm text-base-content/60 italic inline-flex items-center gap-2">
+              Checking the variable profiles (EDA) for numbers that answer this… <TypingDots />
+            </span>
+          ) : (
+            <TypingDots />
+          )
         ) : hasVariants ? (
           <span className="text-sm text-base-content/40 italic">
             No {variant} answer{streaming ? ' yet' : ' was produced'}. Try the other tab.

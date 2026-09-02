@@ -328,10 +328,13 @@ export function useCohortChat(): UseCohortChat {
             return next;
           });
         if (payload && !controller.signal.aborted) {
+          // The check itself is visible: the teal bubble appears right away in
+          // a "checking the variable profiles" state, and is removed again if
+          // the selection round decides the profiles add nothing.
+          setMessages(prev => [...prev, {role: 'assistant', content: '', followup: true}]);
           try {
             const fu = await fetchEdaFollowup(content, payload, selected, controller.signal);
             if (fu.needed && fu.context && !controller.signal.aborted) {
-              setMessages(prev => [...prev, {role: 'assistant', content: '', followup: true}]);
               let fuText = '';
               await streamChat({
                 messages: historyForModel,
@@ -364,6 +367,9 @@ export function useCohortChat(): UseCohortChat {
               } else if (!fuText) {
                 dropEmptyFollowup();
               }
+            } else {
+              // Profiles add nothing for this question: remove the checking bubble.
+              dropEmptyFollowup();
             }
           } catch {
             dropEmptyFollowup();
