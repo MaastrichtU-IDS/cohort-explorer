@@ -153,7 +153,9 @@ const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, se
           </span>
         )}
       </div>
-      <div className="overflow-x-auto max-h-64 overflow-y-auto border border-base-300 rounded-lg">
+      {/* Tall enough for ~15-20 result rows before scrolling kicks in (capped
+          to the viewport on small screens). */}
+      <div className="overflow-x-auto max-h-[min(48rem,70vh)] overflow-y-auto border border-base-300 rounded-lg">
         <table className="table table-zebra table-sm">
           <thead className="sticky top-0 z-10">
             <tr>
