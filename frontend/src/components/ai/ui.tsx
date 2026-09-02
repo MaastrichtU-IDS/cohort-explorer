@@ -58,7 +58,27 @@ function renderTable(rows: string[]): string {
   return html;
 }
 
-function renderRich(text: string, validEda?: Set<string>): string {
+// Cohort names get their own color in the rendered answers so they stand out.
+// Case-sensitive on the exact catalog ids (so the cohort "Believe" colors, the
+// verb "believe" does not), applied only to text OUTSIDE html tags.
+function highlightCohortNames(html: string, names?: string[]): string {
+  if (!names || names.length === 0) return html;
+  const escaped = Array.from(new Set(names.filter(n => n && n.length >= 3)))
+    .sort((a, b) => b.length - a.length)
+    .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (escaped.length === 0) return html;
+  const re = new RegExp(`(^|[^\\w-])(${escaped.join('|')})(?![\\w-])`, 'g');
+  return html
+    .split(/(<[^>]*>)/)
+    .map(part =>
+      part.startsWith('<')
+        ? part
+        : part.replace(re, (_m, pre, name) => `${pre}<span class="text-sky-700 font-semibold">${name}</span>`)
+    )
+    .join('');
+}
+
+function renderRich(text: string, validEda?: Set<string>, cohortNames?: string[]): string {
   const esc = text
     // Models sometimes emit non-breaking/narrow spaces (U+00A0, U+202F, U+2007);
     // a long list joined by those never wraps and runs out of its bubble.
@@ -146,6 +166,8 @@ function renderRich(text: string, validEda?: Set<string>): string {
     }
   }
   closeList();
+  // Color the cohort names BEFORE the code blocks return, so code stays plain.
+  html = highlightCohortNames(html, cohortNames);
   // Put the lifted code blocks back in place of their placeholders.
   html = html.replace(/\u0000CODE(\d+)\u0000/g, (_m, i) => codeBlocks[Number(i)] || '');
   return html;
@@ -573,11 +595,13 @@ export function MessageBubble({
   message,
   streaming,
   validEda,
+  cohortNames,
   onSummaryViewed
 }: {
   message: ChatMessage;
   streaming?: boolean;
   validEda?: Set<string>;
+  cohortNames?: string[];
   onSummaryViewed?: () => void;
 }) {
   const isUser = message.role === 'user';
@@ -615,9 +639,9 @@ export function MessageBubble({
             {message.followup && (
               <span
                 className="px-4 py-1 rounded-full text-base font-semibold bg-teal-100 text-teal-900 border border-teal-300"
-                title="An extra answer grounded in the variable profiles (EDA) relevant to the question"
+                title="An extra answer grounded in the recorded summary statistics (variable distributions) relevant to the question"
               >
-                EDA follow-up
+                Follow-up based on summary statistics
               </span>
             )}
             {hasVariants && <VariantToggle variant={variant} onChange={pickVariant} />}
@@ -633,12 +657,12 @@ export function MessageBubble({
                 openEda(t.getAttribute('data-eda-cohort') || '', t.getAttribute('data-eda-var') || '');
               }
             }}
-            dangerouslySetInnerHTML={{__html: renderRich(shown, validEda)}}
+            dangerouslySetInnerHTML={{__html: renderRich(shown, validEda, message.role === 'user' ? undefined : cohortNames)}}
           />
         ) : streaming ? (
           message.followup ? (
             <span className="text-sm text-base-content/60 italic inline-flex items-center gap-2">
-              Checking the variable profiles (EDA) for numbers that answer this… <TypingDots />
+              Checking the summary statistics for numbers that answer this… <TypingDots />
             </span>
           ) : (
             <TypingDots />
@@ -663,10 +687,14 @@ export function MessageBubble({
 export function MessageList({
   messages,
   streaming,
+  cohortNames,
   onSummaryViewed
 }: {
   messages: ChatMessage[];
   streaming: boolean;
+  // Catalog cohort ids to color inside the answers; the ids appearing in this
+  // conversation's search results are always added on top.
+  cohortNames?: string[];
   onSummaryViewed?: (index: number) => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -698,15 +726,19 @@ export function MessageList({
   // Chart markers are only trusted for variables the searches actually flagged
   // with an EDA; anything else the model wrote is dropped at render time.
   const validEda = new Set<string>();
-  messages.forEach(m =>
+  const nameSet = new Set<string>(cohortNames || []);
+  messages.forEach(m => {
     (m.searches || []).forEach(run =>
-      run.cohorts.forEach(c =>
+      run.cohorts.forEach(c => {
+        nameSet.add(c.cohort_id);
         c.variables.forEach(v => {
           if (v.has_eda) validEda.add(`${c.cohort_id}::${v.var_name}`.toLowerCase());
-        })
-      )
-    )
-  );
+        });
+      })
+    );
+    (m.searchIntersection || []).forEach(row => nameSet.add(row.cohort_id));
+  });
+  const highlightNames = Array.from(nameSet);
   return (
     <div className="space-y-4">
       <EdaOverlayHost />
@@ -724,6 +756,7 @@ export function MessageList({
             message={m}
             streaming={streaming && i === messages.length - 1}
             validEda={validEda}
+            cohortNames={highlightNames}
             onSummaryViewed={onSummaryViewed ? () => onSummaryViewed(i) : undefined}
           />
           {m.role === 'assistant' && m.searches && m.searches.length > 0 && !(streaming && i === messages.length - 1) && (

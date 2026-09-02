@@ -86,9 +86,17 @@ SYSTEM_PROMPT = (
     "ASKING which one is meant - never silently pick the narrower or more familiar reading, "
     "and never narrow a condition to one drug class just because it is clinically typical. "
     "Open with 'Interpreting this as ...' whenever you chose a reading. "
-    "SUBGROUPS: the catalog holds variable METADATA, no patient rows. A question about "
-    "'patients with X' can only be answered as 'these cohorts record X and also record Y - "
-    "combining them happens inside a Data Clean Room', never as filtered patient results. "
+    "SUBGROUPS AND COUNTS: the catalog holds variable metadata AND, for the cohorts marked as "
+    "having summary statistics on record, each variable's SUMMARY STATISTICS - real "
+    "distributions with per-category patient counts. So 'how many patients have X' CAN be "
+    "answered for those cohorts, from the matching category of an X-status variable (a "
+    "follow-up grounded in the summary statistics does exactly this) - NEVER claim patient "
+    "counts cannot be read from the catalog when summary statistics are on record; instead "
+    "give the counts or name the cohorts that have them, and note how many cohorts have "
+    "summary statistics when the question spans the whole catalog. What the catalog canNOT do "
+    "is patient-level filtering ACROSS variables ('patients with X below age 50', 'X patients "
+    "who also take Y'): cross-variable subgroups need a Data Clean Room. "
+    "TERMINOLOGY: call these 'summary statistics' in your answers, never 'EDA'. "
     "COHORT NAMES: if the user's message contains a word matching a cohort's name or the first "
     "part of one (e.g. 'biostat' for BIOSTAT-CHF, 'aachen' for Aachen-HF, 'time' for TIME-CHF, "
     "'check' for CHECK-HF), ASSUME they are referring to that cohort: answer about the cohort, in "
@@ -217,8 +225,8 @@ def _summarize_cohort(cohort: Any, include_variables: bool = True) -> str:
 
     variables = getattr(cohort, "variables", {}) or {}
     lines.append(f"- Variable count: {len(variables)}")
-    lines.append("- EDA / variable profiling: "
-                 + ("on record (distribution statistics available)"
+    lines.append("- Summary statistics: "
+                 + ("on record (variable distributions available)"
                     if _has_eda_profile(cohort.cohort_id) else "not available"))
     if include_variables and variables:
         sample = list(variables.values())[:MAX_VARS_PER_COHORT]
@@ -253,16 +261,18 @@ def build_context(cohort_ids: list[str], focus: Optional[str] = None) -> str:
             parts.append(_summarize_cohort(all_cohorts[cid], include_variables=True))
     else:
         with_vars = [c for c in all_cohorts.values() if getattr(c, "variables", None)]
+        n_profiled = sum(1 for c in all_cohorts.values() if _has_eda_profile(c.cohort_id))
         parts.append(
             f"No specific cohort is selected. Catalog of {len(all_cohorts)} cohorts "
-            f"({len(with_vars)} with variable metadata in the catalog):"
+            f"({len(with_vars)} with variable metadata; summary statistics on record "
+            f"for {n_profiled} cohorts):"
         )
         catalog = []
         for cohort in list(all_cohorts.values())[:MAX_CATALOG_COHORTS]:
             variables = getattr(cohort, "variables", {}) or {}
             stype = _clean(getattr(cohort, "study_type", ""))
             descr = f" ({stype})" if stype else ""
-            eda_tag = ", EDA profiling on record" if _has_eda_profile(cohort.cohort_id) else ""
+            eda_tag = ", summary statistics on record" if _has_eda_profile(cohort.cohort_id) else ""
             catalog.append(f"- {cohort.cohort_id}{descr}: {len(variables)} variables{eda_tag}")
             # A sample of actual variable names so catalog-wide questions
             # ("which cohorts measure X?") can be answered without selecting
@@ -566,22 +576,26 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
     eda_ctx = body.get("eda_context")
     if isinstance(eda_ctx, str) and eda_ctx.strip():
         full_messages.append({"role": "system", "content": (
-            "EDA FOLLOW-UP MODE - the main answer was already given; you now add ONE short "
-            "follow-up grounded ONLY in the variable profiles below. READ each profile's "
+            "SUMMARY-STATISTICS FOLLOW-UP MODE - the main answer was already given; you now add "
+            "ONE short follow-up grounded ONLY in the variable summary statistics below (call "
+            "them 'summary statistics' in your reply, never 'EDA'). READ each variable's "
             "'values:' line and extract the category that answers the question: for 'how many "
             "patients with X', the number is the count of the matching category (the "
             "'yes'/'1'/'type 1' value), NOT n - n is merely how many records have any value "
             "(including 'no'), and presenting n as a patient count is WRONG. Spell the "
             "extraction out, e.g. \"CHECK-HF, Comorbiditeit_DM1: 'yes' 812 of 10,802 recorded "
-            "(7.5%)\". A variable whose profile says per-category counts are NOT available "
-            "cannot give a patient count - say so for that cohort rather than substituting n. "
+            "(7.5%)\"; keep the '~' on approximate counts. A variable whose statistics say "
+            "per-category counts are NOT available cannot give a patient count - say so for "
+            "that cohort rather than substituting n. "
             "Name the variable and cohort for every number and copy the variable's \U0001F4CA "
             "chart marker verbatim where one is shown. Where several readings are possible "
             "(e.g. a diabetes-type variable vs a cause-of-death variable), give the number "
             "under each and say which variable answers which reading. Then at most one line of "
             "caveats when relevant: counts are records within one cohort (not pooled or "
             "de-duplicated across cohorts), note the missing-data percentage, and read category "
-            "labels exactly as recorded. If the profiles do not settle the question, say which "
+            "labels exactly as recorded. When the question spans all cohorts, end with the "
+            "coverage line from the top of the block (summary statistics are on record for "
+            "only that many cohorts). If the statistics do not settle the question, say which "
             "variable comes closest and what is missing. Do NOT repeat the main answer and do "
             "NOT re-list cohorts.\n\n" + eda_ctx.strip()[:20000]
         )})
@@ -860,11 +874,12 @@ def _format_eda_profiles(rows: list[dict]) -> str:
     """The selected variables' EDA profiles as model-ready text. Each row:
     {cohort_id, var_name, var_label, stats} with stats from nocode._load_eda."""
     parts = [
-        "VARIABLE PROFILES (EDA) - real distribution statistics from the catalog.",
+        "VARIABLE SUMMARY STATISTICS - real distributions from the catalog.",
         "READ CAREFULLY: n is the number of records with ANY value for the variable - it is "
         "NEVER the count of patients with a condition. The count of patients with a condition "
         "is the count of the matching category on a 'values:' line (e.g. the 'yes' / 'type 1' "
-        "category).",
+        "category). Counts marked '~' are derived from recorded percentages and approximate; "
+        "an '<na>' category counts the records without a value.",
     ]
     for r in rows:
         s = r.get("stats") or {}
@@ -885,13 +900,14 @@ def _format_eda_profiles(rows: list[dict]) -> str:
         dist = s.get("distribution") or []
         if dist:
             vals = "; ".join(
-                f"'{d.get('label') or d.get('value')}': {int(d['count']) if d.get('count') is not None else '?'}"
+                f"'{d.get('label') or d.get('value')}': "
+                + (("~" if d.get("approx") else "") + str(int(d["count"])) if d.get("count") is not None else "?")
                 + (f" ({d['pct']}%)" if d.get("pct") is not None else "")
                 for d in dist
             )
             parts.append(f"   values: {vals}")
         elif str(s.get("type") or "").lower().startswith("categor"):
-            parts.append("   per-category counts NOT available in this profile (older EDA format) - "
+            parts.append("   per-category counts NOT available for this variable - "
                          "the breakdown by value is unknown; do NOT infer it from n.")
         nums = [(k, s.get(k)) for k in ("mean", "std", "median", "min", "max", "q1", "q3")]
         nums = [(k, v) for k, v in nums if v is not None]
@@ -991,6 +1007,16 @@ def eda_followup(body: dict[str, Any], user: Any = Depends(get_current_user)) ->
         return {"needed": False}
     focus = _clean(parsed.get("focus") or "")[:200]
     context_block = _format_eda_profiles(rows)
+    # Coverage disclaimer for "across all cohorts" questions.
+    try:
+        from src.cohort_cache import get_cohorts_from_cache
+
+        all_c = get_cohorts_from_cache("")
+        n_profiled = sum(1 for cid in all_c if _has_eda_profile(cid))
+        context_block = (f"(Summary statistics are on record for {n_profiled} of the catalog's "
+                         f"{len(all_c)} cohorts.)\n" + context_block)
+    except Exception:
+        pass
     if focus:
         context_block += f"\nFOCUS: {focus}"
     return {"needed": True, "focus": focus,

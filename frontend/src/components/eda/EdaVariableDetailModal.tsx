@@ -149,7 +149,9 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
         {/* Header */}
         <div className="flex justify-between items-start mb-4">
           <div>
-            <h2 className="text-xl font-bold">{v.name}</h2>
+            <h2 className="text-xl font-bold">
+              {v.name} <span className="text-base-content/50 font-normal">· {cohortId}</span>
+            </h2>
             <p className="text-gray-500">{v.label}</p>
             <div className="flex gap-2 mt-2">
               <span className={`badge ${v.type === 'numeric' ? 'badge-primary' : v.type === 'categorical' ? 'badge-success' : 'badge-warning'}`}>

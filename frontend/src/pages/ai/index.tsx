@@ -501,8 +501,10 @@ function GuidedExploration({
 // ---- Main layout -----------------------------------------------------------
 
 function ICareAI() {
-  const {userEmail} = useCohorts();
+  const {userEmail, cohortsData} = useCohorts();
   const chat = useCohortChat();
+  // Catalog cohort ids, colored wherever they appear in the answers.
+  const cohortNames = useMemo(() => Object.keys(cohortsData || {}), [cohortsData]);
   const [mode, setMode] = useState<'guided' | 'chat'>('chat');
   const [starters, setStarters] = useState<ConversationStarter[]>([]);
   // Bumped to remount GuidedExploration back to its landing (step 1).
@@ -677,7 +679,7 @@ function ICareAI() {
           <div className="flex-1 flex flex-col min-h-0">
             <div className="flex-1 overflow-y-auto px-4 md:px-8 py-4">
               <div className="max-w-5xl mx-auto">
-                <MessageList messages={chat.messages} streaming={chat.isStreaming} onSummaryViewed={chat.markSummaryViewed} />
+                <MessageList messages={chat.messages} streaming={chat.isStreaming} cohortNames={cohortNames} onSummaryViewed={chat.markSummaryViewed} />
                 {chat.error && (
                   <div className="alert alert-error mt-4 text-sm">
                     <span>{chat.error}</span>

@@ -168,6 +168,34 @@ def _num(v: Any) -> Optional[float]:
         return None
 
 
+def _distribution_from_class_balance(e: dict, n_obs: Any) -> Optional[list]:
+    """Per-value distribution recovered from a v1 EDA entry's 'class balance'
+    field ('0 -> 55.14%\\n\\t20 -> 19.13%...', an '<na>' bucket included). v1
+    stores no per-value counts, so they are DERIVED from these percentages and
+    the row total (observations + missing + empty) and marked approximate."""
+    cb = e.get("class balance")
+    if not isinstance(cb, str) or "->" not in cb:
+        return None
+
+    def _leading_count(key: str) -> float:
+        m = re.match(r"\s*([\d,]+)", str(e.get(key) or ""))
+        return float(m.group(1).replace(",", "")) if m else 0.0
+
+    n = _num(n_obs) or 0.0
+    total = n + _leading_count("count missing") + _leading_count("count empty")
+    dist = []
+    for line in cb.splitlines():
+        m = re.match(r"(.+?)\s*->\s*([\d.]+)\s*%\s*$", line.strip())
+        if not m:
+            continue
+        label = m.group(1).strip()
+        pct = float(m.group(2))
+        dist.append({"value": label, "label": label, "pct": pct,
+                     "count": int(round(pct * total / 100.0)) if total else None,
+                     "approx": True})
+    return dist[:12] or None
+
+
 def _load_eda(cohort_id: str) -> dict[str, dict]:
     """{lower-cased variable name -> normalized stats} for a cohort, or {} when
     no EDA output exists. Handles both EDA formats (v1 flat keys such as
@@ -224,6 +252,10 @@ def _load_eda(cohort_id: str) -> dict[str, dict]:
                 ][:12] or None,
                 "type": e.get("type") or (e.get("metadata") or {}).get("type") if isinstance(e.get("metadata"), dict) else e.get("type"),
             }
+            if not stats["distribution"]:
+                # v1 outputs: recover the per-value distribution from the
+                # 'class balance' percentages (counts derived, approximate).
+                stats["distribution"] = _distribution_from_class_balance(e, stats["n"])
             if any(v is not None for k, v in stats.items() if k not in ("type", "distribution")) or stats["distribution"]:
                 out[str(name).strip().lower()] = stats
     _eda_cache[path] = (mtime, out)
