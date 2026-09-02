@@ -129,7 +129,9 @@ SYSTEM_PROMPT = (
 STYLE_INSTRUCTIONS = {
     "summary": (
         "Answer style: SHORT SUMMARY. Give only the essential answer, in at most 4 "
-        "sentences or up to 5 short bullet points. No preamble, no closing offer. "
+        "sentences or up to 5 short bullet points. No preamble, no closing offer, "
+        "and NO tables - if the material is tabular, compress it into a line or "
+        "two of prose instead. "
         "COMPLETENESS STILL APPLIES: when the question asks which cohorts have "
         "something, being brief means saying MORE about fewer cohorts — never "
         "listing fewer cohorts. Detail the most relevant two or three, then close "
@@ -566,12 +568,16 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
         full_messages.append({"role": "system", "content": (
             "SUMMARY VARIANT MODE - the user already has the DETAILED answer below; write the "
             "short Summary variant OF THAT ANSWER, not a fresh answer from the context. "
-            "Condense it while staying perfectly consistent with it: every cohort it names "
-            "must still appear (a closing line naming the rest is enough), keep the same "
-            "numbers, caveats and \U0001F4CA chart markers for whatever you keep, and end "
-            "with the same clarifying question if the detailed answer ends with one. Add NO "
-            "claims that are not in the detailed answer. A few short paragraphs or bullet "
-            "points at most.\n\nDETAILED ANSWER TO SUMMARIZE:\n" + summarize_text.strip()[:24000]
+            "HARD LIMITS: at most 4 sentences or 5 short bullet points, roughly a QUARTER of "
+            "the detailed answer's length or less - a summary that reads nearly as long as "
+            "the original is a failure. NO tables (turn any table into one line or a couple "
+            "of bullets), no headings, no preamble, no closing offer. "
+            "Stay perfectly consistent with the detailed answer: every cohort it names must "
+            "still appear (one closing line naming the rest is enough), keep the same "
+            "numbers, key caveats and \U0001F4CA chart markers for whatever you keep, and "
+            "end with the same clarifying question if the detailed answer ends with one. "
+            "Add NO claims that are not in the detailed answer."
+            "\n\nDETAILED ANSWER TO SUMMARIZE:\n" + summarize_text.strip()[:24000]
         )})
     # Disambiguation turn (the planner flagged the question as ambiguous): a
     # short clarifying reply instead of a full answer.
