@@ -219,12 +219,15 @@ def retrieve_for_question(
 # model with explicit totals (ALL matching cohorts; per-cohort counts).
 
 SEARCH_VARS_SHOWN_PER_COHORT = 10
-# Variable details are expanded only for this many cohorts per term (the user's
-# selected cohorts first, then by match count) — ALL matching cohorts are still
-# named with their counts.
-SEARCH_COHORTS_DETAILED = 6
 SEARCH_EQUIVALENTS_SHOWN = 6
-SEARCH_CONTEXT_CHAR_CAP = 40000
+# Budget for the formatted search context. EVERY matching cohort is expanded
+# with variable details; when a result set is so large that the text would
+# exceed this budget, the per-cohort variable lists are pared down step by step
+# (10 -> 7 -> 5 -> 3 -> 2 -> 1) until it fits - cohorts are never dropped.
+# ~120k chars is roughly 30k tokens: well within the local model's ~100k-token
+# window while leaving ample room for the system prompt, the cohort context,
+# the conversation history and the answer itself.
+SEARCH_CONTEXT_CHAR_CAP = 120000
 # Standard-code expansion: variables sharing a standard code with a text match
 # are pulled into the results too (that is how BB_3M or ALTROBB count as beta
 # blockers via ATC:C07A). Codes carried by more than this many variables are
@@ -341,15 +344,13 @@ def run_chat_searches(
         cohorts_out = []
         all_cohort_ids = set(by_cohort) | set(code_added)
         totals = {cid: len(by_cohort.get(cid, [])) + len(code_added.get(cid, [])) for cid in all_cohort_ids}
-        ranked = sorted(all_cohort_ids, key=lambda cid: (cid not in restrict if restrict else False, -totals[cid]))
-        detailed_ids = set(ranked[:SEARCH_COHORTS_DETAILED])
         for cohort_id in sorted(all_cohort_ids, key=lambda cid: -totals[cid]):
             # text matches first, then the ones pulled in by a shared code
             candidates = [(v, None) for v in by_cohort.get(cohort_id, [])] + list(code_added.get(cohort_id, []))
             shown = []
-            # Variables are included for EVERY cohort (the search panel shows them
-            # on click); the "detailed" flag marks the top cohorts whose lists go
-            # into the model's context (format_search_context keeps that cap).
+            # Variables are included for EVERY cohort - the search panel shows
+            # them on click, and format_search_context details every cohort to
+            # the model (paring the per-cohort lists only if space runs out).
             eda_names = _eda_names(cohort_id)
             for var, via_code in candidates[:SEARCH_VARS_SHOWN_PER_COHORT]:
                 d = _var_public(var)
@@ -373,7 +374,7 @@ def run_chat_searches(
                 "text_matches": len(by_cohort.get(cohort_id, [])),
                 "code_matches": len(code_added.get(cohort_id, [])),
                 "in_selection": (not restrict) or cohort_id in restrict,
-                "detailed": cohort_id in detailed_ids,
+                "detailed": True,
                 # EDA / variable profiling exists for this cohort (any variable)
                 "has_eda_profile": len(eda_names) > 0,
                 "variables": shown,
@@ -416,132 +417,154 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
         elif intersection is not None:
             parts.append("COHORTS MATCHING EVERY CONCEPT: none - no cohort matches all of the "
                          "concepts at once (each concept's own matches are below).")
-    def _counts_line(coh):
-        return ", ".join(
-            f"{c['cohort_id']} ({c['matches']}{' incl. ' + str(c['code_matches']) + ' via code' if c.get('code_matches') else ''})"
-            for c in coh
-        )
+    def _render_runs(max_vars: int) -> list[str]:
+        """Render every run's presentation with at most max_vars variables per
+        cohort. EVERY matching cohort is expanded; format_search_context calls
+        this with a shrinking max_vars until the text fits the char budget, so
+        completeness at the cohort level never depends on the result size."""
+        out: list[str] = []
 
-    def _is_detailed(c):
-        # Since the panel change, every cohort carries a (capped) variables list
-        # and "detailed" marks the top cohorts whose list goes into the model's
-        # context. Runs saved before that change lack the flag: fall back to
-        # "has variables", which reproduces the old top-cohorts-only behavior.
-        return c.get("detailed", bool(c.get("variables")))
-
-    def _present_full(run):
-        """The main presentation of one term: every matching cohort, details for the top ones."""
-        coh = run.get("cohorts") or []
-        if not coh:
-            parts.append(f'## Search "{run.get("term")}": no matching variables in any cohort.')
-            return
-        parts.append(
-            f'## Search "{run.get("term")}": {run.get("total_matches")} matching variables across '
-            f"{len(coh)} cohort(s) — ALL matching cohorts with their counts: {_counts_line(coh)}"
-        )
-        if run.get("codes"):
-            parts.append("   (results include variables matched via shared standard codes: "
-                         + "; ".join(c["display"] for c in run["codes"]) + ")")
-        prof = [c["cohort_id"] for c in coh if c.get("has_eda_profile")]
-        if prof and len(prof) < len(coh):
-            parts.append("   Summary statistics (variable distributions) on record for: " + ", ".join(prof)
-                         + ". The other matching cohorts have no summary statistics yet.")
-        elif prof:
-            parts.append("   Summary statistics (variable distributions) are on record for ALL of these cohorts.")
-        else:
-            parts.append("   None of these cohorts has summary statistics on record.")
-        _present_details([c for c in coh if _is_detailed(c)])
-        _present_name_lines([c for c in coh if not _is_detailed(c)])
-
-    def _present_expansion(run, seen):
-        """An expansion term of the same concept: only what it ADDS is spelled out."""
-        coh = run.get("cohorts") or []
-        term = run.get("term")
-        if not coh:
-            parts.append(f'   Equivalent term "{term}": no matching variables.')
-            return
-        new = [c for c in coh if c["cohort_id"] not in seen]
-        known = len(coh) - len(new)
-        if new:
-            parts.append(
-                f'   Equivalent term "{term}": matches {len(coh)} cohort(s) — {known} already matched '
-                f"earlier terms of this concept, {len(new)} NEW. Cohorts discovered ONLY through this "
-                f"term expansion: {_counts_line(new)}"
-            )
-            _present_details([c for c in new if _is_detailed(c)], indent="   ")
-            _present_name_lines([c for c in new if not _is_detailed(c)], indent="   ")
-        else:
-            parts.append(
-                f'   Equivalent term "{term}": matches {len(coh)} cohort(s), all of which already '
-                "matched earlier terms of this concept — no new cohorts."
+        def _counts_line(coh):
+            return ", ".join(
+                f"{c['cohort_id']} ({c['matches']}{' incl. ' + str(c['code_matches']) + ' via code' if c.get('code_matches') else ''})"
+                for c in coh
             )
 
-    def _present_name_lines(coh, indent=""):
-        """For cohorts beyond the detail cap: variable NAMES only, so the model
-        can cite them without inventing what they measure."""
-        rows = [c for c in coh if c.get("variables")]
-        if not rows:
-            return
-        parts.append(indent + "   Variable NAMES ONLY for the remaining cohorts (labels/details "
-                              "not shown - do not guess what a variable measures beyond its name):")
-        for c in rows:
-            names = ", ".join(str(v.get("var_name") or "?") for v in c["variables"])
-            more = c["matches"] - len(c["variables"])
-            parts.append(f"{indent}     - {c['cohort_id']}: {names}" + (f" (+{more} more)" if more > 0 else ""))
+        def _is_detailed(c):
+            # Every cohort is detailed nowadays; runs saved before the panel
+            # change lack the flag AND have variables only for their top
+            # cohorts - the fallback reproduces that old behavior faithfully.
+            return c.get("detailed", bool(c.get("variables")))
 
-    def _present_details(coh, indent=""):
-        for c in coh:
-            shown = c.get("variables") or []
-            if not shown:
-                continue
-            parts.append(f"{indent}### {c['cohort_id']} — showing {len(shown)} of {c['matches']} matching variables:")
-            for v in shown:
-                bits = [v.get("var_name") or "?"]
-                if v.get("var_label") and (v.get("var_label") or "").lower() != (v.get("var_name") or "").lower():
-                    bits.append(v["var_label"])
-                meta = [m for m in (v.get("var_type"), v.get("units"), v.get("omop_domain"),
-                                     "categorical" if v.get("categorical") else "") if m]
-                if meta:
-                    bits.append("[" + ", ".join(meta) + "]")
-                if v.get("concept_name"):
-                    bits.append(f"(concept: {v['concept_name']})")
-                if v.get("equivalents"):
-                    eq = ", ".join(f"{e['cohort_id']}::{e['var_name']}" for e in v["equivalents"])
-                    bits.append(f"EQUIVALENT BY STANDARD CODE to: {eq}")
-                if v.get("via_code"):
-                    bits.append(f"MATCHED VIA STANDARD CODE {v.get('matched_code')}")
-                if v.get("has_eda"):
-                    bits.append(f"CHART-MARKER: \U0001F4CA[{c['cohort_id']}::{v.get('var_name')}]")
-                parts.append(indent + "  - " + " — ".join(bits[:2]) + (" " + " ".join(bits[2:]) if len(bits) > 2 else ""))
-            if c["matches"] > len(shown):
-                parts.append(f"{indent}  (+{c['matches'] - len(shown)} more matching variables in {c['cohort_id']} not listed here)")
+        def _present_details(coh, indent=""):
+            for c in coh:
+                shown = (c.get("variables") or [])[:max_vars]
+                if not shown:
+                    continue
+                out.append(f"{indent}### {c['cohort_id']} — showing {len(shown)} of {c['matches']} matching variables:")
+                for v in shown:
+                    bits = [v.get("var_name") or "?"]
+                    if v.get("var_label") and (v.get("var_label") or "").lower() != (v.get("var_name") or "").lower():
+                        bits.append(v["var_label"])
+                    meta = [m for m in (v.get("var_type"), v.get("units"), v.get("omop_domain"),
+                                         "categorical" if v.get("categorical") else "") if m]
+                    if meta:
+                        bits.append("[" + ", ".join(meta) + "]")
+                    if v.get("concept_name"):
+                        bits.append(f"(concept: {v['concept_name']})")
+                    if v.get("equivalents"):
+                        eq = ", ".join(f"{e['cohort_id']}::{e['var_name']}" for e in v["equivalents"])
+                        bits.append(f"EQUIVALENT BY STANDARD CODE to: {eq}")
+                    if v.get("via_code"):
+                        bits.append(f"MATCHED VIA STANDARD CODE {v.get('matched_code')}")
+                    if v.get("has_eda"):
+                        bits.append(f"CHART-MARKER: \U0001F4CA[{c['cohort_id']}::{v.get('var_name')}]")
+                    out.append(indent + "  - " + " — ".join(bits[:2]) + (" " + " ".join(bits[2:]) if len(bits) > 2 else ""))
+                if c["matches"] > len(shown):
+                    out.append(f"{indent}  (+{c['matches'] - len(shown)} more matching variables in {c['cohort_id']} not listed here)")
 
-    # Named concepts: the concept's first term gets the full presentation; the
-    # remaining terms are its EXPANSIONS (synonyms, member drugs, related
-    # measurements the model proposed) and only what each one newly discovers is
-    # spelled out - a cohort found solely through an expansion is a win worth
-    # marking, a cohort repeated from the main term is noise. Terms outside any
-    # concept, and the flat single-concept fallback, keep the full presentation.
-    runs_by_term = {r.get("term"): r for r in runs}
-    presented = set()
-    grouped = [c for c in (concepts or []) if isinstance(c, dict) and c.get("name") and c.get("terms")]
-    for c in grouped:
-        c_terms = [t for t in c["terms"] if t in runs_by_term]
-        if not c_terms:
-            continue
-        parts.append(f"# CONCEPT: {c['name']}")
-        seen: set = set()
-        for i, t in enumerate(c_terms):
-            run = runs_by_term[t]
-            if i == 0:
-                _present_full(run)
+        def _present_name_lines(coh, indent=""):
+            """Old saved payloads only: cohorts without stored details get their
+            variable NAMES, so the model can cite without inventing meanings."""
+            rows = [c for c in coh if c.get("variables")]
+            if not rows:
+                return
+            out.append(indent + "   Variable NAMES ONLY for the remaining cohorts (labels/details "
+                                "not shown - do not guess what a variable measures beyond its name):")
+            for c in rows:
+                names = ", ".join(str(v.get("var_name") or "?") for v in c["variables"])
+                more = c["matches"] - len(c["variables"])
+                out.append(f"{indent}     - {c['cohort_id']}: {names}" + (f" (+{more} more)" if more > 0 else ""))
+
+        def _present_full(run):
+            """The main presentation of one term: every matching cohort, expanded."""
+            coh = run.get("cohorts") or []
+            if not coh:
+                out.append(f'## Search "{run.get("term")}": no matching variables in any cohort.')
+                return
+            out.append(
+                f'## Search "{run.get("term")}": {run.get("total_matches")} matching variables across '
+                f"{len(coh)} cohort(s) — ALL matching cohorts with their counts: {_counts_line(coh)}"
+            )
+            if run.get("codes"):
+                out.append("   (results include variables matched via shared standard codes: "
+                           + "; ".join(c["display"] for c in run["codes"]) + ")")
+            prof = [c["cohort_id"] for c in coh if c.get("has_eda_profile")]
+            if prof and len(prof) < len(coh):
+                out.append("   Summary statistics (variable distributions) on record for: " + ", ".join(prof)
+                           + ". The other matching cohorts have no summary statistics yet.")
+            elif prof:
+                out.append("   Summary statistics (variable distributions) are on record for ALL of these cohorts.")
             else:
-                _present_expansion(run, seen)
-            seen.update(x["cohort_id"] for x in (run.get("cohorts") or []))
-            presented.add(t)
-    for run in runs:
-        if run.get("term") not in presented:
-            _present_full(run)
+                out.append("   None of these cohorts has summary statistics on record.")
+            _present_details([c for c in coh if _is_detailed(c)])
+            _present_name_lines([c for c in coh if not _is_detailed(c)])
+
+        def _present_expansion(run, seen):
+            """An expansion term of the same concept: only what it ADDS is spelled out."""
+            coh = run.get("cohorts") or []
+            term = run.get("term")
+            if not coh:
+                out.append(f'   Equivalent term "{term}": no matching variables.')
+                return
+            new = [c for c in coh if c["cohort_id"] not in seen]
+            known = len(coh) - len(new)
+            if new:
+                out.append(
+                    f'   Equivalent term "{term}": matches {len(coh)} cohort(s) — {known} already matched '
+                    f"earlier terms of this concept, {len(new)} NEW. Cohorts discovered ONLY through this "
+                    f"term expansion: {_counts_line(new)}"
+                )
+                _present_details([c for c in new if _is_detailed(c)], indent="   ")
+                _present_name_lines([c for c in new if not _is_detailed(c)], indent="   ")
+            else:
+                out.append(
+                    f'   Equivalent term "{term}": matches {len(coh)} cohort(s), all of which already '
+                    "matched earlier terms of this concept — no new cohorts."
+                )
+
+        # Named concepts: the concept's first term gets the full presentation;
+        # the remaining terms are its EXPANSIONS (synonyms, member drugs,
+        # related measurements the model proposed) and only what each one newly
+        # discovers is spelled out - a cohort found solely through an expansion
+        # is a win worth marking, a cohort repeated from the main term is
+        # noise. Terms outside any concept, and the flat single-concept
+        # fallback, keep the full presentation.
+        runs_by_term = {r.get("term"): r for r in runs}
+        presented = set()
+        grouped = [c for c in (concepts or []) if isinstance(c, dict) and c.get("name") and c.get("terms")]
+        for c in grouped:
+            c_terms = [t for t in c["terms"] if t in runs_by_term]
+            if not c_terms:
+                continue
+            out.append(f"# CONCEPT: {c['name']}")
+            seen: set = set()
+            for i, t in enumerate(c_terms):
+                run = runs_by_term[t]
+                if i == 0:
+                    _present_full(run)
+                else:
+                    _present_expansion(run, seen)
+                seen.update(x["cohort_id"] for x in (run.get("cohorts") or []))
+                presented.add(t)
+        for run in runs:
+            if run.get("term") not in presented:
+                _present_full(run)
+        return out
+
+    # Fit-to-budget: try the full per-cohort variable lists first; if the text
+    # would blow the budget, pare the lists down step by step - never cohorts.
+    header_len = len("\n".join(parts))
+    rendered: list[str] = []
+    for max_vars in (SEARCH_VARS_SHOWN_PER_COHORT, 7, 5, 3, 2, 1):
+        rendered = _render_runs(max_vars)
+        if header_len + len("\n".join(rendered)) <= SEARCH_CONTEXT_CHAR_CAP:
+            if max_vars < SEARCH_VARS_SHOWN_PER_COHORT:
+                rendered.append(f"(the result set is large: variable lists were shortened to "
+                                f"{max_vars} per cohort to fit - every matching cohort is still "
+                                f"listed and the counts show the full numbers)")
+            break
+    parts.extend(rendered)
     text_so_far = "\n".join(parts)
     if len(text_so_far) > SEARCH_CONTEXT_CHAR_CAP:
         parts = [text_so_far[:SEARCH_CONTEXT_CHAR_CAP],
@@ -560,9 +583,10 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
         "the summary statistics are being checked and a follow-up with the concrete numbers "
         "may appear below. When listing variables, name at most 10-15 per cohort and "
         "ALWAYS state the full counts explicitly (e.g. \"TIME-CHF has 57 matching variables; "
-        "here are 12\"), so the user knows there are more. The per-cohort variable lists are "
-        "CAPPED and only the top cohorts are expanded - NEVER conclude that a cohort lacks "
-        "something because its variables are not shown; the 'ALL matching cohorts' line of each "
+        "here are 12\"), so the user knows there are more. EVERY matching cohort is expanded, but the "
+        "per-cohort variable lists are CAPPED (a few variables each when the result set is "
+        "large) - NEVER conclude that a cohort lacks "
+        "something because a variable is not shown; the 'ALL matching cohorts' line of each "
         "search, and the COHORTS MATCHING EVERY CONCEPT line, are the complete truth. NEVER "
         "characterize the variables of a cohort whose details are not expanded (no 'type 2 "
         "variables only', no 'generic flags' - such claims about unexpanded cohorts are "
