@@ -69,8 +69,12 @@ function highlightCohortNames(html: string, names?: string[]): string {
   const canon = Array.from(new Set(names.filter(n => n && n.length >= 3)));
   if (canon.length === 0) return html;
   const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const flexible = (n: string) => n.split(/[\s-]+/).map(escRe).join('[\\s-]+');
-  const norm = (s: string) => s.toLowerCase().replace(/[\s-]+/g, ' ');
+  // Models often write the hyphen in a name as a Unicode dash (non-breaking
+  // hyphen U+2011, en dash U+2013, ...) - visually identical, so the separator
+  // class must cover them or hyphenated names silently stay uncolored.
+  const SEP_SRC = '[\\s\\u2010-\\u2015\\u2212-]+';
+  const flexible = (n: string) => n.split(new RegExp(SEP_SRC)).map(escRe).join(SEP_SRC);
+  const norm = (s: string) => s.toLowerCase().replace(new RegExp(SEP_SRC, 'g'), ' ');
   const byNorm = new Map(canon.map(n => [norm(n), n]));
   const re = new RegExp(
     `(^|[^\\w-])(${canon.sort((a, b) => b.length - a.length).map(flexible).join('|')})(?![\\w-])`,
