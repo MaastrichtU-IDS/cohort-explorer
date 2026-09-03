@@ -111,10 +111,15 @@ export function parseOutliers(s: string | undefined | null): { count: number; pc
  * Parse class balance string:
  * "<na> -> 99.84%\n\t33 -> 0.16%"
  * Returns array of { label, percentage }.
+ *
+ * The percentages cover ALL rows including the '<na>' bucket, so the counts
+ * must be derived against the row total INCLUDING missing/empty - passing the
+ * ex-missing observation count here understates every bar wherever missing
+ * data exists. (Counts are derived from 2-decimal percentages: approximate.)
  */
 export function parseClassBalance(
   s: string | undefined | null,
-  totalObs: number
+  totalRows: number
 ): { label: string; percentage: number; count: number }[] {
   if (!s) return [];
   const entries = String(s)
@@ -128,7 +133,7 @@ export function parseClassBalance(
     const label = parts[0];
     const pctStr = parts[1].replace('%', '');
     const percentage = parseFloat(pctStr) || 0;
-    const count = Math.round((percentage / 100) * totalObs);
+    const count = Math.round((percentage / 100) * totalRows);
     return { label, percentage, count };
   });
 }
@@ -336,7 +341,9 @@ export function parseEdaJson(raw: Record<string, any>): EdaData {
 
     // Categorical-specific fields
     if (varType === 'categorical') {
-      v.classBalance = parseClassBalance(entry['class balance'], totalObs);
+      // Denominator must INCLUDE missing/empty rows: the class-balance
+      // percentages cover the '<na>' bucket too.
+      v.classBalance = parseClassBalance(entry['class balance'], totalObs + missingCount + emptyCount);
       v.chiSquare = entry['chi-square test statistic'];
       v.mostFrequentCategory = entry['most frequent category'];
     }
