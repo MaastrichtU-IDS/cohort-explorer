@@ -2137,11 +2137,23 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
     #c1_node.run_computation()
     #c2_node = dcr.get_node("c2_save_to_json") 
     c3_node = dcr.get_node("c3_eda_data_profiling")
+    if c3_node is None:
+        available = ", ".join(n.name for n in dcr.node_definitions)
+        raise HTTPException(
+            status_code=400,
+            detail=(f"DCR {dcr_id} has no 'c3_eda_data_profiling' compute node, so it does not "
+                    f"look like a data-upload (provision) DCR of the current format. "
+                    f"Nodes in this DCR: {available}"))
     result = c3_node.run_computation_and_get_results_as_zip()
     # The longitudinal_analysis node shares c1/c2 dependencies with c3, so those
     # have already run; here we just execute it and collect its own output zip.
+    # Provision DCRs created before this node existed simply skip it.
     longitudinal_node = dcr.get_node("longitudinal_analysis")
-    longitudinal_result = longitudinal_node.run_computation_and_get_results_as_zip()
+    longitudinal_result = None
+    if longitudinal_node is None:
+        logging.warning(f"DCR {dcr_id}: no 'longitudinal_analysis' node (older provision DCR); skipping it")
+    else:
+        longitudinal_result = longitudinal_node.run_computation_and_get_results_as_zip()
     #timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     storage_dir = f"/data/dcr_output_{cohort_id}"
 
@@ -2164,7 +2176,8 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
     #print("Full path of storage directory: ", storage_dir.resolve())
     os.makedirs(storage_dir, mode=0o777, exist_ok=True)
     result.extractall(str(storage_dir))
-    longitudinal_result.extractall(str(storage_dir))
+    if longitudinal_result is not None:
+        longitudinal_result.extractall(str(storage_dir))
     os.sync()
 
     # Update this cohort's EDA markers (eda_version / has_longitudinal) in the
@@ -2191,6 +2204,13 @@ def run_shuffle_get_output(dcr_id: str, user: Any = Depends(get_current_user)):
     
     # Run the shuffle_data node (C4)
     shuffle_node = dcr.get_node("shuffle_data")
+    if shuffle_node is None:
+        available = ", ".join(n.name for n in dcr.node_definitions)
+        raise HTTPException(
+            status_code=400,
+            detail=(f"DCR {dcr_id} has no 'shuffle_data' compute node, so it does not look "
+                    f"like a data-upload (provision) DCR of the current format. "
+                    f"Nodes in this DCR: {available}"))
     result = shuffle_node.run_computation_and_get_results_as_zip()
     
     # Save to the same directory as C3 output
