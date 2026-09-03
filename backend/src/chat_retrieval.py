@@ -277,6 +277,10 @@ def _equivalents_map(entries: list[tuple[str, str, Any]]) -> dict[str, list[tupl
 def _word_match(blob: str, w: str) -> bool:
     """Substring match with light stemming, so 'blockers' and 'blocking' both
     find 'blocker' (and vice versa via the substring direction)."""
+    if w.isdigit():
+        # A bare number must not match inside a LARGER number (the '1' of
+        # 'type 1' should hit 'type 1' and 'dm1', never omop id '201254').
+        return re.search(rf"(?<!\d){re.escape(w)}(?!\d)", blob) is not None
     if w in blob:
         return True
     for suf in ("es", "s", "ing", "ed"):
@@ -299,7 +303,10 @@ def run_chat_searches(
     restrict = {str(c) for c in (restrict_to or [])}
     runs: list[dict[str, Any]] = []
     for raw_term in terms[:8]:
-        words = [w for w in _normalize(str(raw_term)).split() if len(w) >= 2 and w not in QUERY_STOPWORDS]
+        # Bare numbers are kept ("type 1 diabetes" must NOT collapse into
+        # "type diabetes", which matches type 2 variables just as well).
+        words = [w for w in _normalize(str(raw_term)).split()
+                 if (len(w) >= 2 or w.isdigit()) and w not in QUERY_STOPWORDS]
         if not words:
             continue
         by_cohort: dict[str, list[Any]] = {}
@@ -444,6 +451,7 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
         else:
             parts.append("   None of these cohorts has summary statistics on record.")
         _present_details([c for c in coh if _is_detailed(c)])
+        _present_name_lines([c for c in coh if not _is_detailed(c)])
 
     def _present_expansion(run, seen):
         """An expansion term of the same concept: only what it ADDS is spelled out."""
@@ -461,11 +469,25 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
                 f"term expansion: {_counts_line(new)}"
             )
             _present_details([c for c in new if _is_detailed(c)], indent="   ")
+            _present_name_lines([c for c in new if not _is_detailed(c)], indent="   ")
         else:
             parts.append(
                 f'   Equivalent term "{term}": matches {len(coh)} cohort(s), all of which already '
                 "matched earlier terms of this concept — no new cohorts."
             )
+
+    def _present_name_lines(coh, indent=""):
+        """For cohorts beyond the detail cap: variable NAMES only, so the model
+        can cite them without inventing what they measure."""
+        rows = [c for c in coh if c.get("variables")]
+        if not rows:
+            return
+        parts.append(indent + "   Variable NAMES ONLY for the remaining cohorts (labels/details "
+                              "not shown - do not guess what a variable measures beyond its name):")
+        for c in rows:
+            names = ", ".join(str(v.get("var_name") or "?") for v in c["variables"])
+            more = c["matches"] - len(c["variables"])
+            parts.append(f"{indent}     - {c['cohort_id']}: {names}" + (f" (+{more} more)" if more > 0 else ""))
 
     def _present_details(coh, indent=""):
         for c in coh:
@@ -541,7 +563,11 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
         "here are 12\"), so the user knows there are more. The per-cohort variable lists are "
         "CAPPED and only the top cohorts are expanded - NEVER conclude that a cohort lacks "
         "something because its variables are not shown; the 'ALL matching cohorts' line of each "
-        "search, and the COHORTS MATCHING EVERY CONCEPT line, are the complete truth. For "
+        "search, and the COHORTS MATCHING EVERY CONCEPT line, are the complete truth. NEVER "
+        "characterize the variables of a cohort whose details are not expanded (no 'type 2 "
+        "variables only', no 'generic flags' - such claims about unexpanded cohorts are "
+        "fabrication): for those you may cite the listed variable NAMES verbatim, and beyond "
+        "that say the details are not shown here and point to the search panel. For "
         "multi-criteria questions, answer from the COHORTS MATCHING EVERY CONCEPT line exactly "
         "as given. A concept's complete cohort set is its main term's ALL-cohorts line PLUS the "
         "NEW cohorts of each of its expansion terms; when a cohort was found only through an "
