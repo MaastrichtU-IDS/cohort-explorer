@@ -171,18 +171,18 @@ def _num(v: Any) -> Optional[float]:
 def _distribution_from_class_balance(e: dict, n_obs: Any) -> Optional[list]:
     """Per-value distribution recovered from a v1 EDA entry's 'class balance'
     field ('0 -> 55.14%\\n\\t20 -> 19.13%...', an '<na>' bucket included). v1
-    stores no per-value counts, so they are DERIVED from these percentages and
-    the row total (observations + missing + empty) and marked approximate."""
+    stores no per-value counts, so they are DERIVED from these percentages,
+    marked approximate. The percentages are over the value of 'count of
+    observations (ex. missing/empty)' - which, despite its label, holds the
+    dataset's TOTAL row count in v1 outputs (verified against the rendered
+    graphs: the empty-row share equals the '<na>' percentage of that count).
+    Do NOT add missing/empty on top - that double-counts them and inflates
+    every derived count by the missing share."""
     cb = e.get("class balance")
     if not isinstance(cb, str) or "->" not in cb:
         return None
 
-    def _leading_count(key: str) -> float:
-        m = re.match(r"\s*([\d,]+)", str(e.get(key) or ""))
-        return float(m.group(1).replace(",", "")) if m else 0.0
-
-    n = _num(n_obs) or 0.0
-    total = n + _leading_count("count missing") + _leading_count("count empty")
+    total = _num(n_obs) or 0.0
     dist = []
     for line in cb.splitlines():
         m = re.match(r"(.+?)\s*->\s*([\d.]+)\s*%\s*$", line.strip())

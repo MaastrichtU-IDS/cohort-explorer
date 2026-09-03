@@ -112,10 +112,12 @@ export function parseOutliers(s: string | undefined | null): { count: number; pc
  * "<na> -> 99.84%\n\t33 -> 0.16%"
  * Returns array of { label, percentage }.
  *
- * The percentages cover ALL rows including the '<na>' bucket, so the counts
- * must be derived against the row total INCLUDING missing/empty - passing the
- * ex-missing observation count here understates every bar wherever missing
- * data exists. (Counts are derived from 2-decimal percentages: approximate.)
+ * The percentages (the '<na>' bucket included) are computed over the value of
+ * 'count of observations (ex. missing/empty)' - which, despite its label,
+ * holds the dataset's TOTAL row count in v1 EDA outputs (verified against the
+ * rendered graphs: empty-row share == the '<na>' percentage of that count).
+ * Pass exactly that field here. (Counts are derived from 2-decimal
+ * percentages: approximate.)
  */
 export function parseClassBalance(
   s: string | undefined | null,
@@ -341,9 +343,7 @@ export function parseEdaJson(raw: Record<string, any>): EdaData {
 
     // Categorical-specific fields
     if (varType === 'categorical') {
-      // Denominator must INCLUDE missing/empty rows: the class-balance
-      // percentages cover the '<na>' bucket too.
-      v.classBalance = parseClassBalance(entry['class balance'], totalObs + missingCount + emptyCount);
+      v.classBalance = parseClassBalance(entry['class balance'], totalObs);
       v.chiSquare = entry['chi-square test statistic'];
       v.mostFrequentCategory = entry['most frequent category'];
     }
