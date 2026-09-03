@@ -4,6 +4,7 @@ import {Inter} from 'next/font/google';
 import { useCohorts } from '@/components/CohortsContext';
 import React from 'react';
 import { Cohort } from '@/types';
+import AnnouncementsBox from '@/components/AnnouncementsBox';
 
 const inter = Inter({subsets: ['latin']});
 
@@ -111,8 +112,11 @@ export default function Home() {
         />
       </div>
 
+      {/* Announcements (rotating) */}
+      <AnnouncementsBox />
+
       {/* Statistics Cards */}
-      <div className="mt-16 grid grid-cols-2 md:grid-cols-3 gap-6 w-full max-w-5xl">
+      <div className="mt-10 grid grid-cols-2 md:grid-cols-3 gap-6 w-full max-w-5xl">
         {/* Total Cohorts */}
         <div className="stat bg-base-100 shadow rounded-lg p-4">
           <div className="stat-value text-primary text-3xl">{stats.totalCohorts}</div>
