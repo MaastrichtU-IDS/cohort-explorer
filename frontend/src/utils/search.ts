@@ -70,35 +70,67 @@ export const matchesSearchTerms = (text: string, searchTerms: string[], searchMo
   });
 };
 
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * One regex matching ANY of the given terms (each with the same word-boundary
+ * and punctuation-flex pattern as createWordBoundaryRegex), longest pattern
+ * first so the longest match wins at a shared start.
+ */
+const createCombinedRegex = (terms: string[]): RegExp | null => {
+  const parts = terms
+    .map(t => t.trim())
+    .filter(Boolean)
+    .map(t =>
+      normalizeText(t)
+        .split(/\s+/)
+        .filter(p => p.length > 0)
+        .map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('[_\\-.,—\\s]*')
+    )
+    .filter(p => p.length > 0);
+  if (parts.length === 0) return null;
+  parts.sort((a, b) => b.length - a.length);
+  return new RegExp(`\\b(?:${parts.join('|')})`, 'gi');
+};
+
 /**
  * Highlight search terms in text
  * @param text - Text to highlight
  * @param searchTerms - Array of search terms to highlight
  * @param searchMode - 'or' | 'and' | 'exact' - determines highlighting logic
  * @returns Text with highlighted terms wrapped in <mark> tags
+ *
+ * All terms are matched in ONE pass over the plain text with a combined regex.
+ * The old per-term passes re-scanned the already-inserted <mark> markup, so a
+ * term like "1" would match inside the mark's own class attribute (px-1) and
+ * spill 'py-0.5 rounded font-medium">' into the visible text.
  */
 export const highlightSearchTerms = (text: string, searchTerms: string[], searchMode: 'or' | 'and' | 'exact' = 'or'): string => {
   if (!text || searchTerms.length === 0) return text;
-  
-  let highlightedText = text;
-  
-  if (searchMode === 'exact') {
-    // Highlight the full phrase
-    const fullPhrase = searchTerms.join(' ');
-    if (fullPhrase.trim()) {
-      const regex = createWordBoundaryRegex(fullPhrase.trim());
-      highlightedText = highlightedText.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-600 px-1 py-0.5 rounded font-medium">$&</mark>');
+
+  const source = searchMode === 'exact' ? [searchTerms.join(' ')] : searchTerms;
+  const regex = createCombinedRegex(source);
+  if (!regex) return text;
+
+  let out = '';
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(text)) !== null) {
+    if (m[0].length === 0) {
+      regex.lastIndex++;
+      continue;
     }
-  } else {
-    // Highlight individual terms (both OR and AND logic highlight individual terms)
-    searchTerms.forEach(term => {
-      if (!term.trim()) return;
-      const regex = createWordBoundaryRegex(term.trim());
-      highlightedText = highlightedText.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-600 px-1 py-0.5 rounded font-medium">$&</mark>');
-    });
+    out += escapeHtml(text.slice(last, m.index));
+    out += `<mark class="bg-yellow-200 dark:bg-yellow-600 px-1 py-0.5 rounded font-medium">${escapeHtml(m[0])}</mark>`;
+    last = m.index + m[0].length;
   }
-  
-  return highlightedText;
+  // No matches: return the original string so callers comparing against the
+  // input take their plain (React-escaped) rendering path.
+  if (last === 0) return text;
+  out += escapeHtml(text.slice(last));
+  return out;
 };
 
 /**
