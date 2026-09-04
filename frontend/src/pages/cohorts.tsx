@@ -1105,6 +1105,22 @@ export default function CohortsList() {
   };
 
   // Handle clicking a cohort in the search results table — expand it and activate per-cohort search
+  // Deep link: /cohorts?cohort=<id> opens that cohort's section and scrolls to
+  // it (used by the cohort-name links inside the front-page announcements).
+  useEffect(() => {
+    const target = router.query.cohort;
+    if (typeof target !== 'string' || !target) return;
+    if (!cohortsData || !(cohortsData as any)[target]) return;
+    setExpandedCohorts(prev => ({...prev, [target]: true}));
+    setActiveSubTab(prev => ({...prev, [target]: prev[target] || 'metadata'}));
+    setShimmerActive(prev => ({...prev, [target]: true}));
+    setTimeout(() => setShimmerActive(prev => ({...prev, [target]: false})), 1500);
+    setTimeout(() => {
+      document.getElementById(`cohort-card-${target}`)?.scrollIntoView({behavior: 'smooth', block: 'start'});
+    }, 400);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.query.cohort, cohortsData]);
+
   const handleSearchResultClick = (cohortId: string) => {
     // Expand the cohort if not already expanded
     if (!expandedCohorts[cohortId]) {

@@ -1,5 +1,7 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {apiUrl} from '@/utils';
+import {useCohorts} from '@/components/CohortsContext';
+import CohortLinkedText from '@/components/CohortLinkedText';
 
 // Rotating announcements box for the front page. Announcements are short (a
 // couple of sentences), so the box stays compact: one announcement at a time,
@@ -38,6 +40,10 @@ function formatDate(iso: string): string {
 }
 
 export default function AnnouncementsBox() {
+  const {cohortsData} = useCohorts();
+  // Catalog cohort names: mentions in announcement texts become links to the
+  // explore page with that cohort's section opened.
+  const cohortNames = useMemo(() => Object.keys(cohortsData || {}), [cohortsData]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [index, setIndex] = useState(0);
   const [showAll, setShowAll] = useState(false);
@@ -98,7 +104,9 @@ export default function AnnouncementsBox() {
         </div>
         {/* Fixed three-line text area: the box keeps the same height while
             announcements rotate, so nothing below it shifts around. */}
-        <p className="text-base leading-6 mt-2 min-h-[4.5rem] line-clamp-3">{current.text}</p>
+        <p className="text-base leading-6 mt-2 min-h-[4.5rem] line-clamp-3">
+          <CohortLinkedText text={current.text} names={cohortNames} />
+        </p>
       </div>
 
       {showAll && (
@@ -115,7 +123,9 @@ export default function AnnouncementsBox() {
                 <li key={a.id} className="flex items-start gap-3 border-b border-base-200 pb-2 last:border-b-0">
                   <span className="text-xs text-base-content/50 whitespace-nowrap w-24 shrink-0 pt-0.5">{formatDate(a.date)}</span>
                   <TagChip tag={a.tag} />
-                  <span className="text-sm">{a.text}</span>
+                  <span className="text-sm">
+                    <CohortLinkedText text={a.text} names={cohortNames} />
+                  </span>
                 </li>
               ))}
             </ul>
