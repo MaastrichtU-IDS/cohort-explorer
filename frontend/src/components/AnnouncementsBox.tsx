@@ -79,7 +79,7 @@ export default function AnnouncementsBox() {
       onMouseEnter={() => (paused.current = true)}
       onMouseLeave={() => (paused.current = false)}
     >
-      <div className="bg-base-100 shadow rounded-lg px-4 py-3">
+      <div className="bg-base-100 shadow rounded-lg px-4 py-3 border-2 border-base-300">
         <div className="flex items-start gap-3">
           <span className="flex flex-col items-start gap-1">
             <TagChip tag={current.tag} />
@@ -102,9 +102,9 @@ export default function AnnouncementsBox() {
             Show all
           </button>
         </div>
-        {/* Fixed three-line text area: the box keeps the same height while
+        {/* Fixed two-line text area: the box keeps the same height while
             announcements rotate, so nothing below it shifts around. */}
-        <p className="text-base leading-6 mt-2 min-h-[4.5rem] line-clamp-3">
+        <p className="text-base leading-6 mt-2 min-h-[3rem] line-clamp-2">
           <CohortLinkedText text={current.text} names={cohortNames} />
         </p>
       </div>

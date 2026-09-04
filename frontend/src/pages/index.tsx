@@ -154,7 +154,7 @@ export default function Home() {
       {/* Announcements (rotating), below the statistics with breathing room */}
       <AnnouncementsBox />
 
-      <div className="mt-32 grid text-center lg:max-w-7xl lg:w-full lg:mb-0 lg:grid-cols-4 lg:text-left">
+      <div className="mt-14 grid text-center lg:max-w-7xl lg:w-full lg:mb-0 lg:grid-cols-4 lg:text-left">
         <Link
           href="/upload"
           className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
