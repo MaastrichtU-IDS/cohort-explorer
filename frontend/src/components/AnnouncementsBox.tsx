@@ -74,9 +74,11 @@ export default function AnnouncementsBox() {
       onMouseLeave={() => (paused.current = false)}
     >
       <div className="bg-base-100 shadow rounded-lg px-4 py-3">
-        <div className="flex items-center gap-3">
-          <TagChip tag={current.tag} />
-          <span className="text-xs text-base-content/50 whitespace-nowrap">{formatDate(current.date)}</span>
+        <div className="flex items-start gap-3">
+          <span className="flex flex-col items-start gap-1">
+            <TagChip tag={current.tag} />
+            <span className="text-xs text-base-content/50 whitespace-nowrap">{formatDate(current.date)}</span>
+          </span>
           <span className="flex-1" />
           {announcements.length > 1 && (
             <span className="hidden sm:inline-flex gap-1 items-center" aria-hidden>
@@ -96,7 +98,7 @@ export default function AnnouncementsBox() {
         </div>
         {/* Fixed three-line text area: the box keeps the same height while
             announcements rotate, so nothing below it shifts around. */}
-        <p className="text-sm leading-5 mt-2 min-h-[3.75rem] line-clamp-3">{current.text}</p>
+        <p className="text-base leading-6 mt-2 min-h-[4.5rem] line-clamp-3">{current.text}</p>
       </div>
 
       {showAll && (

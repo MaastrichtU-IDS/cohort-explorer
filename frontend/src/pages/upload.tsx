@@ -6,6 +6,7 @@ import {useCohorts} from '@/components/CohortsContext';
 import {TrashIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
 import {ParticipantsModal, useOwnersIncludedByDefault} from '@/components/ParticipantsModal';
+import LoginPrompt from '@/components/LoginPrompt';
 
 // Helper component for wizard steps
 const WizardSteps = ({currentStep}: {currentStep: number}) => {
@@ -353,7 +354,7 @@ export default function UploadPage() {
   if (userEmail === null && apiUrl !== 'mock') {
     return (
       <main className="flex flex-col items-center justify-center p-4">
-         <p className="text-red-500 text-center mt-[20%]" role="alert">Authenticate to access the explorer</p>
+         <LoginPrompt />
       </main>
     );
   }

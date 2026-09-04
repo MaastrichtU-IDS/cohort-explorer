@@ -334,6 +334,7 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
 
 import { useCohorts } from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 
 // ─── Graph View ────────────────────────────────────────────────────────────────
 
@@ -1742,7 +1743,7 @@ export default function MappingPage() {
   // Show authentication message if not logged in
   if (userEmail === null) {
     return (
-      <p className="text-red-500 text-center mt-[20%]">Authenticate to access the explorer</p>
+      <LoginPrompt />
     );
   }
 

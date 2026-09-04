@@ -1,5 +1,7 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {apiUrl} from '@/utils';
+import {useCohorts} from '@/components/CohortsContext';
+import LoginPrompt from '@/components/LoginPrompt';
 
 // Admin page: add and delete the announcements shown on the front page.
 // Adding needs a text (one or two sentences), an obligatory date (backdating
@@ -24,6 +26,7 @@ const TAG_STYLES: Record<string, string> = {
 };
 
 export default function ManageAnnouncements() {
+  const {userEmail} = useCohorts();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [announcements, setAnnouncements] = useState<AdminAnnouncement[]>([]);
   const [boxEnabled, setBoxEnabled] = useState(true);
@@ -110,6 +113,9 @@ export default function ManageAnnouncements() {
     }
   };
 
+  if (userEmail === null) {
+    return <LoginPrompt message="Authenticate to manage announcements" />;
+  }
   if (isAdmin === null) {
     return <div className="p-8 text-sm text-base-content/60">Checking access…</div>;
   }

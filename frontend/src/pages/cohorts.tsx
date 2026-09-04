@@ -18,6 +18,7 @@ import VariableGraphModal from '@/components/VariableGraphModal';
 import {parseEdaJson} from '@/utils/edaParsing';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import {InfoIcon} from '@/components/Icons';
+import LoginPrompt from '@/components/LoginPrompt';
 
 // Helper component to render highlighted text
 const HighlightedText = ({text, searchTerms, searchMode, noHighlight}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact', noHighlight?: boolean}) => {
@@ -1497,7 +1498,7 @@ export default function CohortsList() {
             </div>
           )}
           {userEmail === null && (
-            <p className="text-red-500 text-center mt-[20%]">Authenticate to access the explorer</p>
+            <LoginPrompt />
           )}
           {filteredCohorts.map((cohortData: Cohort) => (
             <div

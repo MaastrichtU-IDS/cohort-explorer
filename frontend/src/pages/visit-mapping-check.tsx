@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useCohorts } from '@/components/CohortsContext';
 import { apiUrl } from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 import { AlertTriangle, CheckCircle, Activity } from 'react-feather';
 
 interface SuspectVariable {
@@ -53,7 +54,7 @@ export default function VisitMappingCheckPage() {
 
   if (userEmail === null) {
     return (
-      <p className="text-red-500 text-center mt-[20%]">Authenticate to access this page</p>
+      <LoginPrompt message="Authenticate to access this page" />
     );
   }
 

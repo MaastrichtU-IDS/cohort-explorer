@@ -9,6 +9,7 @@ import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon, SparklesIcon} from '@/components/Icons';
 import {apiUrl} from '@/utils';
 import {ParticipantsModal} from '@/components/ParticipantsModal';
+import {goToLogin} from '@/components/LoginPrompt';
 
 // Not used: Next Auth.js: https://authjs.dev/getting-started/providers/oauth-tutorial
 // Auth0: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/auth0.ts
@@ -336,13 +337,13 @@ export function Nav() {
       if (!response.ok) {
         // Session is gone/expired: clear stale auth state and redirect to login.
         setUserEmail(null);
-        window.location.href = `${apiUrl}/login`;
+        goToLogin();
         return;
       }
     } catch (error) {
       // Network/other error verifying the session: treat as not authenticated.
       setUserEmail(null);
-      window.location.href = `${apiUrl}/login`;
+      goToLogin();
       return;
     }
     setShowModal(true);
@@ -885,7 +886,7 @@ export function Nav() {
               <span className="text-base">Logout</span>
             </button>
           ) : (
-            <a href={`${apiUrl}/login`} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-neutral-300">
+            <a href={`${apiUrl}/login`} onClick={e => { e.preventDefault(); goToLogin(); }} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-neutral-300">
               <LogIn size={24} />
               <span className="text-base">Login</span>
             </a>
@@ -923,7 +924,7 @@ export function Nav() {
                 </div>
                 <div className="min-h-[200px] flex flex-col items-center justify-center gap-4">
                   <p className="text-red-500 text-center">Your session has expired. Please log in again to create a Data Clean Room.</p>
-                  <a href={`${apiUrl}/login`} className="btn btn-primary">
+                  <a href={`${apiUrl}/login`} onClick={e => { e.preventDefault(); goToLogin(); }} className="btn btn-primary">
                     <LogIn size={18} /> Log in
                   </a>
                 </div>

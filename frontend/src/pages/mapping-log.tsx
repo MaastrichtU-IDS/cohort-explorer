@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useCohorts } from '@/components/CohortsContext';
 import { apiUrl } from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 
 interface LogEntry {
   ts: string;
@@ -136,7 +137,7 @@ export default function MappingLogPage() {
   }, [entries, levelFilter, pairFilter]);
 
   if (userEmail === null) {
-    return <p className="text-red-500 text-center mt-[20%]">Authenticate to access the mapping log</p>;
+    return <LoginPrompt message="Authenticate to access the mapping log" />;
   }
 
   return (

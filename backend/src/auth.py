@@ -57,17 +57,32 @@ oauth2_scheme = OAuth2AuthorizationCodeCookie(
 )
 
 
+def _safe_return_path(path: str | None) -> str | None:
+    """A frontend path we may bounce the user back to after login: must be a
+    same-site absolute path ('/mapping', '/manage-announcements?x=1'), never a
+    full URL or protocol-relative '//host' (open-redirect guard)."""
+    if path and path.startswith("/") and not path.startswith("//") and len(path) <= 500:
+        return path
+    return None
+
+
 @router.get("/login")
-def login() -> RedirectResponse:
-    """Redirect to Auth0 login page to authenticate the user and get the code to exchange for a token"""
-    login_url = f"""{settings.authorization_endpoint}?{urlencode({
+def login(redirect: str | None = None) -> RedirectResponse:
+    """Redirect to Auth0 login page to authenticate the user and get the code to exchange for a token.
+
+    `redirect` (optional): frontend path to return to after a successful login;
+    carried through Auth0 via the OAuth `state` parameter."""
+    params = {
         **auth_params,
         'scope': settings.scope,
         'response_type': settings.response_type,
         'client_id': settings.client_id,
         'prompt': 'login',
-    })}"""
-    return RedirectResponse(login_url)
+    }
+    return_path = _safe_return_path(redirect)
+    if return_path:
+        params['state'] = return_path
+    return RedirectResponse(f"{settings.authorization_endpoint}?{urlencode(params)}")
 
 
 def create_access_token(data: dict[str, str], expires_timestamp: int) -> str:
@@ -91,8 +106,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict[str, str
 
 
 @router.get("/cb")
-async def auth_callback(code: str) -> RedirectResponse:
-    """Callback for auth. Generates JWT token and redirects to frontend if successful"""
+async def auth_callback(code: str, state: str | None = None) -> RedirectResponse:
+    """Callback for auth. Generates JWT token and redirects to frontend if successful.
+    `state` carries the frontend path the user was on when login started."""
     token_payload = {
         "client_id": settings.client_id,
         "client_secret": settings.client_secret,
@@ -136,8 +152,10 @@ async def auth_callback(code: str) -> RedirectResponse:
                 expires_timestamp=exp_timestamp,
             )
 
-            # NOTE: Redirect to react frontend
-            send_resp = RedirectResponse(url=f"{settings.frontend_url}/cohorts")
+            # NOTE: Redirect to react frontend - back to the page the user was
+            # trying to access when they logged in (default: the explore page).
+            return_path = _safe_return_path(state) or "/cohorts"
+            send_resp = RedirectResponse(url=f"{settings.frontend_url}{return_path}")
             # Send JWT token as HTTP-only cookie to the frontend (will not be available to JS code in the frontend)
             send_resp.set_cookie(
                 key="token",
