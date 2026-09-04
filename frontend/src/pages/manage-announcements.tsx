@@ -14,12 +14,13 @@ interface AdminAnnouncement {
   created_at?: string;
 }
 
-const TAGS = ['new cohort', 'new feature', 'analysis'];
+const TAGS = ['new cohort', 'new feature', 'analysis', 'event'];
 
 const TAG_STYLES: Record<string, string> = {
   'new cohort': 'bg-emerald-100 text-emerald-900 border-emerald-300',
   'new feature': 'bg-purple-100 text-purple-900 border-purple-300',
-  analysis: 'bg-amber-100 text-amber-900 border-amber-300'
+  analysis: 'bg-amber-100 text-amber-900 border-amber-300',
+  event: 'bg-sky-100 text-sky-900 border-sky-300'
 };
 
 export default function ManageAnnouncements() {

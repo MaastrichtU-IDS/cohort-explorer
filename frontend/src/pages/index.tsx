@@ -112,11 +112,8 @@ export default function Home() {
         />
       </div>
 
-      {/* Announcements (rotating) */}
-      <AnnouncementsBox />
-
       {/* Statistics Cards */}
-      <div className="mt-10 grid grid-cols-2 md:grid-cols-3 gap-6 w-full max-w-5xl">
+      <div className="mt-16 grid grid-cols-2 md:grid-cols-3 gap-6 w-full max-w-5xl">
         {/* Total Cohorts */}
         <div className="stat bg-base-100 shadow rounded-lg p-4">
           <div className="stat-value text-primary text-3xl">{stats.totalCohorts}</div>
@@ -153,6 +150,9 @@ export default function Home() {
           <div className="stat-title text-sm">Variables in Cohorts with Uploaded Metadata</div>
         </div>
       </div>
+
+      {/* Announcements (rotating), below the statistics with breathing room */}
+      <AnnouncementsBox />
 
       <div className="mt-32 grid text-center lg:max-w-7xl lg:w-full lg:mb-0 lg:grid-cols-4 lg:text-left">
         <Link

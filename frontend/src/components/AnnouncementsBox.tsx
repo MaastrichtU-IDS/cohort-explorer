@@ -18,7 +18,8 @@ const ROTATE_MS = 7000;
 const TAG_STYLES: Record<string, string> = {
   'new cohort': 'bg-emerald-100 text-emerald-900 border-emerald-300',
   'new feature': 'bg-purple-100 text-purple-900 border-purple-300',
-  analysis: 'bg-amber-100 text-amber-900 border-amber-300'
+  analysis: 'bg-amber-100 text-amber-900 border-amber-300',
+  event: 'bg-sky-100 text-sky-900 border-sky-300'
 };
 
 function TagChip({tag}: {tag: string}) {
@@ -72,26 +73,30 @@ export default function AnnouncementsBox() {
       onMouseEnter={() => (paused.current = true)}
       onMouseLeave={() => (paused.current = false)}
     >
-      <div className="bg-base-100 shadow rounded-lg px-4 py-3 flex items-center gap-3">
-        <span aria-hidden className="text-lg">📣</span>
-        <TagChip tag={current.tag} />
-        <span className="text-xs text-base-content/50 whitespace-nowrap">{formatDate(current.date)}</span>
-        <span className="text-sm flex-1 min-w-0">{current.text}</span>
-        {announcements.length > 1 && (
-          <span className="hidden sm:inline-flex gap-1 items-center" aria-hidden>
-            {announcements.map((a, i) => (
-              <button
-                key={a.id}
-                onClick={() => setIndex(i)}
-                className={`w-1.5 h-1.5 rounded-full ${i === index ? 'bg-primary' : 'bg-base-300 hover:bg-base-content/30'}`}
-                aria-label={`Announcement ${i + 1}`}
-              />
-            ))}
-          </span>
-        )}
-        <button className="text-xs text-primary underline whitespace-nowrap" onClick={() => setShowAll(true)}>
-          Show all
-        </button>
+      <div className="bg-base-100 shadow rounded-lg px-4 py-3">
+        <div className="flex items-center gap-3">
+          <TagChip tag={current.tag} />
+          <span className="text-xs text-base-content/50 whitespace-nowrap">{formatDate(current.date)}</span>
+          <span className="flex-1" />
+          {announcements.length > 1 && (
+            <span className="hidden sm:inline-flex gap-1 items-center" aria-hidden>
+              {announcements.map((a, i) => (
+                <button
+                  key={a.id}
+                  onClick={() => setIndex(i)}
+                  className={`w-1.5 h-1.5 rounded-full ${i === index ? 'bg-primary' : 'bg-base-300 hover:bg-base-content/30'}`}
+                  aria-label={`Announcement ${i + 1}`}
+                />
+              ))}
+            </span>
+          )}
+          <button className="text-xs text-primary underline whitespace-nowrap" onClick={() => setShowAll(true)}>
+            Show all
+          </button>
+        </div>
+        {/* Fixed three-line text area: the box keeps the same height while
+            announcements rotate, so nothing below it shifts around. */}
+        <p className="text-sm leading-5 mt-2 min-h-[3.75rem] line-clamp-3">{current.text}</p>
       </div>
 
       {showAll && (

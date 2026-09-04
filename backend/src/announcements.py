@@ -22,7 +22,7 @@ from src.config import settings
 
 router = APIRouter(tags=["announcements"])
 
-ANNOUNCEMENT_TAGS = ("new cohort", "new feature", "analysis")
+ANNOUNCEMENT_TAGS = ("new cohort", "new feature", "analysis", "event")
 MAX_TEXT_LENGTH = 500  # announcements are at most a couple of sentences
 
 _LOCK = threading.Lock()
