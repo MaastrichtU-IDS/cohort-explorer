@@ -25,6 +25,7 @@ const TAG_STYLES: Record<string, string> = {
 export default function ManageAnnouncements() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [announcements, setAnnouncements] = useState<AdminAnnouncement[]>([]);
+  const [boxEnabled, setBoxEnabled] = useState(true);
   const [text, setText] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [tag, setTag] = useState(TAGS[0]);
@@ -32,11 +33,32 @@ export default function ManageAnnouncements() {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
-    fetch(`${apiUrl}/announcements`, {credentials: 'include'})
-      .then(res => (res.ok ? res.json() : []))
-      .then((data: AdminAnnouncement[]) => setAnnouncements(Array.isArray(data) ? data : []))
+    fetch(`${apiUrl}/announcements/all`, {credentials: 'include'})
+      .then(res => (res.ok ? res.json() : {enabled: true, items: []}))
+      .then((data: {enabled?: boolean; items?: AdminAnnouncement[]}) => {
+        setBoxEnabled(data.enabled !== false);
+        setAnnouncements(Array.isArray(data.items) ? data.items : []);
+      })
       .catch(() => {});
   }, []);
+
+  const setVisibility = async (enabled: boolean) => {
+    setError(null);
+    setBoxEnabled(enabled); // optimistic; corrected on refresh if the call fails
+    try {
+      const res = await fetch(`${apiUrl}/announcements/visibility`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled})
+      });
+      if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    } catch (e: any) {
+      setError(e?.message || 'Could not change the box visibility.');
+    } finally {
+      refresh();
+    }
+  };
 
   useEffect(() => {
     fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
@@ -101,6 +123,24 @@ export default function ManageAnnouncements() {
   return (
     <main className="p-6 md:p-10 max-w-4xl mx-auto space-y-8">
       <h1 className="text-2xl font-bold">Manage Announcements</h1>
+
+      <section className="card card-bordered bg-base-100 shadow">
+        <div className="card-body py-4 flex-row items-center gap-4 flex-wrap">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              className="toggle toggle-primary"
+              checked={boxEnabled}
+              onChange={e => setVisibility(e.target.checked)}
+            />
+            <span className="font-semibold">Show the announcements box on the front page</span>
+          </label>
+          {!boxEnabled && <span className="badge badge-warning">currently hidden for everyone</span>}
+          <span className="text-xs text-base-content/60 basis-full">
+            The box also hides itself automatically when there are no announcements.
+          </span>
+        </div>
+      </section>
 
       <section className="card card-bordered bg-base-100 shadow">
         <div className="card-body space-y-3">

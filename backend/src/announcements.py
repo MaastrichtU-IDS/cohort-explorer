@@ -32,38 +32,77 @@ def _store_path() -> str:
     return os.path.join(settings.data_folder, "announcements.json")
 
 
-def _load() -> list[dict]:
+def _load() -> dict:
+    """The store: {'enabled': bool, 'items': [...]}. Legacy files held a bare
+    list of items; those read as enabled=True."""
     try:
         with open(_store_path(), encoding="utf-8") as fh:
             data = json.load(fh)
-        return data if isinstance(data, list) else []
+        if isinstance(data, list):
+            return {"enabled": True, "items": data}
+        if isinstance(data, dict):
+            items = data.get("items")
+            return {"enabled": bool(data.get("enabled", True)),
+                    "items": items if isinstance(items, list) else []}
+        return {"enabled": True, "items": []}
     except FileNotFoundError:
-        return []
+        return {"enabled": True, "items": []}
     except Exception as exc:
         logging.warning("Announcements store unreadable: %s", exc)
-        return []
+        return {"enabled": True, "items": []}
 
 
-def _save(items: list[dict]) -> None:
+def _save(store: dict) -> None:
     path = _store_path()
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(items, fh, indent=2, ensure_ascii=False)
+        json.dump(store, fh, indent=2, ensure_ascii=False)
     os.replace(tmp, path)
+
+
+def _sorted(items: list[dict]) -> list[dict]:
+    return sorted(items, key=lambda a: (str(a.get("date") or ""), str(a.get("created_at") or "")),
+                  reverse=True)
 
 
 def _is_admin(user: Any) -> bool:
     return user["email"].lower() in settings.admins_list
 
 
-@router.get("/announcements", name="List announcements (newest first)")
+@router.get("/announcements", name="List announcements for the front-page box (newest first)")
 def list_announcements(user: Any = Depends(get_current_user)) -> list[dict]:
-    items = sorted(_load(), key=lambda a: (str(a.get("date") or ""), str(a.get("created_at") or "")),
-                   reverse=True)
+    store = _load()
+    # The box is hidden globally: empty list for everyone (admins included -
+    # they see the front page too; the manage page uses /announcements/all).
+    if not store["enabled"]:
+        return []
+    items = _sorted(store["items"])
     if _is_admin(user):
         return items
     # Non-admins (the front page) never see who added an announcement.
     return [{k: v for k, v in a.items() if k != "added_by"} for a in items]
+
+
+@router.get("/announcements/all", name="Full announcements store for the manage page (admins only)")
+def list_all_announcements(user: Any = Depends(get_current_user)) -> dict:
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    store = _load()
+    return {"enabled": store["enabled"], "items": _sorted(store["items"])}
+
+
+@router.post("/announcements/visibility", name="Show/hide the front-page announcements box (admins only)")
+def set_announcements_visibility(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict:
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not isinstance(body.get("enabled"), bool):
+        raise HTTPException(status_code=400, detail="enabled (true/false) is required")
+    with _LOCK:
+        store = _load()
+        store["enabled"] = body["enabled"]
+        _save(store)
+    logging.info("Announcements box %s by %s", "shown" if body["enabled"] else "hidden", user["email"])
+    return {"enabled": store["enabled"]}
 
 
 @router.post("/announcements", name="Add an announcement (admins only)")
@@ -94,9 +133,9 @@ def add_announcement(body: dict[str, Any], user: Any = Depends(get_current_user)
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
     with _LOCK:
-        items = _load()
-        items.append(item)
-        _save(items)
+        store = _load()
+        store["items"].append(item)
+        _save(store)
     logging.info("Announcement %s added by %s (%s, %s)", item["id"], item["added_by"], tag, raw_date)
     return item
 
@@ -106,10 +145,11 @@ def delete_announcement(announcement_id: str, user: Any = Depends(get_current_us
     if not _is_admin(user):
         raise HTTPException(status_code=403, detail="Admin access required")
     with _LOCK:
-        items = _load()
-        kept = [a for a in items if a.get("id") != announcement_id]
-        if len(kept) == len(items):
+        store = _load()
+        kept = [a for a in store["items"] if a.get("id") != announcement_id]
+        if len(kept) == len(store["items"]):
             raise HTTPException(status_code=404, detail="No announcement with that id")
-        _save(kept)
+        store["items"] = kept
+        _save(store)
     logging.info("Announcement %s deleted by %s", announcement_id, user["email"])
     return {"status": "deleted", "id": announcement_id}
