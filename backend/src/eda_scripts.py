@@ -3046,7 +3046,7 @@ def load_data(file_path):
 
 # Configuration
 SAMPLE_SIZE = 500  # Number of rows to output
-SAMPLE_FRACTION = 0.2  # Alternative: fraction of data to sample
+SAMPLE_FRACTION = 0.1  # Fraction of data to sample (the output is min(500, 10%))
 RANDOM_SEED = 42  # For reproducibility
 
 # Load the metadata dictionary to find patient ID variable
@@ -3114,6 +3114,49 @@ if dict_varname_col:
 columns_to_drop = [col for col in PII_COLUMNS if col in df.columns]
 df_anonymized = df.drop(columns=columns_to_drop, errors='ignore')
 
+# Cap outliers in numeric variables, mirroring the airlock mechanism:
+# statistics computed on the full column, values clipped to mean +/- 2
+# standard deviations. Numeric = VARTYPE FLOAT/INT with an empty CATEGORICAL
+# field in the metadata dictionary (matched case-insensitively).
+Z_THRESHOLD = 2.0
+_name_col = next((c for c in ['VARIABLE NAME', 'VARIABLENAME', 'VAR NAME', 'VAR_NAME', 'VARNAME'] if c in dictionary_df.columns), None)
+_type_col = next((c for c in ['VAR TYPE', 'VARTYPE', 'VAR_TYPE', 'VARIABLE TYPE'] if c in dictionary_df.columns), None)
+_cat_col = 'CATEGORICAL' if 'CATEGORICAL' in dictionary_df.columns else None
+numeric_vars = []
+if _name_col and _type_col:
+    data_cols_lower = {c.lower().strip(): c for c in df_anonymized.columns}
+    for _, row in dictionary_df.iterrows():
+        vname = str(row[_name_col]).strip()
+        vtype = str(row[_type_col]).strip().upper() if pd.notna(row[_type_col]) else ''
+        vcat = str(row[_cat_col]).strip() if _cat_col is not None and pd.notna(row[_cat_col]) else ''
+        if vtype in ['FLOAT', 'INT'] and (vcat == '' or vcat.lower() == 'nan'):
+            actual = data_cols_lower.get(vname.lower())
+            if actual:
+                numeric_vars.append(actual)
+else:
+    print("Could not identify var name/type columns in the metadata dictionary; outlier capping skipped")
+print("Identified {} numeric variables for outlier capping".format(len(numeric_vars)))
+n_values_capped = 0
+n_vars_capped = 0
+for var in numeric_vars:
+    try:
+        vals = pd.to_numeric(df_anonymized[var], errors='coerce')
+        std_val = vals.std()
+        if pd.isna(std_val) or std_val == 0:
+            continue
+        mean_val = vals.mean()
+        lower_limit = mean_val - Z_THRESHOLD * std_val
+        upper_limit = mean_val + Z_THRESHOLD * std_val
+        n_capped = int((vals < lower_limit).sum() + (vals > upper_limit).sum())
+        df_anonymized[var] = vals.clip(lower=lower_limit, upper=upper_limit)
+        if n_capped > 0:
+            n_vars_capped += 1
+            n_values_capped += n_capped
+            print("  {}: {} values capped to [{:.4f}, {:.4f}]".format(var, n_capped, lower_limit, upper_limit))
+    except Exception as e:
+        print("Outlier capping skipped for {}: {}".format(var, e))
+print("Outlier capping (z-score +/-{} SD): {} values capped across {} variables".format(Z_THRESHOLD, n_values_capped, n_vars_capped))
+
 # Shuffle each column independently
 df_shuffled = pd.DataFrame()
 
@@ -3167,6 +3210,7 @@ Privacy Method: Independent column shuffling
 - Each column shuffled separately
 - All correlations destroyed
 - No patient reconstruction possible
+- Outliers capped at mean +/- 2 SD (airlock-style): {:,} values across {} numeric variables
 
 Removed PII columns: {}
 '''
@@ -3178,6 +3222,8 @@ summary = summary_template.format(
     len(columns_to_drop),
     len(df_anonymized.columns),
     len(df_sample),
+    n_values_capped,
+    n_vars_capped,
     ', '.join(columns_to_drop) if columns_to_drop else 'None'
 )
 
