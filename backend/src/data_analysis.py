@@ -346,6 +346,8 @@ def check_visit_mapping(user: Any = Depends(get_current_user)) -> dict:
 
     # visit_value -> { visit_concept_name -> [(var_name, cohort_id), ...] }
     mapping: dict[str, dict[str, list[list[str]]]] = {}
+    # visit_value -> [(var_name, cohort_id), ...] with no visit concept name
+    unmapped: dict[str, list[list[str]]] = {}
 
     for cohort_id, cohort in cohorts.items():
         if not cohort.variables:
@@ -356,7 +358,11 @@ def check_visit_mapping(user: Any = Depends(get_current_user)) -> dict:
                 continue
             raw_concept = (var.visit_concept_name or "").strip()
             if not raw_concept or raw_concept.lower() == "na":
-                raw_concept = "(empty)"
+                # No concept name at all: reported separately as "unmapped"
+                # rather than as a competing "(empty)" concept, which would
+                # turn every partially-mapped visit value into a suspect.
+                unmapped.setdefault(raw_visit, []).append([var.var_name, cohort_id])
+                continue
 
             if raw_visit not in mapping:
                 mapping[raw_visit] = {}
@@ -364,10 +370,24 @@ def check_visit_mapping(user: Any = Depends(get_current_user)) -> dict:
                 mapping[raw_visit][raw_concept] = []
             mapping[raw_visit][raw_concept].append([var.var_name, cohort_id])
 
-    # Detect inconsistencies: visits values mapped to >1 concept name
+    def _cohorts(pairs: list[list[str]]) -> int:
+        return len({c for _, c in pairs})
+
+    # Detect inconsistencies: visits values mapped to >1 concept name; the
+    # rest are the consistent (normal) mappings, returned too so the page can
+    # show them on request.
     suspect_mappings: list[dict] = []
+    consistent_mappings: list[dict] = []
     for visit_value, concept_map in mapping.items():
         if len(concept_map) <= 1:
+            concept_name, pairs = next(iter(concept_map.items()))
+            consistent_mappings.append({
+                "visits_value": visit_value,
+                "visit_concept_name": concept_name,
+                "variable_count": len(pairs),
+                "cohort_count": _cohorts(pairs),
+                "variables": pairs,
+            })
             continue
 
         # Find the majority concept name (by number of variables)
@@ -389,6 +409,7 @@ def check_visit_mapping(user: Any = Depends(get_current_user)) -> dict:
 
         suspect_mappings.append({
             "visits_value": visit_value,
+            "cohort_count": _cohorts([p for pairs in concept_map.values() for p in pairs]),
             "majority": {
                 "visit_concept_name": majority_concept,
                 "variable_count": majority_count,
@@ -399,8 +420,18 @@ def check_visit_mapping(user: Any = Depends(get_current_user)) -> dict:
             "distinct_concept_names": list(concept_map.keys()),
         })
 
+    consistent_mappings.sort(key=lambda m: (-m["variable_count"], m["visits_value"].lower()))
+    unmapped_mappings = sorted(
+        ({"visits_value": v, "variable_count": len(pairs), "cohort_count": _cohorts(pairs), "variables": pairs}
+         for v, pairs in unmapped.items()),
+        key=lambda m: (-m["variable_count"], m["visits_value"].lower()),
+    )
     return {
-        "total_visits_values": len(mapping),
+        "total_visits_values": len(mapping) + len(unmapped),
         "suspect_count": len(suspect_mappings),
         "suspect_mappings": suspect_mappings,
+        "consistent_count": len(consistent_mappings),
+        "consistent_mappings": consistent_mappings,
+        "unmapped_count": len(unmapped_mappings),
+        "unmapped_mappings": unmapped_mappings,
     }

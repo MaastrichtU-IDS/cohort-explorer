@@ -1,33 +1,69 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useCohorts } from '@/components/CohortsContext';
 import { apiUrl } from '@/utils';
 import LoginPrompt from '@/components/LoginPrompt';
-import { AlertTriangle, CheckCircle, Activity } from 'react-feather';
+import { AlertTriangle, CheckCircle, Activity, HelpCircle } from 'react-feather';
+
+type VarPair = [string, string]; // [variable name, cohort id]
 
 interface SuspectVariable {
   visit_concept_name: string;
   variable_count: number;
-  variables: [string, string][];
+  variables: VarPair[];
 }
 
 interface SuspectMapping {
   visits_value: string;
+  cohort_count?: number;
   majority: {
     visit_concept_name: string;
     variable_count: number;
-    variables: [string, string][];
+    variables: VarPair[];
   };
   minorities: SuspectVariable[];
   total_variables: number;
   distinct_concept_names: string[];
 }
 
+interface ConsistentMapping {
+  visits_value: string;
+  visit_concept_name: string;
+  variable_count: number;
+  cohort_count: number;
+  variables: VarPair[];
+}
+
+interface UnmappedMapping {
+  visits_value: string;
+  variable_count: number;
+  cohort_count: number;
+  variables: VarPair[];
+}
+
 interface VisitMappingResult {
   total_visits_values: number;
   suspect_count: number;
   suspect_mappings: SuspectMapping[];
+  consistent_count?: number;
+  consistent_mappings?: ConsistentMapping[];
+  unmapped_count?: number;
+  unmapped_mappings?: UnmappedMapping[];
+}
+
+type View = 'suspect' | 'consistent' | 'unmapped';
+
+// Does a mapping mention the filter text in its visit value, concept name or
+// any of its variables/cohorts?
+function matchesFilter(needle: string, texts: string[], pairs: VarPair[]): boolean {
+  if (!needle) return true;
+  const n = needle.toLowerCase();
+  return (
+    texts.some(t => (t || '').toLowerCase().includes(n)) ||
+    pairs.some(([v, c]) => v.toLowerCase().includes(n) || c.toLowerCase().includes(n))
+  );
 }
 
 export default function VisitMappingCheckPage() {
@@ -35,6 +71,8 @@ export default function VisitMappingCheckPage() {
   const [data, setData] = useState<VisitMappingResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<View>('suspect');
+  const [filter, setFilter] = useState('');
 
   useEffect(() => {
     if (userEmail === null) return;
@@ -51,6 +89,26 @@ export default function VisitMappingCheckPage() {
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [userEmail]);
+
+  const consistent = useMemo(
+    () => (data?.consistent_mappings || []).filter(m => matchesFilter(filter, [m.visits_value, m.visit_concept_name], m.variables)),
+    [data, filter]
+  );
+  const suspects = useMemo(
+    () =>
+      (data?.suspect_mappings || []).filter(m =>
+        matchesFilter(
+          filter,
+          [m.visits_value, ...m.distinct_concept_names],
+          [...m.majority.variables, ...m.minorities.flatMap(x => x.variables)]
+        )
+      ),
+    [data, filter]
+  );
+  const unmapped = useMemo(
+    () => (data?.unmapped_mappings || []).filter(m => matchesFilter(filter, [m.visits_value], m.variables)),
+    [data, filter]
+  );
 
   if (userEmail === null) {
     return (
@@ -79,6 +137,9 @@ export default function VisitMappingCheckPage() {
 
   if (!data) return null;
 
+  const consistentCount = data.consistent_count ?? data.consistent_mappings?.length ?? 0;
+  const unmappedCount = data.unmapped_count ?? data.unmapped_mappings?.length ?? 0;
+
   return (
     <div className="min-h-screen bg-base-100">
       <div className="container mx-auto px-4 py-8 max-w-5xl">
@@ -94,46 +155,222 @@ export default function VisitMappingCheckPage() {
         </div>
 
         {/* Summary cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           <div className="stat bg-base-200 rounded-lg border border-base-300">
-            <div className="stat-title">Total distinct visit values</div>
+            <div className="stat-title">Distinct visit values</div>
             <div className="stat-value text-primary">{data.total_visits_values}</div>
           </div>
           <div className="stat bg-base-200 rounded-lg border border-base-300">
-            <div className="stat-title">Suspect mappings</div>
+            <div className="stat-title">Suspect</div>
             <div className={`stat-value ${data.suspect_count > 0 ? 'text-warning' : 'text-success'}`}>
               {data.suspect_count}
             </div>
           </div>
+          <div className="stat bg-base-200 rounded-lg border border-base-300">
+            <div className="stat-title">Consistent</div>
+            <div className="stat-value text-success">{consistentCount}</div>
+          </div>
+          <div className="stat bg-base-200 rounded-lg border border-base-300">
+            <div className="stat-title">Unmapped</div>
+            <div className={`stat-value ${unmappedCount > 0 ? 'text-base-content/60' : 'text-success'}`}>{unmappedCount}</div>
+          </div>
         </div>
 
-        {/* Results */}
-        {data.suspect_count === 0 ? (
-          <div className="flex items-center gap-3 p-6 bg-success/10 rounded-lg border border-success/20">
-            <CheckCircle size={28} className="text-success" />
-            <div>
-              <h3 className="font-semibold text-lg">All visit mappings are consistent</h3>
-              <p className="text-sm text-base-content/60">
-                Every visit value maps to exactly one visit concept name across all cohorts.
-              </p>
-            </div>
+        {/* View switch + filter */}
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="join">
+            <button
+              className={`btn btn-sm join-item gap-1 ${view === 'suspect' ? 'btn-warning' : 'btn-outline'}`}
+              onClick={() => setView('suspect')}
+            >
+              <AlertTriangle size={14} /> Suspect
+              <span className="badge badge-sm">{data.suspect_count}</span>
+            </button>
+            <button
+              className={`btn btn-sm join-item gap-1 ${view === 'consistent' ? 'btn-success' : 'btn-outline'}`}
+              onClick={() => setView('consistent')}
+            >
+              <CheckCircle size={14} /> Consistent
+              <span className="badge badge-sm">{consistentCount}</span>
+            </button>
+            <button
+              className={`btn btn-sm join-item gap-1 ${view === 'unmapped' ? 'btn-neutral' : 'btn-outline'}`}
+              onClick={() => setView('unmapped')}
+              title="Visit values used by variables that have no visit concept name at all"
+            >
+              <HelpCircle size={14} /> Unmapped
+              <span className="badge badge-sm">{unmappedCount}</span>
+            </button>
           </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-warning">
-              <AlertTriangle size={20} />
+          <input
+            type="text"
+            className="input input-bordered input-sm w-72"
+            placeholder="Filter by visit value, concept, variable or cohort…"
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+          />
+          {filter && (
+            <button className="btn btn-ghost btn-xs" onClick={() => setFilter('')}>
+              clear
+            </button>
+          )}
+        </div>
+
+        {/* Suspect view */}
+        {view === 'suspect' &&
+          (data.suspect_count === 0 ? (
+            <div className="flex items-center gap-3 p-6 bg-success/10 rounded-lg border border-success/20">
+              <CheckCircle size={28} className="text-success" />
+              <div>
+                <h3 className="font-semibold text-lg">All visit mappings are consistent</h3>
+                <p className="text-sm text-base-content/60">
+                  Every visit value maps to exactly one visit concept name across all cohorts.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-warning">
+                <AlertTriangle size={20} />
+                <span className="font-semibold">
+                  {suspects.length} visit {suspects.length === 1 ? 'value' : 'values'} mapped to multiple concept names
+                  {filter && suspects.length !== data.suspect_count && (
+                    <span className="text-base-content/50 font-normal"> (of {data.suspect_count}, filtered)</span>
+                  )}
+                </span>
+              </div>
+              {suspects.map((sm, idx) => (
+                <SuspectCard key={idx} suspect={sm} />
+              ))}
+            </div>
+          ))}
+
+        {/* Consistent view */}
+        {view === 'consistent' && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-success mb-2">
+              <CheckCircle size={20} />
               <span className="font-semibold">
-                {data.suspect_count} visit {data.suspect_count === 1 ? 'value' : 'values'} mapped to multiple concept names
+                {consistent.length} visit {consistent.length === 1 ? 'value maps' : 'values map'} to exactly one concept name
+                {filter && consistent.length !== consistentCount && (
+                  <span className="text-base-content/50 font-normal"> (of {consistentCount}, filtered)</span>
+                )}
               </span>
             </div>
+            {consistent.length === 0 ? (
+              <p className="text-sm text-base-content/50">Nothing matches.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-base-300">
+                <table className="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Visit value</th>
+                      <th>Visit concept name</th>
+                      <th className="text-right">Variables</th>
+                      <th className="text-right">Cohorts</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {consistent.map(m => (
+                      <ConsistentRow key={m.visits_value} mapping={m} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
 
-            {data.suspect_mappings.map((sm, idx) => (
-              <SuspectCard key={idx} suspect={sm} />
-            ))}
+        {/* Unmapped view */}
+        {view === 'unmapped' && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-base-content/70 mb-2">
+              <HelpCircle size={20} />
+              <span className="font-semibold">
+                {unmapped.length} visit {unmapped.length === 1 ? 'value' : 'values'} used without any visit concept name
+              </span>
+            </div>
+            {unmapped.length === 0 ? (
+              <p className="text-sm text-base-content/50">Every visit value has a concept name.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-base-300">
+                <table className="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Visit value</th>
+                      <th className="text-right">Variables</th>
+                      <th className="text-right">Cohorts</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unmapped.map(m => (
+                      <UnmappedRow key={m.visits_value} mapping={m} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function CohortLink({ cohortId }: { cohortId: string }) {
+  return (
+    <Link
+      href={{ pathname: '/cohorts', query: { cohort: cohortId } }}
+      className="text-purple-700 dark:text-purple-400 underline underline-offset-2 hover:text-purple-900"
+      title={`Open ${cohortId} on the explore page`}
+    >
+      {cohortId}
+    </Link>
+  );
+}
+
+function ConsistentRow({ mapping }: { mapping: ConsistentMapping }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <tr className="hover cursor-pointer" onClick={() => setOpen(o => !o)}>
+        <td className="font-mono text-xs">{mapping.visits_value}</td>
+        <td className="text-sm">{mapping.visit_concept_name}</td>
+        <td className="text-right font-mono text-xs">{mapping.variable_count}</td>
+        <td className="text-right font-mono text-xs">{mapping.cohort_count}</td>
+        <td className="text-right text-xs text-base-content/50">{open ? '▲' : '▼'}</td>
+      </tr>
+      {open && (
+        <tr>
+          <td colSpan={5} className="bg-base-100">
+            <VariableList variables={mapping.variables} visitsValue={mapping.visits_value} visitConceptName={mapping.visit_concept_name} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function UnmappedRow({ mapping }: { mapping: UnmappedMapping }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <tr className="hover cursor-pointer" onClick={() => setOpen(o => !o)}>
+        <td className="font-mono text-xs">{mapping.visits_value}</td>
+        <td className="text-right font-mono text-xs">{mapping.variable_count}</td>
+        <td className="text-right font-mono text-xs">{mapping.cohort_count}</td>
+        <td className="text-right text-xs text-base-content/50">{open ? '▲' : '▼'}</td>
+      </tr>
+      {open && (
+        <tr>
+          <td colSpan={4} className="bg-base-100">
+            <VariableList variables={mapping.variables} visitsValue={mapping.visits_value} visitConceptName="—" />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -156,6 +393,11 @@ function SuspectCard({ suspect }: { suspect: SuspectMapping }) {
               <span className="badge badge-sm badge-secondary">
                 {suspect.total_variables} variables
               </span>
+              {suspect.cohort_count !== undefined && (
+                <span className="badge badge-sm badge-primary">
+                  {suspect.cohort_count} {suspect.cohort_count === 1 ? 'cohort' : 'cohorts'}
+                </span>
+              )}
               <span className="badge badge-sm badge-warning">
                 {suspect.distinct_concept_names.length} distinct concept names
               </span>
@@ -241,7 +483,7 @@ function SuspectCard({ suspect }: { suspect: SuspectMapping }) {
   );
 }
 
-function VariableList({ variables, visitsValue, visitConceptName }: { variables: [string, string][]; visitsValue: string; visitConceptName: string }) {
+function VariableList({ variables, visitsValue, visitConceptName }: { variables: VarPair[]; visitsValue: string; visitConceptName: string }) {
   return (
     <div className="overflow-x-auto">
       <table className="table table-xs">
@@ -257,7 +499,7 @@ function VariableList({ variables, visitsValue, visitConceptName }: { variables:
           {variables.map(([varName, cohortId], i) => (
             <tr key={i}>
               <td className="font-mono text-xs">{varName}</td>
-              <td className="text-xs">{cohortId}</td>
+              <td className="text-xs"><CohortLink cohortId={cohortId} /></td>
               <td className="text-xs">{visitsValue}</td>
               <td className="text-xs">{visitConceptName}</td>
             </tr>
