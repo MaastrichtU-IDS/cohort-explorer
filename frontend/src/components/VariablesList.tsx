@@ -7,6 +7,15 @@ import {InfoIcon} from '@/components/Icons';
 import {Concept, Variable} from '@/types';
 import {apiUrl} from '@/utils';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
+import {parseEdaJson} from '@/utils/edaParsing';
+
+// Compact number for the card's numeric summary line ("120", "2.5", "3.14").
+const fmtStat = (x: any): string => {
+  if (x === null || x === undefined || x === '') return '';
+  const n = Number(x);
+  if (!Number.isFinite(n)) return String(x);
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '');
+};
 
 // Helper component to render highlighted text
 const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact'}) => {
@@ -64,6 +73,34 @@ const VariablesList = ({
   const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
   const [activeSourceTab, setActiveSourceTab] = useState<string | null>(null);
   const [isTabSwitching, setIsTabSwitching] = useState(false);
+  // Summary statistics for this cohort's variables (median; min/max as a
+  // fallback when the dictionary has none), keyed by lowercased name. null
+  // until fetched, {} when the cohort has no summary statistics.
+  const [edaStats, setEdaStats] = useState<Record<string, {median?: number; min?: number; max?: number}> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/cohort-eda-output/${encodeURIComponent(cohortId)}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(raw => {
+        if (!alive) return;
+        if (!raw) {
+          setEdaStats({});
+          return;
+        }
+        const data = parseEdaJson(raw);
+        const map: Record<string, {median?: number; min?: number; max?: number}> = {};
+        (data?.variables || []).forEach(v => {
+          map[v.name.toLowerCase().trim()] = {median: v.median, min: v.min, max: v.max};
+        });
+        setEdaStats(map);
+      })
+      .catch(() => {
+        if (alive) setEdaStats({});
+      });
+    return () => {
+      alive = false;
+    };
+  }, [cohortId]);
 
   // When concept is selected, insert the triples into the database
   const handleConceptSelect = (varId: any, concept: Concept, categoryId: any = null) => {
@@ -660,6 +697,63 @@ const VariablesList = ({
                     )}
                   </div>
                 )}
+
+                {/* Categorical variables: the categories (value -> meaning)
+                    right on the card, under the concept/visit line. */}
+                {variable.categories.length > 0 && (
+                  <div className="mt-1 space-y-0.5">
+                    {variable.categories.slice(0, 12).map((cat: any, idx: number) => (
+                      <div key={idx} className="text-sm text-gray-600 dark:text-gray-400">
+                        <span className="badge badge-sm badge-ghost mr-2">
+                          <HighlightedText text={cat.value || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                        </span>
+                        <HighlightedText text={cat.label || ''} searchTerms={searchTerms} searchMode={searchMode} />
+                      </div>
+                    ))}
+                    {variable.categories.length > 12 && (
+                      <div className="text-xs text-gray-500 italic">
+                        +{variable.categories.length - 12} more categories (open the ⓘ popup for the full list)
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Numeric variables: unit, min, max (dictionary first, summary
+                    statistics as fallback) and median (summary statistics). */}
+                {variable.categories.length === 0 &&
+                  ['INT', 'FLOAT'].includes(String(variable.var_type || '').toUpperCase()) &&
+                  (() => {
+                    const s = edaStats?.[String(variable.var_name).toLowerCase().trim()];
+                    const min = variable.min || s?.min;
+                    const max = variable.max || s?.max;
+                    const median = s?.median;
+                    const has = (x: any) => x !== null && x !== undefined && x !== '';
+                    if (!variable.units && !has(min) && !has(max) && !has(median)) return null;
+                    return (
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400 mt-1">
+                        {variable.units && (
+                          <span>
+                            <span className="font-semibold">Unit:</span> {variable.units}
+                          </span>
+                        )}
+                        {has(min) && (
+                          <span>
+                            <span className="font-semibold">Min:</span> {fmtStat(min)}
+                          </span>
+                        )}
+                        {has(max) && (
+                          <span>
+                            <span className="font-semibold">Max:</span> {fmtStat(max)}
+                          </span>
+                        )}
+                        {has(median) && (
+                          <span>
+                            <span className="font-semibold">Median:</span> {fmtStat(median)}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                 {/* Popup with additional infos about the variable */}
                 {openedModal === variable.var_name && (
