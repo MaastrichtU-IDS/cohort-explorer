@@ -79,6 +79,8 @@ export interface Variable {
   units: string;
   visits: string;
   visit_concept_name: string;
+  visit_concept_code?: string | null;
+  visit_omop_id?: string | null;
   formula: string;
   definition: string;
   omop_domain: string;

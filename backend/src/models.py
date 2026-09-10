@@ -30,6 +30,10 @@ class CohortVariable:
     units: Optional[str] = None
     visits: Optional[str] = None
     visit_concept_name: Optional[str] = None
+    # Standard code / OMOP id of the visit concept (dictionary columns VISIT
+    # CONCEPT CODE / VISIT OMOP ID); used by the visit-mapping consistency check.
+    visit_concept_code: Optional[str] = None
+    visit_omop_id: Optional[str] = None
     formula: Optional[str] = None
     definition: Optional[str] = None
     concept_id: Optional[str] = None

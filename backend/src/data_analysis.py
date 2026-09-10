@@ -3,6 +3,7 @@ Data analysis endpoints for downloading and analyzing cohort data.
 """
 import json
 import logging
+import re
 import tempfile
 from datetime import datetime
 from typing import Any, Dict, List, Set
@@ -326,17 +327,27 @@ def longitudinal_audit(user: Any = Depends(get_current_user)) -> HTMLResponse:
 # ------------------------------------------------------------------
 # Visit mapping consistency check
 # ------------------------------------------------------------------
+def _norm_concept(name: str) -> str:
+    """Spelling-insensitive form of a visit concept name: case, whitespace and
+    punctuation differences collapse ('Baseline time' == 'baseline  Time.')."""
+    return re.sub(r"[^a-z0-9]+", " ", str(name or "").lower()).strip()
+
+
 @router.get("/check-visit-mapping")
 def check_visit_mapping(user: Any = Depends(get_current_user)) -> dict:
-    """Check consistency of visits → visit_concept_name mappings across all cohorts.
+    """Consistency of the visit metadata across all cohorts.
 
-    For each distinct value in the ``visits`` column, builds a histogram of the
-    ``visit_concept_name`` values it has been mapped to, along with the
-    (variable_name, cohort_id) pairs for each mapping.
-
-    If a visits value is mapped to more than one distinct visit_concept_name,
-    the majority mapping is considered correct and all minority mappings are
-    reported as suspect.
+    - visits -> visit_concept_name: for each distinct raw ``visits`` value, the
+      histogram of concept names it is mapped to. One concept name = consistent;
+      several = suspect (the majority mapping is assumed correct, the rest are
+      reported). A suspect is 'trivial' when the competing names differ only by
+      spelling (case / whitespace / punctuation) and 'real' otherwise. Variables
+      whose visit has no concept name at all are listed separately as unmapped.
+    - visit_concept_name <-> visit concept code / OMOP id: a concept name
+      carrying several codes (or OMOP ids), or one code used under several
+      concept names, is a code conflict.
+    - the vocabulary per concept name (which raw visit values feed it), plus
+      groups of concept names that differ only by spelling.
     """
     user_email = user["email"]
     cohorts = get_cohorts_from_cache(user_email)
@@ -344,38 +355,47 @@ def check_visit_mapping(user: Any = Depends(get_current_user)) -> dict:
         initialize_cache_from_source_files(user_email)
         cohorts = get_cohorts_from_cache(user_email)
 
+    def _clean(v: Any) -> str:
+        t = str(v).strip() if v is not None else ""
+        return "" if t.lower() in ("", "na", "nan", "none") else t
+
     # visit_value -> { visit_concept_name -> [(var_name, cohort_id), ...] }
     mapping: dict[str, dict[str, list[list[str]]]] = {}
     # visit_value -> [(var_name, cohort_id), ...] with no visit concept name
     unmapped: dict[str, list[list[str]]] = {}
+    # concept name -> code -> pairs ; concept name -> omop id -> pairs ; code -> concept name -> pairs
+    name_codes: dict[str, dict[str, list[list[str]]]] = {}
+    name_omops: dict[str, dict[str, list[list[str]]]] = {}
+    code_names: dict[str, dict[str, list[list[str]]]] = {}
 
     for cohort_id, cohort in cohorts.items():
         if not cohort.variables:
             continue
         for var in cohort.variables.values():
-            raw_visit = (var.visits or "").strip()
-            if not raw_visit or raw_visit.lower() == "na":
+            raw_visit = _clean(var.visits)
+            if not raw_visit:
                 continue
-            raw_concept = (var.visit_concept_name or "").strip()
-            if not raw_concept or raw_concept.lower() == "na":
+            pair = [var.var_name, cohort_id]
+            raw_concept = _clean(var.visit_concept_name)
+            if not raw_concept:
                 # No concept name at all: reported separately as "unmapped"
                 # rather than as a competing "(empty)" concept, which would
                 # turn every partially-mapped visit value into a suspect.
-                unmapped.setdefault(raw_visit, []).append([var.var_name, cohort_id])
+                unmapped.setdefault(raw_visit, []).append(pair)
                 continue
-
-            if raw_visit not in mapping:
-                mapping[raw_visit] = {}
-            if raw_concept not in mapping[raw_visit]:
-                mapping[raw_visit][raw_concept] = []
-            mapping[raw_visit][raw_concept].append([var.var_name, cohort_id])
+            mapping.setdefault(raw_visit, {}).setdefault(raw_concept, []).append(pair)
+            code = _clean(getattr(var, "visit_concept_code", None))
+            omop = _clean(getattr(var, "visit_omop_id", None))
+            if code:
+                name_codes.setdefault(raw_concept, {}).setdefault(code, []).append(pair)
+                code_names.setdefault(code, {}).setdefault(raw_concept, []).append(pair)
+            if omop:
+                name_omops.setdefault(raw_concept, {}).setdefault(omop, []).append(pair)
 
     def _cohorts(pairs: list[list[str]]) -> int:
         return len({c for _, c in pairs})
 
-    # Detect inconsistencies: visits values mapped to >1 concept name; the
-    # rest are the consistent (normal) mappings, returned too so the page can
-    # show them on request.
+    # visits -> concept name: suspect (>1 concept name) vs consistent
     suspect_mappings: list[dict] = []
     consistent_mappings: list[dict] = []
     for visit_value, concept_map in mapping.items():
@@ -389,49 +409,96 @@ def check_visit_mapping(user: Any = Depends(get_current_user)) -> dict:
                 "variables": pairs,
             })
             continue
-
-        # Find the majority concept name (by number of variables)
-        sorted_concepts = sorted(
-            concept_map.items(),
-            key=lambda kv: len(kv[1]),
-            reverse=True,
-        )
-        majority_concept = sorted_concepts[0][0]
-        majority_count = len(sorted_concepts[0][1])
-
-        minorities = []
-        for concept_name, pairs in sorted_concepts[1:]:
-            minorities.append({
-                "visit_concept_name": concept_name,
-                "variable_count": len(pairs),
-                "variables": pairs,
-            })
-
+        sorted_concepts = sorted(concept_map.items(), key=lambda kv: len(kv[1]), reverse=True)
+        majority_concept, majority_pairs = sorted_concepts[0]
+        minorities = [{
+            "visit_concept_name": concept_name,
+            "variable_count": len(pairs),
+            "variables": pairs,
+        } for concept_name, pairs in sorted_concepts[1:]]
+        distinct = [name for name, _ in sorted_concepts]
+        # Only spelling differs between the competing names -> trivial
+        severity = "trivial" if len({_norm_concept(n) for n in distinct}) == 1 else "real"
         suspect_mappings.append({
             "visits_value": visit_value,
+            "severity": severity,
             "cohort_count": _cohorts([p for pairs in concept_map.values() for p in pairs]),
             "majority": {
                 "visit_concept_name": majority_concept,
-                "variable_count": majority_count,
-                "variables": concept_map[majority_concept],
+                "variable_count": len(majority_pairs),
+                "variables": majority_pairs,
             },
             "minorities": minorities,
             "total_variables": sum(len(p) for p in concept_map.values()),
-            "distinct_concept_names": list(concept_map.keys()),
+            "distinct_concept_names": distinct,
         })
-
+    suspect_mappings.sort(key=lambda m: (m["severity"] != "real", -m["total_variables"], m["visits_value"].lower()))
     consistent_mappings.sort(key=lambda m: (-m["variable_count"], m["visits_value"].lower()))
     unmapped_mappings = sorted(
         ({"visits_value": v, "variable_count": len(pairs), "cohort_count": _cohorts(pairs), "variables": pairs}
          for v, pairs in unmapped.items()),
         key=lambda m: (-m["variable_count"], m["visits_value"].lower()),
     )
+
+    # concept name <-> code / OMOP id conflicts
+    def _values(by_value: dict[str, list[list[str]]]) -> list[dict]:
+        return [{"value": v, "variable_count": len(p), "cohort_count": _cohorts(p), "variables": p}
+                for v, p in sorted(by_value.items(), key=lambda kv: -len(kv[1]))]
+
+    code_conflicts: list[dict] = []
+    for name, by_code in name_codes.items():
+        if len(by_code) > 1:
+            code_conflicts.append({"kind": "name_to_codes", "key": name, "severity": "real", "values": _values(by_code)})
+    for name, by_omop in name_omops.items():
+        if len(by_omop) > 1:
+            code_conflicts.append({"kind": "name_to_omop_ids", "key": name, "severity": "real", "values": _values(by_omop)})
+    for code, by_name in code_names.items():
+        if len(by_name) > 1:
+            # One code under names that differ only by spelling is the same
+            # trivial issue as a spelling-only suspect, not a code conflict.
+            sev = "trivial" if len({_norm_concept(n) for n in by_name}) == 1 else "real"
+            code_conflicts.append({"kind": "code_to_names", "key": code, "severity": sev, "values": _values(by_name)})
+    code_conflicts.sort(key=lambda c: (c["severity"] != "real", -sum(v["variable_count"] for v in c["values"])))
+
+    # vocabulary per concept name (informational), plus near-duplicate names
+    by_concept: dict[str, dict[str, list[list[str]]]] = {}
+    for visit_value, concept_map in mapping.items():
+        for name, pairs in concept_map.items():
+            by_concept.setdefault(name, {}).setdefault(visit_value, []).extend(pairs)
+    concept_vocabulary = sorted(
+        ({
+            "visit_concept_name": name,
+            "normalized": _norm_concept(name),
+            "variable_count": sum(len(p) for p in vals.values()),
+            "cohort_count": _cohorts([x for p in vals.values() for x in p]),
+            "codes": sorted(name_codes.get(name, {}).keys()),
+            "omop_ids": sorted(name_omops.get(name, {}).keys()),
+            "raw_values": sorted(
+                ({"value": v, "variable_count": len(p), "cohort_count": _cohorts(p)} for v, p in vals.items()),
+                key=lambda r: (-r["variable_count"], r["value"].lower()),
+            ),
+        } for name, vals in by_concept.items()),
+        key=lambda e: (-e["variable_count"], e["visit_concept_name"].lower()),
+    )
+    groups: dict[str, list[str]] = {}
+    for e in concept_vocabulary:
+        groups.setdefault(e["normalized"], []).append(e["visit_concept_name"])
+    near_duplicate_groups = [names for names in groups.values() if len(names) > 1]
+
     return {
         "total_visits_values": len(mapping) + len(unmapped),
         "suspect_count": len(suspect_mappings),
+        "suspect_real_count": sum(1 for m in suspect_mappings if m["severity"] == "real"),
+        "suspect_trivial_count": sum(1 for m in suspect_mappings if m["severity"] == "trivial"),
         "suspect_mappings": suspect_mappings,
         "consistent_count": len(consistent_mappings),
         "consistent_mappings": consistent_mappings,
         "unmapped_count": len(unmapped_mappings),
         "unmapped_mappings": unmapped_mappings,
+        "codes_available": bool(name_codes or name_omops),
+        "code_conflict_count": len(code_conflicts),
+        "code_conflict_real_count": sum(1 for c in code_conflicts if c["severity"] == "real"),
+        "code_conflicts": code_conflicts,
+        "concept_vocabulary": concept_vocabulary,
+        "near_duplicate_groups": near_duplicate_groups,
     }
