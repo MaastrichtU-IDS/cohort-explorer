@@ -309,6 +309,71 @@ def _clean_axis(ax, grid_axis='y'):
 def _panel_title(ax, title):
     ax.set_title(title, fontsize=12)
 
+def _fit_xticklabels(ax, fig, labels, fontsize=10, max_chars=48, wrap_at=18):
+    # Category tick labels that never overlap. The choice is MEASURED against
+    # the rendered axis rather than guessed from the category count (four
+    # 40-character names overlap just as badly as twelve short ones). Tiers,
+    # first that fits wins:
+    #   1. horizontal, long names wrapped onto several lines;
+    #   2. 45 degrees;  3. 90 degrees;  4. 90 degrees at a smaller font.
+    # Once labels are rotated their LENGTH no longer matters for overlap -
+    # only whether the slot per bar exceeds the line height (x sin 45 for the
+    # diagonal case); length just needs bottom margin, which tight_layout
+    # adds. Very long names get an ellipsis: the full names are listed in the
+    # stats panel of the same figure. Returns the mode used.
+    short = [l if len(l) <= max_chars else l[:max_chars - 3] + '...' for l in labels]
+    n = max(len(short), 1)
+    try:
+        fig.canvas.draw()  # the axis extent needs a first layout pass
+        slot = ax.get_window_extent().width / n
+        # Wrap width adapted to the slot: how many characters (~0.6 em each)
+        # fit on one line under a bar. Few wide bars -> longer lines, many
+        # narrow bars -> short lines (and then rotation usually wins anyway).
+        char_px = fontsize * fig.dpi / 72.0 * 0.6
+        wrap_at = max(8, min(wrap_at, int(slot * 0.92 / char_px)))
+        ax.set_xticks(range(len(short)))
+        fits = False
+        for _attempt in range(3):
+            wrapped = ['\\n'.join(_textwrap.wrap(l, wrap_at)) or l for l in short]
+            ax.set_xticklabels(wrapped, rotation=0, ha='center', fontsize=fontsize)
+            fig.canvas.draw()
+            ticks = ax.get_xticklabels()
+            widths = [t.get_window_extent().width for t in ticks]
+            n_lines = max([t.get_text().count('\\n') + 1 for t in ticks] or [1])
+            line_h = max([t.get_window_extent().height / (t.get_text().count('\\n') + 1) for t in ticks]
+                         or [fontsize * 1.4])
+            if n_lines <= 4 and all(w <= slot * 0.92 for w in widths):
+                fits = True
+                break
+            # The estimate was too generous (ALL-CAPS text is wider): re-wrap
+            # with the character width MEASURED on the widest label.
+            widest = max(range(len(ticks)), key=lambda i: widths[i])
+            longest_line = max([len(x) for x in ticks[widest].get_text().split('\\n')] or [1])
+            new_wrap = int(slot * 0.92 / max(widths[widest] / max(longest_line, 1), 1.0))
+            if new_wrap >= wrap_at or new_wrap < 8:
+                break
+            wrap_at = new_wrap
+    except Exception as exc:
+        # Measuring failed (unusual backend): fall back to the old count rule.
+        print("tick-label measurement failed, using count rule:", exc)
+        rot = 90 if n > 4 else 0
+        ax.set_xticks(range(len(short)))
+        ax.set_xticklabels(short, rotation=rot, fontsize=fontsize)
+        return '90' if rot else 'horizontal'
+    # Horizontal wins when every wrapped label fits its slot and no label
+    # needs more than four lines (beyond that a rotated label reads better).
+    if fits:
+        return 'horizontal'
+    if line_h <= slot * 0.7071:
+        ax.set_xticklabels(short, rotation=45, ha='right', rotation_mode='anchor', fontsize=fontsize)
+        return '45'
+    if line_h <= slot:
+        ax.set_xticklabels(short, rotation=90, ha='center', fontsize=fontsize)
+        return '90'
+    smaller = max(6, int(fontsize * slot / line_h))
+    ax.set_xticklabels(short, rotation=90, ha='center', fontsize=smaller)
+    return '90-small'
+
 def _fmt_stat(value, decimals=2, suffix=''):
     # Panel-safe rendering of a v2 structured measure, which may be None when
     # the sample was too small to compute it.
@@ -2002,6 +2067,9 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
     stats_lines = _format_stats_lines(stats_text)
     fig_height = _stats_figure_height(stats_lines)
     chart_title = f"Distribution of {varname.upper()} ({COHORT_ID})"
+    # Categorical charts set this to the FULL category names, so the JSON
+    # x-ticks field is not polluted by the wrapped/shortened display labels.
+    _xticks_override = None
     if vartype == 'numerical':
         fig, axes = plt.subplots(1, 2, figsize=(12, fig_height))
 
@@ -2150,28 +2218,27 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
             ax.set_xlabel(f"Categories (n={total} valid; percentages are of valid)")
             ax.set_ylabel("Count")
 
-            # Add labels to the bars
-            if len(value_counts)>4:
-                rot = 90
-            else:
-                rot = 0
-            for idx, value in enumerate(value_counts):
-                percentage = (value / total) * 100 if total else None
-                ax.text(idx, value + total * 0.02, f"{value} ({_fmt_pct(percentage)})",
-                        ha='center', fontsize=10, rotation = rot)
-
-            # Adjust x-axis labels to be horizontal
+            # X tick labels: fitted by MEASURING the rendered labels against
+            # the axis (wrapped horizontal -> 45 -> 90 -> smaller 90), see
+            # _fit_xticklabels. The full category names stay in the JSON
+            # x-ticks field even when the chart shows them wrapped/shortened.
             xticks = []
             for v in value_counts.index.astype(str):
                 if v in category_mapping:
                     xticks.append(category_mapping[v])
                 else:
                     xticks.append(v)
+            _tick_mode = _fit_xticklabels(ax, fig, xticks, fontsize=10)
+            _xticks_override = " - ".join(
+                "Text({}, 0, '{}')".format(i, str(l).replace("'", "")) for i, l in enumerate(xticks))
 
-            if len(xticks)>4:
-                ax.set_xticklabels(xticks, rotation=90, fontsize=10)
-            else:
-                ax.set_xticklabels(xticks, rotation=0, fontsize=10)
+            # Bar value labels follow the tick orientation: upright while the
+            # bars are wide enough for horizontal names, vertical otherwise.
+            rot = 0 if _tick_mode == 'horizontal' else 90
+            for idx, value in enumerate(value_counts):
+                percentage = (value / total) * 100 if total else None
+                ax.text(idx, value + total * 0.02, f"{value} ({_fmt_pct(percentage)})",
+                        ha='center', fontsize=10, rotation = rot)
 
         
         if not value_counts.empty:
@@ -2186,7 +2253,7 @@ def create_save_graph(df, varname, stats_text, vartype, category_mapping=None):
     x_ticks = axes[1].get_xticklabels()
     y_ticks =  axes[1].get_yticklabels()
     plt.close('all')
-    return {"x-ticks": " - ".join([str(_) for _ in x_ticks]),
+    return {"x-ticks": _xticks_override if _xticks_override else " - ".join([str(_) for _ in x_ticks]),
     # "x-labels": " - ".join([str(_) for _ in x_tick_labels]),
             "y-ticks": " - ".join([str(_) for _ in y_ticks]), 
         #"y-labels": " - ".join([str(_) for _ in y_tick_labels])
