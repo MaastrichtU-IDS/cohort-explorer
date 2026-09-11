@@ -15,9 +15,10 @@ import uuid
 from datetime import date, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from jose import JWTError, jwt
 
-from src.auth import get_current_user
+from src.auth import JWT_ALGORITHM, get_current_user
 from src.config import settings
 
 router = APIRouter(tags=["announcements"])
@@ -66,11 +67,26 @@ def _sorted(items: list[dict]) -> list[dict]:
 
 
 def _is_admin(user: Any) -> bool:
-    return user["email"].lower() in settings.admins_list
+    return bool(user) and user["email"].lower() in settings.admins_list
+
+
+def optional_user(request: Request) -> Any:
+    """The logged-in user if the session cookie is present and valid, else
+    None - no 401. The front-page announcements box is shown to everyone,
+    signed in or not."""
+    token = request.cookies.get("token")
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[JWT_ALGORITHM])
+    except JWTError:
+        return None
+    return payload if payload.get("email") else None
 
 
 @router.get("/announcements", name="List announcements for the front-page box (newest first)")
-def list_announcements(user: Any = Depends(get_current_user)) -> list[dict]:
+def list_announcements(user: Any = Depends(optional_user)) -> list[dict]:
+    """Public: visible without logging in (added_by is only returned to admins)."""
     store = _load()
     # The box is hidden globally: empty list for everyone (admins included -
     # they see the front page too; the manage page uses /announcements/all).
