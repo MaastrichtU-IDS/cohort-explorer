@@ -1,12 +1,14 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
+import {ChevronLeft, ChevronRight} from 'react-feather';
 import {apiUrl} from '@/utils';
 import {useCohorts} from '@/components/CohortsContext';
 import CohortLinkedText from '@/components/CohortLinkedText';
 
 // Rotating announcements box for the front page. Announcements are short (a
 // couple of sentences), so the box stays compact: one announcement at a time,
-// auto-rotating, with dots for position and a "Show all" link opening the full
-// list. Hidden entirely when there are no announcements (or the fetch fails).
+// auto-rotating and wrapping around continuously, with prev/next arrows on
+// either side, dots for position and a "Show all" link opening the full list.
+// Hidden entirely when there are no announcements (or the fetch fails).
 
 export interface Announcement {
   id: string;
@@ -62,6 +64,7 @@ export default function AnnouncementsBox() {
     };
   }, []);
 
+  // Continuous rotation: wraps from the last announcement back to the first.
   useEffect(() => {
     if (announcements.length < 2) return;
     const t = setInterval(() => {
@@ -71,22 +74,45 @@ export default function AnnouncementsBox() {
   }, [announcements.length]);
 
   if (announcements.length === 0) return null;
-  const current = announcements[Math.min(index, announcements.length - 1)];
+  const n = announcements.length;
+  const current = announcements[Math.min(index, n - 1)];
+  const prev = () => setIndex(i => (i - 1 + n) % n);
+  const next = () => setIndex(i => (i + 1) % n);
 
   return (
+    // Same width as the stats grid below; the card itself spans its middle
+    // third (from the 1/3 to the 2/3 mark), with the arrows just outside it.
     <div
-      className="mt-10 w-full max-w-5xl"
+      className="mt-10 w-full max-w-5xl flex items-center justify-center gap-2"
       onMouseEnter={() => (paused.current = true)}
       onMouseLeave={() => (paused.current = false)}
     >
-      <div className="bg-base-100 shadow rounded-lg px-4 py-3 border-2 border-base-300">
+      <style jsx>{`
+        @keyframes announceFade {
+          from { opacity: 0; transform: translateY(2px); }
+          to { opacity: 1; transform: none; }
+        }
+        .announce-fade { animation: announceFade 350ms ease-out; }
+      `}</style>
+      <button
+        type="button"
+        onClick={prev}
+        disabled={n < 2}
+        className="btn btn-circle btn-sm btn-ghost disabled:opacity-20"
+        aria-label="Previous announcement"
+        title="Previous announcement"
+      >
+        <ChevronLeft size={18} />
+      </button>
+
+      <div className="bg-base-100 shadow rounded-lg px-4 py-3 border-2 border-base-300 w-full md:w-1/3">
         <div className="flex items-start gap-3">
           <span className="flex flex-col items-start gap-1">
             <TagChip tag={current.tag} />
             <span className="text-xs text-base-content/50 whitespace-nowrap">{formatDate(current.date)}</span>
           </span>
           <span className="flex-1" />
-          {announcements.length > 1 && (
+          {n > 1 && (
             <span className="hidden sm:inline-flex gap-1 items-center" aria-hidden>
               {announcements.map((a, i) => (
                 <button
@@ -102,12 +128,24 @@ export default function AnnouncementsBox() {
             Show all
           </button>
         </div>
-        {/* Fixed two-line text area: the box keeps the same height while
-            announcements rotate, so nothing below it shifts around. */}
-        <p className="text-base leading-6 mt-2 min-h-[3rem] line-clamp-2">
+        {/* Fixed four-line text area (the card is narrow): the box keeps the
+            same height while announcements rotate, so nothing below it shifts.
+            Keyed on the announcement so each change fades in. */}
+        <p key={current.id} className="announce-fade text-base leading-6 mt-2 min-h-[6rem] line-clamp-4">
           <CohortLinkedText text={current.text} names={cohortNames} />
         </p>
       </div>
+
+      <button
+        type="button"
+        onClick={next}
+        disabled={n < 2}
+        className="btn btn-circle btn-sm btn-ghost disabled:opacity-20"
+        aria-label="Next announcement"
+        title="Next announcement"
+      >
+        <ChevronRight size={18} />
+      </button>
 
       {showAll && (
         <div className="modal modal-open" onClick={() => setShowAll(false)}>

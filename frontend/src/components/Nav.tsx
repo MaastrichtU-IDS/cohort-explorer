@@ -90,8 +90,9 @@ export function Nav() {
   }, [userEmail]);
 
   // Whether the iCARE-AI nav button is enabled (admin-controlled toggle).
+  // Fetched whether or not the user is logged in: the button is visible to
+  // signed-out visitors too (the AI page itself asks them to log in).
   useEffect(() => {
-    if (!userEmail) return;
     fetch(`${apiUrl}/admin/public-settings`, {credentials: 'include'})
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data) { setAiNavEnabled(!!data.ai_nav_enabled); } })

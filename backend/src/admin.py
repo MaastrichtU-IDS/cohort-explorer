@@ -89,11 +89,12 @@ def get_admin_settings(user: Any = Depends(get_current_user)) -> dict:
 
 
 # ------------------------------------------------------------------
-# GET /admin/public-settings — app settings any logged-in user may read
-# (used by the nav bar to decide whether to show the iCARE-AI button)
+# GET /admin/public-settings — app settings anyone may read, logged in or
+# not (used by the nav bar to decide whether to show the iCARE-AI button,
+# which is visible to signed-out visitors too)
 # ------------------------------------------------------------------
 @router.get("/public-settings")
-def get_public_settings(user: Any = Depends(get_current_user)) -> dict:
+def get_public_settings() -> dict:
     values = _load_app_settings()
     return {"ai_nav_enabled": values["ai_nav_enabled"]}
 
