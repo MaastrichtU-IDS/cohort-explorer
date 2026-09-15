@@ -1,0 +1,23 @@
+diff --git a/icarechain/scripts/deploy.ts b/icarechain/scripts/deploy.ts
+index 5cfcd2b..c235b54 100644
+--- a/icarechain/scripts/deploy.ts
++++ b/icarechain/scripts/deploy.ts
+@@ -204,8 +204,18 @@ async function main() {
+   const RELAY_ROLE = ethers.keccak256(ethers.toUtf8Bytes("RELAY_ROLE"));
+   await gasSponsor.grantRole(RELAY_ROLE, deployer.address);
+ 
++  // Snapshot the freshly deployed state so the API can reset the local chain back to it (dev only).
++  let snapshotId: string | null = null;
++  try {
++    snapshotId = await ethers.provider.send("evm_snapshot", []);
++    console.log("   Post-deploy snapshot:", snapshotId);
++  } catch (e) {
++    console.log("   evm_snapshot unsupported on this network; chain reset will be unavailable");
++  }
++
+   const deployments = {
+     chainId: (await ethers.provider.getNetwork()).chainId.toString(),
++    snapshotId,
+     contracts: {
+       trustedForwarder: forwarderAddress,
+       duoOntology: ontologyAddress,

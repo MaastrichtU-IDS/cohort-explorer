@@ -340,3 +340,45 @@ async def blockchain_admin_overview(user: dict = Depends(get_current_user)) -> d
             return overview_resp.json()
         except httpx.RequestError as e:
             raise HTTPException(status_code=502, detail=f"Cannot reach blockchain API: {str(e)}")
+
+
+@router.post("/blockchain/admin/reset", summary="DEV ONLY: reset the local blockchain and flush the blockchain API cache")
+async def blockchain_admin_reset(user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    """
+    Reverts the local Hardhat chain to its post-deploy snapshot and flushes the
+    blockchain API cache. The blockchain API refuses this on any non-Hardhat chain.
+    """
+    email = user["email"]
+    logger.warning(f"Blockchain reset requested by {email}")
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            reg_resp = await client.post(
+                f"{ICARECHAIN_API_URL}/auth/register",
+                json={"email": email, "roles": ["PROVIDER"]},
+            )
+            reg_data = reg_resp.json()
+            if reg_resp.status_code != 200:
+                raise HTTPException(status_code=reg_resp.status_code, detail=reg_data.get("detail", str(reg_data)))
+            otp_code = reg_data.get("otpCode")
+            if not otp_code:
+                raise HTTPException(status_code=500, detail="No OTP returned from blockchain API")
+            verify_resp = await client.post(
+                f"{ICARECHAIN_API_URL}/auth/verify",
+                json={"email": email, "code": otp_code},
+            )
+            verify_data = verify_resp.json()
+            if verify_resp.status_code != 200:
+                raise HTTPException(status_code=verify_resp.status_code, detail=verify_data.get("detail", str(verify_data)))
+            token = verify_data.get("token")
+
+            reset_resp = await client.post(
+                f"{ICARECHAIN_API_URL}/admin/reset",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            reset_data = reset_resp.json()
+            if reset_resp.status_code != 200:
+                raise HTTPException(status_code=reset_resp.status_code, detail=reset_data.get("detail", str(reset_data)))
+            return reset_data
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"Cannot reach blockchain API: {str(e)}")

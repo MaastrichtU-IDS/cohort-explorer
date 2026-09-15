@@ -1,7 +1,16 @@
-from fastapi import APIRouter, Depends
+import logging
 
+from fastapi import APIRouter, Depends, HTTPException
+
+from api.config import load_deployments
 from api.services.auth import AuthenticatedUser, get_current_user
+from api.services.blockchain import get_blockchain_service
 from api.services.cache import get_cache
+
+logger = logging.getLogger(__name__)
+
+HARDHAT_CHAIN_ID = 31337
+SNAPSHOT_KEY = "_meta:reset_snapshot"
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -32,6 +41,10 @@ async def admin_overview(user: AuthenticatedUser = Depends(get_current_user)) ->
                 "status": g.get("status", "approved" if g.get("approved") else "pending"),
                 "intended_use": g.get("intended_use"),
                 "disease_code": g.get("disease_code"),
+                "disease_codes": g.get("disease_codes") or ([g["disease_code"]] if g.get("disease_code") else []),
+                "reason": g.get("reason"),
+                "reason_detail": g.get("reason_detail"),
+                "decided_at": g.get("decided_at"),
                 "project_id": g.get("project_id"),
                 "abstract": g.get("abstract"),
                 "requested_at": g.get("requested_at"),
@@ -51,6 +64,7 @@ async def admin_overview(user: AuthenticatedUser = Depends(get_current_user)) ->
             "permission": c.get("permission", ""),
             "modifiers": c.get("modifiers", []),
             "disease_code": c.get("disease_code"),
+            "disease_codes": c.get("disease_codes") or ([c["disease_code"]] if c.get("disease_code") else []),
             "data_use_description": c.get("data_use_description"),
             "additional_restrictions": c.get("additional_restrictions"),
             "research_scope": c.get("research_scope"),
@@ -96,5 +110,65 @@ async def admin_overview(user: AuthenticatedUser = Depends(get_current_user)) ->
                 sum(1 for g in c["access_grants"] if g["status"] == "pending")
                 for c in consents_out
             ),
+            "rejected_access_requests": sum(
+                sum(1 for g in c["access_grants"] if g["status"] in ("rejected", "denied"))
+                for c in consents_out
+            ),
         },
     }
+
+
+@router.post("/reset", summary="DEV ONLY: revert the local Hardhat chain to its post-deploy snapshot and flush the cache")
+async def admin_reset(user: AuthenticatedUser = Depends(get_current_user)) -> dict:
+    service = get_blockchain_service()
+    w3 = service.w3
+
+    try:
+        chain_id = w3.eth.chain_id
+    except Exception as e:
+        raise HTTPException(502, f"Cannot reach RPC node: {e}")
+    if chain_id != HARDHAT_CHAIN_ID:
+        raise HTTPException(403, f"Chain reset is only allowed on the local Hardhat chain (chainId {HARDHAT_CHAIN_ID}); connected to {chain_id}")
+
+    cache = get_cache()
+    redis = getattr(cache, "client", None)
+
+    def rpc(method: str, params: list):
+        resp = w3.provider.make_request(method, params)
+        if "error" in resp and resp["error"]:
+            raise HTTPException(502, f"{method} failed: {resp['error']}")
+        return resp.get("result")
+
+    # Snapshot ids are single-use: prefer the one saved after the last reset, then the deployer's.
+    candidates: list[str] = []
+    if redis is not None:
+        saved = await redis.get(SNAPSHOT_KEY)
+        if saved:
+            candidates.append(saved.decode() if isinstance(saved, bytes) else str(saved))
+    base = load_deployments().get("snapshotId")
+    if base:
+        candidates.append(str(base))
+
+    reverted_to = None
+    for sid in candidates:
+        if rpc("evm_revert", [sid]) is True:
+            reverted_to = sid
+            break
+    if reverted_to is None:
+        raise HTTPException(
+            409,
+            "No usable snapshot on the Hardhat node. Restart the stack (docker compose down && docker compose up -d) "
+            "so the deployer records a fresh snapshot.",
+        )
+
+    new_snapshot = rpc("evm_snapshot", [])
+
+    # Chain state is gone; everything cached from it is now stale.
+    if redis is not None:
+        await redis.flushdb()
+        await redis.set(SNAPSHOT_KEY, str(new_snapshot))
+    else:
+        await cache.clear()
+
+    logger.warning("Local chain reset by %s: reverted to snapshot %s, new snapshot %s", user.email, reverted_to, new_snapshot)
+    return {"success": True, "revertedTo": reverted_to, "snapshotId": new_snapshot, "blockNumber": w3.eth.block_number}

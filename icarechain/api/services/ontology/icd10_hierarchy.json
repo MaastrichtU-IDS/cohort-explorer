@@ -2,7 +2,7 @@
   "parents": {
     "C00-D48": "II",
     "C50": "C50-C50",
-    "C50-C50": "C00-D48",
+    "C50-C50": "C00-C75",
     "C50.0": "C50",
     "C50.1": "C50",
     "C50.2": "C50",
@@ -12,9 +12,9 @@
     "C50.6": "C50",
     "C50.8": "C50",
     "C50.9": "C50",
-    "C60-C63": "C00-D48",
+    "C60-C63": "C00-C75",
     "C61": "C60-C63",
-    "C81-C96": "C00-D48",
+    "C81-C96": "C00-C97",
     "C91": "C81-C96",
     "C92": "C81-C96",
     "E00-E90": "IV",
@@ -184,7 +184,9 @@
     "O24.4": "O24",
     "O85-O92": "O00-O99",
     "O90": "O85-O92",
-    "O90.3": "O90"
+    "O90.3": "O90",
+    "C00-C97": "C00-D48",
+    "C00-C75": "C00-C97"
   },
   "requester_leaves": [
     "C50.0",
@@ -466,6 +468,8 @@
     "O90.3": "Peripartum cardiomyopathy",
     "X": "Diseases of the respiratory system",
     "XIV": "Diseases of the genitourinary system",
-    "XV": "Pregnancy, childbirth and the puerperium"
+    "XV": "Pregnancy, childbirth and the puerperium",
+    "C00-C97": "Malignant neoplasms",
+    "C00-C75": "Malignant neoplasms, stated or presumed to be primary, of specified sites, except of lymphoid, haematopoietic and related tissue"
   }
 }

@@ -20,7 +20,6 @@ const DUO_MODIFIERS: {[key: string]: string} = {
   NCU: 'Non-commercial use only (DUO:0000046)',
   PUB: 'Publication required (DUO:0000019)',
   COL: 'Collaboration required (DUO:0000020)',
-  IRB: 'Ethics approval required (DUO:0000021)',
   GS: 'Geographic restriction (DUO:0000022)',
   TS: 'Time limit on use (DUO:0000025)',
   US: 'User-specific restriction (DUO:0000026)',
@@ -28,7 +27,6 @@ const DUO_MODIFIERS: {[key: string]: string} = {
   IS: 'Institution-specific restriction (DUO:0000028)',
   NPOA: 'Population origins/ancestry research prohibited (DUO:0000044)',
   GSO: 'Genetic studies only (DUO:0000016)',
-  RS: 'Research-specific restrictions (DUO:0000012)',
 };
 
 const COUNTRY_PRESETS: { label: string; title: string; codes: string[] }[] = [
@@ -108,7 +106,6 @@ export default function UploadPage() {
   const [consentAllowedUsers, setConsentAllowedUsers] = useState<string[]>([]);
   const [consentAllowedUsersInput, setConsentAllowedUsersInput] = useState('');
   const [consentMoratoriumMonths, setConsentMoratoriumMonths] = useState('');
-  const [consentResearchScope, setConsentResearchScope] = useState('');
   const [consentReturnTargetUri, setConsentReturnTargetUri] = useState('');
   const [consentPublicationDeadlineDays, setConsentPublicationDeadlineDays] = useState('');
   const [consentExpirationDays, setConsentExpirationDays] = useState('365');
@@ -691,7 +688,6 @@ export default function UploadPage() {
                        if (consentAllowedProjects) consentBody.consent.allowedProjects = consentAllowedProjects.split(',').map((s: string) => s.trim()).filter(Boolean);
                        if (consentAllowedUsers.length > 0) consentBody.consent.allowedUsers = consentAllowedUsers;
                        if (consentMoratoriumMonths) consentBody.consent.moratoriumMonths = parseInt(consentMoratoriumMonths);
-                       if (consentResearchScope) consentBody.consent.researchScope = consentResearchScope;
                        if (consentReturnTargetUri) consentBody.consent.returnTargetUri = consentReturnTargetUri;
                        if (consentPublicationDeadlineDays) consentBody.consent.publicationDeadlineDays = parseInt(consentPublicationDeadlineDays);
                        if (consentDataUseDescription) consentBody.consent.dataUseDescription = consentDataUseDescription;
@@ -1140,14 +1136,7 @@ export default function UploadPage() {
                              </div>
                            )}
 
-                           {consentModifiers.includes('RS') && (
-                             <div className="form-control">
-                               <label className="label"><span className="label-text font-semibold">Research Scope {consentModifiers.includes('RS') && <span className="text-error">*</span>}</span></label>
-                               <textarea className="textarea textarea-bordered" placeholder="Describe the allowed research scope" value={consentResearchScope} onChange={e => setConsentResearchScope(e.target.value)} required={consentModifiers.includes('RS')} />
-                               <label className="label"><span className="label-text-alt">Free-text research scope. Required when RS modifier is set.</span></label>
-                             </div>
-                           )}
-
+ 
                            {consentModifiers.includes('RTN') && (
                              <div className="form-control">
                                <label className="label"><span className="label-text font-semibold">Return Target URI {consentModifiers.includes('RTN') && <span className="text-error">*</span>}</span></label>

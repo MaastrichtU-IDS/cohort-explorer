@@ -79,6 +79,7 @@ services:
       context: ./icarechain
       dockerfile: docker/Dockerfile.deployer
     container_name: icarechain-deployer
+    init: true
     depends_on:
       icarechain-hardhat:
         condition: service_healthy

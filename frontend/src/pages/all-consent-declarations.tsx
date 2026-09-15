@@ -1,5 +1,5 @@
 import React, {useEffect, useState} from 'react';
-import {Shield, Users, FileText, CheckCircle, Clock, XCircle, RefreshCw, ChevronDown, ChevronRight} from 'react-feather';
+import {Shield, Users, FileText, CheckCircle, Clock, XCircle, RefreshCw, ChevronDown, ChevronRight, Trash2} from 'react-feather';
 import {apiUrl} from '@/utils';
 import {useCohorts} from '@/components/CohortsContext';
 
@@ -8,14 +8,18 @@ const PERMISSION_LABELS: Record<string, {label: string; color: string}> = {
   GRU:  {label: 'General Research Use', color: 'badge-info'},
   HMB:  {label: 'Health/Medical/Biomedical', color: 'badge-info'},
   DS:   {label: 'Disease Specific', color: 'badge-warning'},
-  POA:  {label: 'Project Specific', color: 'badge-warning'},
+  POA:  {label: 'Population Origins/Ancestry', color: 'badge-warning'},
 };
 
 const STATUS_META: Record<string, {icon: React.ReactNode; color: string}> = {
   approved: {icon: <CheckCircle size={13} />, color: 'text-success'},
   pending:  {icon: <Clock size={13} />,       color: 'text-warning'},
+  rejected: {icon: <XCircle size={13} />,     color: 'text-error'},
   denied:   {icon: <XCircle size={13} />,     color: 'text-error'},
 };
+
+const codesOf = (x: {disease_code?: string; disease_codes?: string[]}): string[] =>
+  x.disease_codes && x.disease_codes.length > 0 ? x.disease_codes : (x.disease_code ? [x.disease_code] : []);
 
 interface AccessGrant {
   requester: string;
@@ -23,6 +27,10 @@ interface AccessGrant {
   status: string;
   intended_use?: string;
   disease_code?: string;
+  disease_codes?: string[];
+  reason?: string | null;
+  reason_detail?: string | null;
+  decided_at?: string;
   project_id?: string;
   abstract?: string;
   requested_at?: string;
@@ -38,6 +46,7 @@ interface ConsentRecord {
   permission: string;
   modifiers: string[];
   disease_code?: string;
+  disease_codes?: string[];
   data_use_description?: string;
   additional_restrictions?: string;
   research_scope?: string;
@@ -71,6 +80,7 @@ interface OverviewData {
     total_access_requests: number;
     approved_access_requests: number;
     pending_access_requests: number;
+    rejected_access_requests?: number;
   };
 }
 
@@ -90,6 +100,7 @@ function ConsentCard({c, defaultOpen}: {c: ConsentRecord; defaultOpen?: boolean}
   const perm = PERMISSION_LABELS[c.permission] ?? {label: c.permission, color: 'badge-ghost'};
   const approvedCount = c.access_grants.filter(g => g.status === 'approved').length;
   const pendingCount  = c.access_grants.filter(g => g.status === 'pending').length;
+  const rejectedCount = c.access_grants.filter(g => g.status === 'rejected' || g.status === 'denied').length;
 
   return (
     <div className="border border-base-300 rounded-xl overflow-hidden bg-base-100 shadow-sm">
@@ -106,11 +117,16 @@ function ConsentCard({c, defaultOpen}: {c: ConsentRecord; defaultOpen?: boolean}
             {c.modifiers.map(m => <span key={m} className="badge badge-xs badge-ghost">{m}</span>)}
           </span>
         )}
-        {c.disease_code && <span className="text-xs text-base-content/60 font-mono shrink-0">{c.disease_code}</span>}
+        {codesOf(c).length > 0 && (
+          <span className="flex gap-1 flex-wrap">
+            {codesOf(c).map(d => <span key={d} className="badge badge-xs badge-outline font-mono">{d}</span>)}
+          </span>
+        )}
         <span className="ml-auto flex gap-3 shrink-0 items-center">
           {!c.active && <span className="badge badge-xs badge-error">Revoked</span>}
           {approvedCount > 0 && <span className="text-xs text-success font-medium flex items-center gap-1"><CheckCircle size={12}/>{approvedCount} approved</span>}
           {pendingCount  > 0 && <span className="text-xs text-warning font-medium flex items-center gap-1"><Clock size={12}/>{pendingCount} pending</span>}
+          {rejectedCount > 0 && <span className="text-xs text-error font-medium flex items-center gap-1"><XCircle size={12}/>{rejectedCount} rejected</span>}
           {c.access_grants.length === 0 && <span className="text-xs text-base-content/40">No requests</span>}
         </span>
       </button>
@@ -148,12 +164,15 @@ function ConsentCard({c, defaultOpen}: {c: ConsentRecord; defaultOpen?: boolean}
                       <div>
                         <span className="text-base-content/50 font-semibold block">Intended Use</span>
                         {g.intended_use || '—'}
-                        {g.disease_code && <span className="ml-1 font-mono text-primary">· {g.disease_code}</span>}
+                        {codesOf(g).length > 0 && <span className="ml-1 font-mono text-primary">· {codesOf(g).join(', ')}</span>}
                       </div>
                       <div>
                         <span className="text-base-content/50 font-semibold block">Requested</span>
                         {fmtDate(g.requested_at)}
                         {g.granted_at && g.status === 'approved' && <span className="block text-success">✓ Granted {fmtDate(g.granted_at)}</span>}
+                        {(g.status === 'rejected' || g.status === 'denied') && (g.reason_detail || g.reason) && (
+                          <span className="block text-error">✗ {g.reason_detail || g.reason}{g.reason && g.reason_detail ? ` (${g.reason})` : ''}</span>
+                        )}
                       </div>
                       {g.abstract && (
                         <div className="col-span-1 sm:col-span-3 mt-1">
@@ -180,6 +199,26 @@ export default function AllConsentDeclarationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<'consents' | 'requesters'>('consents');
   const [filter, setFilter] = useState('');
+  const [resetting, setResetting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const resetChain = async () => {
+    if (!window.confirm('Reset the LOCAL blockchain?\n\nAll consent declarations, access requests and requester profiles on the local Hardhat chain will be wiped and the contracts restored to their freshly deployed state. This cannot be undone.')) return;
+    setResetting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const r = await fetch(`${apiUrl}/blockchain/admin/reset`, {method: 'POST', credentials: 'include'});
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+      setNotice(`Local chain reset to block ${body.blockNumber}. Cohorts must re-declare consent to reappear here.`);
+      load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const load = () => {
     if (!userEmail) return;
@@ -212,7 +251,8 @@ export default function AllConsentDeclarationsPage() {
     !q ||
     c.cohort_id.toLowerCase().includes(q) ||
     c.permission.toLowerCase().includes(q) ||
-    (c.disease_code || '').toLowerCase().includes(q) ||
+    codesOf(c).some(d => d.toLowerCase().includes(q)) ||
+    c.access_grants.some(g => codesOf(g).some(d => d.toLowerCase().includes(q))) ||
     c.modifiers.some(m => m.toLowerCase().includes(q))
   ) ?? [];
 
@@ -235,11 +275,24 @@ export default function AllConsentDeclarationsPage() {
           </h1>
           <p className="text-sm text-base-content/60 mt-1">Admin-level view of all blockchain consent declarations, access requests, and registered requester profiles.</p>
         </div>
-        <button type="button" className="btn btn-outline btn-sm gap-2" onClick={load} disabled={loading}>
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
+        <div className="flex gap-2">
+          <button type="button" className="btn btn-outline btn-sm gap-2" onClick={load} disabled={loading}>
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+          <button type="button" className="btn btn-outline btn-error btn-sm gap-2" onClick={resetChain} disabled={resetting || loading} title="Dev only: revert the local Hardhat chain to its post-deploy state and flush the cache">
+            <Trash2 size={14} className={resetting ? 'animate-pulse' : ''} />
+            {resetting ? 'Resetting…' : 'Reset local chain'}
+          </button>
+        </div>
       </div>
+
+      {notice && (
+        <div className="alert alert-success shadow-sm">
+          <CheckCircle size={18} />
+          <span>{notice}</span>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -258,6 +311,7 @@ export default function AllConsentDeclarationsPage() {
             {label: 'Access Requests',     value: data.stats.total_access_requests,    icon: <FileText size={18}/>,    color: 'text-base-content'},
             {label: 'Approved',            value: data.stats.approved_access_requests, icon: <CheckCircle size={18}/>, color: 'text-success'},
             {label: 'Pending',             value: data.stats.pending_access_requests,  icon: <Clock size={18}/>,       color: 'text-warning'},
+            {label: 'Rejected',            value: data.stats.rejected_access_requests ?? 0, icon: <XCircle size={18}/>, color: 'text-error'},
           ].map(s => (
             <div key={s.label} className="stat bg-base-100 border border-base-300 rounded-xl p-3">
               <div className={`stat-figure ${s.color} opacity-60`}>{s.icon}</div>
