@@ -365,6 +365,20 @@ export interface ContextDiagnostics {
   window_probe?: {approx_tokens: number; ok: boolean; error?: string}[];
 }
 
+// Bare model connectivity test: no catalog context, one-word request, lists
+// the proxy's models and tries a plain + a streamed completion.
+export interface ChatPingStep { ok: boolean; error?: string; reply?: string; ms?: number; names?: string[];
+  count?: number; configured_model_listed?: boolean; finish_reason?: string | null; chunks?: number }
+export interface ChatPing {
+  ok?: boolean;
+  error?: string;
+  settings: { chat_enabled: boolean; base_url: string; model: string; api_key: string };
+  models?: ChatPingStep;
+  completion?: ChatPingStep;
+  stream?: ChatPingStep;
+}
+export const adminChatPing = (): Promise<ChatPing> => adminPost('/api/chat/ping');
+
 export const adminContextDiagnostics = (probeWindow: boolean): Promise<ContextDiagnostics> =>
   adminPost('/api/chat/starters/context-diagnostics', {probe_window: probeWindow});
 

@@ -18,7 +18,9 @@ import {
   adminDeleteStarters,
   adminFetchStarterPool,
   adminGenerateStarters,
-  adminRegroupStarters
+  adminRegroupStarters,
+  adminChatPing,
+  ChatPing
 } from '@/components/ai/chatClient';
 import {DisabledNotice, ExperimentBadge} from '@/components/ai/ui';
 
@@ -33,6 +35,8 @@ function ConversationStarterManager() {
   const [openKeyword, setOpenKeyword] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<ContextDiagnostics | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
+  const [ping, setPing] = useState<ChatPing | null>(null);
+  const [pinging, setPinging] = useState(false);
   const [probing, setProbing] = useState(false);
   const [newText, setNewText] = useState('');
   const [newKind, setNewKind] = useState<'interesting' | 'basic'>('interesting');
@@ -96,6 +100,18 @@ function ConversationStarterManager() {
       setAdding,
       r => (r.added ? `Added starter. Pool size: ${r.pool_size}.` : 'That starter is already in the pool.')
     ).then(() => setNewText(''));
+  };
+
+  const runPing = async () => {
+    setPinging(true);
+    setError(null);
+    try {
+      setPing(await adminChatPing());
+    } catch (e: any) {
+      setError(e?.message || 'Ping failed');
+    } finally {
+      setPinging(false);
+    }
   };
 
   const runDiagnostics = async (probeWindow: boolean) => {
@@ -318,6 +334,55 @@ function ConversationStarterManager() {
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+        </section>
+
+        {/* Model connectivity: bare test of the configured endpoint + model, no
+            catalog context at all - the first thing to run after switching models. */}
+        <section className="rounded-xl border border-base-300 bg-base-100 p-4 mt-5">
+          <div className="flex items-center gap-2 font-semibold mb-2">
+            <Cpu size={16} /> Model connectivity
+            <button className="btn btn-outline btn-xs gap-1 ml-auto" disabled={pinging} onClick={runPing}>
+              {pinging ? <span className="loading loading-spinner loading-xs" /> : <RefreshCw size={12} />}
+              Ping model
+            </button>
+          </div>
+          <p className="text-xs text-base-content/60 mb-3">
+            Sends &ldquo;Reply with exactly the word OK&rdquo; through the same client the chat uses - no prompts, no
+            catalog context. Three steps: list the proxy&rsquo;s models, one plain completion, one streamed completion.
+          </p>
+          {ping && (
+            <div className="space-y-2 text-xs font-mono">
+              <div className="rounded-lg bg-base-200 p-2">
+                <div>chat_enabled: {String(ping.settings.chat_enabled)}</div>
+                <div>base_url: {ping.settings.base_url || '(empty)'}</div>
+                <div>model: {ping.settings.model}</div>
+                <div>api_key: {ping.settings.api_key}</div>
+                {ping.error && <div className="text-error mt-1">{ping.error}</div>}
+              </div>
+              {(['models', 'completion', 'stream'] as const).map(step => {
+                const r = ping[step];
+                if (!r) return null;
+                return (
+                  <div key={step} className={`rounded-lg p-2 border ${r.ok ? 'bg-success/10 border-success/30' : 'bg-error/10 border-error/30'}`}>
+                    <div className="font-semibold">
+                      {r.ok ? '✓' : '✗'} {step}
+                      {r.ms !== undefined && <span className="text-base-content/50 font-normal"> · {r.ms} ms</span>}
+                    </div>
+                    {step === 'models' && r.ok && (
+                      <div>
+                        {r.count} model(s); configured model listed: <span className={r.configured_model_listed ? 'text-success' : 'text-error'}>{String(r.configured_model_listed)}</span>
+                        <div className="text-base-content/70 break-all">{(r.names || []).join(', ')}</div>
+                      </div>
+                    )}
+                    {step !== 'models' && r.ok && (
+                      <div>reply: <span className="text-base-content">&ldquo;{r.reply}&rdquo;</span>{step === 'stream' && ` (${r.chunks} chunks)`}{r.finish_reason ? ` · finish: ${r.finish_reason}` : ''}</div>
+                    )}
+                    {!r.ok && <div className="text-error break-all whitespace-pre-wrap">{r.error}</div>}
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

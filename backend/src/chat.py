@@ -1420,6 +1420,64 @@ def admin_regroup_starters(user: Any = Depends(get_current_user)) -> dict[str, A
     return group_starters_by_keyword()
 
 
+@router.post("/api/chat/ping")
+def admin_chat_ping(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Bare connectivity test for the configured model - NO catalog context, no
+    prompts: exactly the client the app uses, a one-word request, three steps:
+    list the proxy's models, one plain completion, one streamed completion.
+    Every step reports its reply or its full error, so a broken endpoint, a
+    wrong model name, or a streaming-only failure is pinpointed directly."""
+    _require_admin(user)
+    import time
+
+    key = settings.litellm_api_key or ""
+    result: dict[str, Any] = {
+        "settings": {
+            "chat_enabled": settings.chat_enabled,
+            "base_url": settings.litellm_base_url,
+            "model": settings.litellm_model,
+            "api_key": (key[:4] + "..." + key[-4:]) if len(key) > 8 else ("(set)" if key else "(not set - 'sk-no-key' is sent)"),
+        },
+    }
+    if not settings.chat_enabled:
+        result["error"] = "LITELLM_BASE_URL is empty in the running process (was the container recreated after editing .env?)"
+        return result
+    client = _get_openai_client()
+    prompt = [{"role": "user", "content": "Reply with exactly the word OK and nothing else."}]
+
+    t0 = time.time()
+    try:
+        names = [m.id for m in client.models.list().data]
+        result["models"] = {"ok": True, "count": len(names), "names": names[:50],
+                            "configured_model_listed": settings.litellm_model in names,
+                            "ms": int((time.time() - t0) * 1000)}
+    except Exception as exc:
+        result["models"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:800], "ms": int((time.time() - t0) * 1000)}
+
+    t0 = time.time()
+    try:
+        resp = client.chat.completions.create(model=settings.litellm_model, messages=prompt, temperature=0, max_tokens=5)
+        result["completion"] = {"ok": True, "reply": (resp.choices[0].message.content or ""),
+                                "finish_reason": resp.choices[0].finish_reason, "ms": int((time.time() - t0) * 1000)}
+    except Exception as exc:
+        result["completion"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:800], "ms": int((time.time() - t0) * 1000)}
+
+    t0 = time.time()
+    try:
+        chunks = []
+        for chunk in client.chat.completions.create(model=settings.litellm_model, messages=prompt, temperature=0,
+                                                    max_tokens=5, stream=True):
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                chunks.append(delta)
+        result["stream"] = {"ok": True, "reply": "".join(chunks), "chunks": len(chunks), "ms": int((time.time() - t0) * 1000)}
+    except Exception as exc:
+        result["stream"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:800], "ms": int((time.time() - t0) * 1000)}
+
+    result["ok"] = bool(result.get("completion", {}).get("ok")) and bool(result.get("stream", {}).get("ok"))
+    return result
+
+
 @router.post("/api/chat/starters/context-diagnostics")
 def admin_context_diagnostics(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Context diagnostics for the admin page.
