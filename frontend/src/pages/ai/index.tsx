@@ -592,6 +592,17 @@ function ICareAI() {
         {modeButton('guided', 'Guided Exploration', Compass)}
       </div>
 
+      {/* Temporary service notice for the model switch; hides itself after
+          the announced date (delete this block once the switch is done). */}
+      {new Date() < new Date('2026-09-18T00:00:00') && (
+        <div className="max-w-2xl mx-auto px-4 w-full -mt-1 mb-4">
+          <div className="rounded-lg border border-red-200 bg-red-50 text-red-900 text-sm px-4 py-2 text-center">
+            Model is being updated. Please excuse any slow or interrupted service. The functionality should return to
+            normal by Thursday, Sept 17th.
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto flex flex-col">
         {chat.configLoaded && !chat.enabled && (
           <div className="max-w-2xl mx-auto px-4 w-full mb-4">
