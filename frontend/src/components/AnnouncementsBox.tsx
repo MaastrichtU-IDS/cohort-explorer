@@ -80,8 +80,9 @@ export default function AnnouncementsBox() {
   const next = () => setIndex(i => (i + 1) % n);
 
   return (
-    // Same width as the stats grid below; the card itself spans its middle
-    // third (from the 1/3 to the 2/3 mark), with the arrows just outside it.
+    // Same width as the stats grid below; the card itself spans ~73% of it
+    // (centered - about 2.2x the original middle-third width), with the
+    // arrows just outside it.
     <div
       className="mt-10 w-full max-w-5xl flex items-center justify-center gap-2"
       onMouseEnter={() => (paused.current = true)}
@@ -105,7 +106,7 @@ export default function AnnouncementsBox() {
         <ChevronLeft size={18} />
       </button>
 
-      <div className="bg-base-100 shadow rounded-lg px-4 py-3 border-2 border-base-300 w-full md:w-1/3">
+      <div className="bg-base-100 shadow rounded-lg px-4 py-3 border-2 border-base-300 w-full md:w-[73%]">
         <div className="flex items-start gap-3">
           <span className="flex flex-col items-start gap-1">
             <TagChip tag={current.tag} />
@@ -128,10 +129,10 @@ export default function AnnouncementsBox() {
             Show all
           </button>
         </div>
-        {/* Fixed four-line text area (the card is narrow): the box keeps the
-            same height while announcements rotate, so nothing below it shifts.
-            Keyed on the announcement so each change fades in. */}
-        <p key={current.id} className="announce-fade text-base leading-6 mt-2 min-h-[6rem] line-clamp-4">
+        {/* Fixed three-line text area: the box keeps the same height while
+            announcements rotate, so nothing below it shifts. Keyed on the
+            announcement so each change fades in. */}
+        <p key={current.id} className="announce-fade text-base leading-6 mt-2 min-h-[4.5rem] line-clamp-3">
           <CohortLinkedText text={current.text} names={cohortNames} />
         </p>
       </div>
