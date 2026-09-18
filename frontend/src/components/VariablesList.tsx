@@ -3,20 +3,20 @@ import {useCohorts} from '@/components/CohortsContext';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import VariableGraphModal from '@/components/VariableGraphModal';
-import CounterpartsModal from '@/components/CounterpartsModal';
+import SemanticMatchesModal from '@/components/SemanticMatchesModal';
 import {InfoIcon} from '@/components/Icons';
 import {Concept, Variable} from '@/types';
 import {apiUrl} from '@/utils';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 import {parseEdaJson} from '@/utils/edaParsing';
-import {CounterpartIndex, EMPTY_COUNTERPART_INDEX, VariableCounterparts, counterpartKey} from '@/utils/counterparts';
+import {SemanticMatchIndex, EMPTY_SEMANTIC_MATCH_INDEX, VariableSemanticMatches, semanticMatchKey} from '@/utils/semanticMatches';
 import {Link2} from 'react-feather';
 
-// Frame of a variable card that has counterparts in other cohorts: a light
-// emerald border plus a left accent whose depth grows with the number of other
-// cohorts holding a counterpart (1 / 2 / 3+), so a list sorted "shared first"
+// Frame of a variable card that has semantic matches in other cohorts: a
+// light emerald border plus a left accent whose depth grows with the number of
+// other cohorts holding a match (1 / 2 / 3+), so a list sorted "matches first"
 // fades from dark to light as you scroll. Dark mode brightens instead.
-const sharedFrameClass = (otherCohorts: number): string => {
+const matchedFrameClass = (otherCohorts: number): string => {
   const accent =
     otherCohorts >= 3
       ? 'border-l-emerald-700 dark:border-l-emerald-300'
@@ -85,19 +85,19 @@ const VariablesList = ({
   onResetFilters,
   onCloseCohort
 }: VariablesListProps) => {
-  const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom, counterpartIndex} = useCohorts();
+  const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom, semanticMatchIndex} = useCohorts();
   const [openedModal, setOpenedModal] = useState('');
   const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
-  // Cross-cohort counterparts (see utils/counterparts): variables of OTHER
-  // cohorts sharing this variable's concept code or OMOP ID. Cards of such
-  // variables get an emerald frame and a badge that opens the list; by
-  // default they are listed first, ordered by how many other cohorts hold a
-  // counterpart, then by how many counterpart variables there are.
-  const counterparts: CounterpartIndex = counterpartIndex || EMPTY_COUNTERPART_INDEX;
-  const counterpartsOf = (varName: string): VariableCounterparts | undefined =>
-    counterparts.byVariable.get(counterpartKey(cohortId, varName));
-  const [openedCounterpartsModal, setOpenedCounterpartsModal] = useState<string | null>(null);
-  const [sharedFirst, setSharedFirst] = useState(true);
+  // Semantic matches (see utils/semanticMatches): variables of OTHER cohorts
+  // sharing this variable's concept code or OMOP ID. Cards of such variables
+  // get an emerald frame and a badge that opens the list; by default they are
+  // listed first, ordered by how many other cohorts hold a match, then by how
+  // many matching variables there are.
+  const matchIndex: SemanticMatchIndex = semanticMatchIndex || EMPTY_SEMANTIC_MATCH_INDEX;
+  const semanticMatchesOf = (varName: string): VariableSemanticMatches | undefined =>
+    matchIndex.byVariable.get(semanticMatchKey(cohortId, varName));
+  const [openedMatchesModal, setOpenedMatchesModal] = useState<string | null>(null);
+  const [matchesFirst, setMatchesFirst] = useState(true);
   const [activeSourceTab, setActiveSourceTab] = useState<string | null>(null);
   const [isTabSwitching, setIsTabSwitching] = useState(false);
   // Summary statistics for this cohort's variables (median; min/max as a
@@ -415,17 +415,17 @@ const VariablesList = ({
     if (sourceTabs.length > 0 && activeSourceTab && activeSourceTab !== '__all__') {
       vars = filteredVars.filter((v: any) => parseSources(v.source_name).includes(activeSourceTab));
     }
-    if (!sharedFirst) return vars;
+    if (!matchesFirst) return vars;
     // Stable sort: ties keep the dictionary order.
     const rank = (v: any): [number, number] => {
-      const c = counterparts.byVariable.get(counterpartKey(cohortId, v.var_name));
-      return c ? [c.cohortIds.length, c.counterparts.length] : [0, 0];
+      const c = matchIndex.byVariable.get(semanticMatchKey(cohortId, v.var_name));
+      return c ? [c.cohortIds.length, c.matches.length] : [0, 0];
     };
     return vars
       .map((v: any, i: number) => ({v, i, r: rank(v)}))
       .sort((a: any, b: any) => b.r[0] - a.r[0] || b.r[1] - a.r[1] || a.i - b.i)
       .map((x: any) => x.v);
-  }, [filteredVars, sourceTabs, activeSourceTab, sharedFirst, counterparts, cohortId]);
+  }, [filteredVars, sourceTabs, activeSourceTab, matchesFirst, matchIndex, cohortId]);
 
   // Handle tab switching with animation
   const handleSourceTabClick = (tab: string) => {
@@ -463,8 +463,8 @@ const VariablesList = ({
     setOpenedGraphModal(null);
   };
 
-  const handleCloseCounterpartsModal = useCallback(() => {
-    setOpenedCounterpartsModal(null);
+  const handleCloseMatchesModal = useCallback(() => {
+    setOpenedMatchesModal(null);
   }, []);
 
   // Function to count filtered vars based on filter type
@@ -532,22 +532,22 @@ const VariablesList = ({
           </div>
         )}
         
-        {/* Order: shared (cross-cohort counterparts) first, or dictionary order */}
+        {/* Order: variables with semantic matches first, or dictionary order */}
         <div
           className="join w-full mb-1"
-          title="Variables with an emerald frame have counterparts in other cohorts (same concept code or OMOP ID). 'Shared first' lists them at the top, most cohorts first."
+          title="Variables with an emerald frame have semantic matches in other cohorts (same concept code or OMOP ID). 'Matches first' lists them at the top, most cohorts first."
         >
           <button
             type="button"
-            className={`join-item btn btn-xs flex-1 gap-1 ${sharedFirst ? 'bg-emerald-100 border-emerald-300 text-emerald-900 hover:bg-emerald-200 hover:border-emerald-300 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-100' : 'btn-ghost text-base-content/60'}`}
-            onClick={() => setSharedFirst(true)}
+            className={`join-item btn btn-xs flex-1 gap-1 ${matchesFirst ? 'bg-emerald-100 border-emerald-300 text-emerald-900 hover:bg-emerald-200 hover:border-emerald-300 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-100' : 'btn-ghost text-base-content/60'}`}
+            onClick={() => setMatchesFirst(true)}
           >
-            <Link2 size={12} /> Shared first
+            <Link2 size={12} /> Matches first
           </button>
           <button
             type="button"
-            className={`join-item btn btn-xs flex-1 ${!sharedFirst ? 'btn-active' : 'btn-ghost text-base-content/60'}`}
-            onClick={() => setSharedFirst(false)}
+            className={`join-item btn btn-xs flex-1 ${!matchesFirst ? 'btn-active' : 'btn-ghost text-base-content/60'}`}
+            onClick={() => setMatchesFirst(false)}
           >
             Dictionary
           </button>
@@ -558,7 +558,7 @@ const VariablesList = ({
             <span className="w-1 h-3 rounded-sm bg-emerald-500" />
             <span className="w-1 h-3 rounded-sm bg-emerald-700 dark:bg-emerald-300" />
           </span>
-          <span>edge = counterparts in 1 / 2 / 3+ other cohorts</span>
+          <span>edge = semantic matches in 1 / 2 / 3+ other cohorts</span>
         </div>
 
         {/* Outcome Variables Filter Button */}
@@ -675,12 +675,12 @@ const VariablesList = ({
         )}
         <div className={`space-y-2 transition-opacity duration-200 ${isTabSwitching ? 'opacity-0' : 'opacity-100'}`}>
           {displayedVars?.map((variable: any, varIdx: number) => {
-            const shared = counterpartsOf(variable.var_name);
+            const shared = semanticMatchesOf(variable.var_name);
             return (
             <div
               key={variable.var_name}
               className={`card card-compact card-bordered bg-base-100 shadow-xl ${
-                shared ? sharedFrameClass(shared.cohortIds.length) : ''
+                shared ? matchedFrameClass(shared.cohortIds.length) : ''
               }`}
               style={{
                 animation: !isTabSwitching ? `varFadeIn 0.3s ease-out ${varIdx * 0.03}s both` : 'none',
@@ -695,11 +695,11 @@ const VariablesList = ({
                       <button
                         type="button"
                         className="badge gap-1 border cursor-pointer bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700 dark:hover:bg-emerald-900/50"
-                        title={`${shared.counterparts.length} variable${shared.counterparts.length === 1 ? '' : 's'} in ${shared.cohortIds.join(', ')} share${shared.counterparts.length === 1 ? 's' : ''} this variable's concept code or OMOP ID. Click to see them.`}
-                        onClick={() => setOpenedCounterpartsModal(variable.var_name)}
+                        title={`${shared.matches.length} variable${shared.matches.length === 1 ? '' : 's'} in ${shared.cohortIds.join(', ')} match${shared.matches.length === 1 ? 'es' : ''} this variable on concept code or OMOP ID. Click to see them.`}
+                        onClick={() => setOpenedMatchesModal(variable.var_name)}
                       >
                         <Link2 size={12} />
-                        {shared.counterparts.length} {shared.counterparts.length === 1 ? 'counterpart' : 'counterparts'} in{' '}
+                        {shared.matches.length} semantic {shared.matches.length === 1 ? 'match' : 'matches'} in{' '}
                         {shared.cohortIds.length} {shared.cohortIds.length === 1 ? 'cohort' : 'cohorts'}
                       </button>
                     )}
@@ -951,17 +951,17 @@ const VariablesList = ({
           })}
         </div>
       </div>
-      {/* Counterparts modal - outside the card loop, like the graph modal */}
-      {openedCounterpartsModal && (() => {
-        const variable = displayedVars.find((v: any) => v.var_name === openedCounterpartsModal);
-        const shared = variable ? counterpartsOf(variable.var_name) : undefined;
+      {/* Semantic matches modal - outside the card loop, like the graph modal */}
+      {openedMatchesModal && (() => {
+        const variable = displayedVars.find((v: any) => v.var_name === openedMatchesModal);
+        const shared = variable ? semanticMatchesOf(variable.var_name) : undefined;
         if (!variable || !shared) return null;
         return (
-          <CounterpartsModal
+          <SemanticMatchesModal
             cohortId={cohortId}
             variable={variable}
-            counterparts={shared}
-            onClose={handleCloseCounterpartsModal}
+            semanticMatches={shared}
+            onClose={handleCloseMatchesModal}
           />
         );
       })()}

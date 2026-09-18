@@ -3,17 +3,17 @@ import Link from 'next/link';
 import {Link2, ExternalLink} from 'react-feather';
 import {Variable} from '@/types';
 import {
-  Counterpart,
-  CounterpartIdentifier,
+  SemanticMatch,
+  MatchIdentifier,
   IDENTIFIER_LABELS,
-  VariableCounterparts,
+  VariableSemanticMatches,
   splitIdentifierValues,
-} from '@/utils/counterparts';
+} from '@/utils/semanticMatches';
 
 // Rows shown per cohort before the "show all" button.
 const ROWS_PER_COHORT = 15;
 
-const IDENTIFIER_ORDER: CounterpartIdentifier[] = ['concept_code', 'omop_id'];
+const IDENTIFIER_ORDER: MatchIdentifier[] = ['concept_code', 'omop_id'];
 
 // Same blue as the concept code / OMOP ID badges on the variable card.
 const idBadgeStyle = {backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe'};
@@ -30,7 +30,7 @@ function CohortGroup({
   onNavigate,
 }: {
   cohortId: string;
-  rows: Counterpart[];
+  rows: SemanticMatch[];
   variable: Variable;
   onNavigate: () => void;
 }) {
@@ -64,16 +64,16 @@ function CohortGroup({
               <th>Concept code</th>
               <th>OMOP ID</th>
               <th>Visit</th>
-              <th>Shared</th>
+              <th>Matched on</th>
             </tr>
           </thead>
           <tbody>
             {visible.map(c => {
               const v = c.variable;
-              // An identifier the counterpart does NOT share, while both sides
+              // An identifier the match does NOT share, while both sides
               // carry one, points at a standardization discrepancy (the same
               // convention as the Concept Clusters page): tint it amber.
-              const differs = (id: CounterpartIdentifier) =>
+              const differs = (id: MatchIdentifier) =>
                 !c.matchedOn.includes(id) &&
                 splitIdentifierValues(v[id]).length > 0 &&
                 splitIdentifierValues(variable[id]).length > 0 &&
@@ -114,15 +114,15 @@ function CohortGroup({
   );
 }
 
-export default function CounterpartsModal({
+export default function SemanticMatchesModal({
   cohortId,
   variable,
-  counterparts,
+  semanticMatches,
   onClose,
 }: {
   cohortId: string;
   variable: Variable;
-  counterparts: VariableCounterparts;
+  semanticMatches: VariableSemanticMatches;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -137,17 +137,17 @@ export default function CounterpartsModal({
   }, [onClose]);
 
   const byCohort = useMemo(() => {
-    const groups = new Map<string, Counterpart[]>();
-    for (const c of counterparts.counterparts) {
+    const groups = new Map<string, SemanticMatch[]>();
+    for (const c of semanticMatches.matches) {
       const list = groups.get(c.cohortId);
       if (list) list.push(c);
       else groups.set(c.cohortId, [c]);
     }
     return Array.from(groups.entries());
-  }, [counterparts]);
+  }, [semanticMatches]);
 
-  const total = counterparts.counterparts.length;
-  const nCohorts = counterparts.cohortIds.length;
+  const total = semanticMatches.matches.length;
+  const nCohorts = semanticMatches.cohortIds.length;
   const close = () => ref.current?.close();
 
   return (
@@ -157,25 +157,29 @@ export default function CounterpartsModal({
           <div className="min-w-0">
             <h3 className="font-bold text-lg flex items-center gap-2">
               <Link2 size={18} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-              <span className="truncate">Counterparts of {variable.var_name}</span>
+              <span className="truncate">Semantic matches of {variable.var_name}</span>
             </h3>
-            {variable.var_label && <p className="text-sm text-base-content/70 mt-0.5">{variable.var_label}</p>}
+            {variable.var_label && (
+              <p className="text-sm text-base-content/70 mt-0.5">
+                {variable.var_label} <span className="text-base-content/40">({cohortId})</span>
+              </p>
+            )}
             <p className="text-sm mt-2">
               <span className="font-semibold">{total}</span> {total === 1 ? 'variable' : 'variables'} in{' '}
-              <span className="font-semibold">{nCohorts}</span> other {nCohorts === 1 ? 'cohort' : 'cohorts'} share
-              {' '}
-              {IDENTIFIER_ORDER.filter(id => counterparts.matchedValues[id].length > 0).map((id, i, arr) => (
+              <span className="font-semibold">{nCohorts}</span> other {nCohorts === 1 ? 'cohort' : 'cohorts'}{' '}
+              {total === 1 ? 'matches' : 'match'} on{' '}
+              {IDENTIFIER_ORDER.filter(id => semanticMatches.matchedValues[id].length > 0).map((id, i, arr) => (
                 <span key={id}>
                   {i > 0 && (i === arr.length - 1 ? ' or ' : ', ')}
                   the {IDENTIFIER_LABELS[id]}{' '}
-                  {counterparts.matchedValues[id].map(val => (
+                  {semanticMatches.matchedValues[id].map(val => (
                     <span key={val} className="badge badge-sm mr-1 font-mono" style={idBadgeStyle}>
                       {val}
                     </span>
                   ))}
                 </span>
               ))}
-              with this {cohortId} variable.
+              .
             </p>
           </div>
           <button type="button" className="btn btn-sm btn-circle btn-ghost flex-shrink-0" onClick={close} aria-label="Close">
