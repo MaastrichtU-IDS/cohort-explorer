@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import Link from 'next/link';
-import {Link2, ExternalLink, AlertTriangle, ChevronDown, ChevronRight} from 'react-feather';
+import {Link2, ExternalLink, AlertTriangle, ChevronDown, ChevronRight, X} from 'react-feather';
 import {Variable} from '@/types';
 import {
   SemanticMatch,
@@ -123,7 +123,6 @@ function HeaderRow() {
       <tr>
         <th>Variable</th>
         <th>Label</th>
-        <th>Concept name</th>
         <th>Visit</th>
         <th>Type</th>
         <th>Values</th>
@@ -134,8 +133,7 @@ function HeaderRow() {
 
 // Identifiers on which a match does NOT agree with the reference variable
 // while both sides carry one: the two cohorts standardized the same concept
-// differently (the Concept Clusters page's convention). Shown as an amber
-// marker next to the variable name.
+// differently. Shown as an amber marker next to the variable name.
 function discrepancies(v: Variable, reference: Variable, matchedOn: MatchIdentifier[]): string[] {
   return IDENTIFIER_ORDER.filter(
     id =>
@@ -168,7 +166,6 @@ function VariableRow({
         {name}
       </td>
       <td className="text-xs">{v.var_label || '—'}</td>
-      <td className="text-xs">{v.concept_name || '—'}</td>
       <td className="text-xs">
         <VisitCell v={v} />
       </td>
@@ -329,26 +326,39 @@ export default function SemanticMatchesModal({
     <dialog ref={ref} className="modal">
       <div className="modal-box max-w-6xl w-[95vw] space-y-3">
         <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h3 className="font-bold text-lg flex items-center gap-2">
               <Link2 size={18} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
               <span className="truncate">Semantic matches of {variable.var_name}</span>
+              <span className="text-sm font-normal text-base-content/50 whitespace-nowrap">({cohortId})</span>
             </h3>
-            <p className="text-sm mt-1">
+            {/* The concept behind the matches: its name and identifiers, prominent */}
+            <div className="mt-2 rounded-lg bg-base-200/60 px-4 py-3">
+              {variable.concept_name ? (
+                <div className="text-xl font-semibold leading-snug">{variable.concept_name}</div>
+              ) : (
+                <div className="text-base text-base-content/50 italic">No concept name in the dictionary</div>
+              )}
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                {variable.concept_code && (
+                  <span className="badge badge-lg font-mono text-base" style={idBadgeStyle}>
+                    {variable.concept_code}
+                  </span>
+                )}
+                {variable.omop_id && (
+                  <span className="badge badge-lg font-mono text-base" style={idBadgeStyle}>
+                    OMOP ID: {variable.omop_id}
+                  </span>
+                )}
+              </div>
+            </div>
+            <p className="text-sm mt-2">
               <span className="font-semibold">{total}</span> {total === 1 ? 'variable' : 'variables'} in{' '}
               <span className="font-semibold">{nCohorts}</span> other {nCohorts === 1 ? 'cohort' : 'cohorts'}{' '}
               {total === 1 ? 'matches' : 'match'} on{' '}
-              {IDENTIFIER_ORDER.filter(id => semanticMatches.matchedValues[id].length > 0).map((id, i, arr) => (
-                <span key={id}>
-                  {i > 0 && (i === arr.length - 1 ? ' or ' : ', ')}
-                  the {IDENTIFIER_LABELS[id]}{' '}
-                  {semanticMatches.matchedValues[id].map(val => (
-                    <span key={val} className="badge badge-sm mr-1 font-mono" style={idBadgeStyle}>
-                      {val}
-                    </span>
-                  ))}
-                </span>
-              ))}
+              {IDENTIFIER_ORDER.filter(id => semanticMatches.matchedValues[id].length > 0)
+                .map(id => `the ${IDENTIFIER_LABELS[id]}`)
+                .join(' or ')}
               .
             </p>
             {/* Cohort chips: one per cohort with matches, click to jump to its group */}
@@ -368,8 +378,8 @@ export default function SemanticMatchesModal({
               ))}
             </div>
           </div>
-          <button type="button" className="btn btn-sm btn-circle btn-ghost flex-shrink-0" onClick={close} aria-label="Close">
-            ✕
+          <button type="button" className="btn btn-circle btn-ghost flex-shrink-0" onClick={close} aria-label="Close" title="Close">
+            <X size={24} />
           </button>
         </div>
 
@@ -388,7 +398,7 @@ export default function SemanticMatchesModal({
           </div>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-8 pt-2">
           {byCohort.map(([otherCohortId, rows]) => (
             <CohortGroup
               key={otherCohortId}
@@ -409,12 +419,7 @@ export default function SemanticMatchesModal({
         <p className="text-xs text-base-content/50">
           Values: min / max from the data dictionary, or from the cohort&apos;s summary statistics when the dictionary has
           none; median from the summary statistics. An amber marker next to a variable means the other cohort
-          standardized the same concept with a different concept code or OMOP ID (hover for details). The full picture
-          across all cohorts is on the{' '}
-          <Link href="/concept-clusters" className="link" onClick={close}>
-            Concept Clusters
-          </Link>{' '}
-          page.
+          standardized the same concept with a different concept code or OMOP ID (hover for details).
         </p>
       </div>
       <form method="dialog" className="modal-backdrop">

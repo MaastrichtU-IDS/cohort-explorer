@@ -821,9 +821,10 @@ const VariablesList = ({
                     );
                   })()}
 
-                {/* Semantic matches in other cohorts: the badge that opens the list */}
+                {/* Semantic matches in other cohorts: the badge that opens the
+                    list, centered on the card's bottom line */}
                 {shared && (
-                  <div className="mt-2">
+                  <div className="mt-2 flex justify-center">
                     <button
                       type="button"
                       className="badge gap-1 border cursor-pointer bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700 dark:hover:bg-emerald-900/50"

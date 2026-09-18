@@ -3,8 +3,8 @@ import {Cohort, Variable} from '@/types';
 // Semantic matches: a variable's semantic matches are the variables of OTHER
 // cohorts that share one of its standard identifiers (concept code or OMOP
 // ID). Same-cohort siblings (e.g. the same concept at several visits) are not
-// matches. Matching follows the Concept Clusters page: identifiers
-// may be pipe-separated lists, are compared case-insensitively, and empty /
+// matches. Identifiers may be pipe-separated lists, are compared
+// case-insensitively, and empty /
 // "NA" values are ignored. "0" is skipped as well: OMOP concept id 0 is the
 // "no matching concept" sentinel and would link every unmapped variable.
 
