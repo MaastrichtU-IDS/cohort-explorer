@@ -687,7 +687,6 @@ const VariablesList = ({
                     </h2>
                     {/* Badges for units and categorical variable */}
                     <span className="badge badge-ghost">{variable.var_type}</span>
-                    {variable.units && <span className="badge badge-ghost">{variable.units}</span>}
                     {variable.categories.length > 0 && (
                       <span className="badge badge-ghost">🏷️ {variable.categories.length} categories</span>
                     )}
@@ -738,7 +737,7 @@ const VariablesList = ({
                 </p>
                 
                 {/* Display concept_name and mapped_label if they exist */}
-                {(variable.concept_name || variable.mapped_label || variable.visit_concept_name || variable.unit_concept_name) && (
+                {(variable.concept_name || variable.mapped_label || variable.visit_concept_name) && (
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400 mt-1">
                     {variable.concept_name && (
                       <span className="flex-shrink-0">
@@ -756,12 +755,6 @@ const VariablesList = ({
                       <span className="flex-shrink-0">
                         <span className="font-semibold">Visit:</span>{' '}
                         {variable.visit_concept_name}
-                      </span>
-                    )}
-                    {variable.unit_concept_name && (
-                      <span className="flex-shrink-0">
-                        <span className="font-semibold">Unit:</span>{' '}
-                        {variable.unit_concept_name}
                       </span>
                     )}
                   </div>
@@ -784,24 +777,21 @@ const VariablesList = ({
                   </div>
                 )}
 
-                {/* Numeric variables: unit, min, max (dictionary first, summary
-                    statistics as fallback) and median (summary statistics). */}
-                {variable.categories.length === 0 &&
-                  ['INT', 'FLOAT'].includes(String(variable.var_type || '').toUpperCase()) &&
-                  (() => {
+                {/* Min, max (dictionary first, summary statistics as fallback),
+                    median (summary statistics) and, last, the unit - the only
+                    place the unit is shown on the card. Rendered for any
+                    variable that has at least one of these (a few non-numeric
+                    variables carry a unit too). */}
+                {(() => {
                     const s = edaStats?.[String(variable.var_name).toLowerCase().trim()];
                     const min = variable.min || s?.min;
                     const max = variable.max || s?.max;
                     const median = s?.median;
+                    const unit = variable.units || variable.unit_concept_name;
                     const has = (x: any) => x !== null && x !== undefined && x !== '';
-                    if (!variable.units && !has(min) && !has(max) && !has(median)) return null;
+                    if (!unit && !has(min) && !has(max) && !has(median)) return null;
                     return (
                       <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400 mt-1">
-                        {variable.units && (
-                          <span>
-                            <span className="font-semibold">Unit:</span> {variable.units}
-                          </span>
-                        )}
                         {has(min) && (
                           <span>
                             <span className="font-semibold">Min:</span> {fmtStat(min)}
@@ -815,6 +805,17 @@ const VariablesList = ({
                         {has(median) && (
                           <span>
                             <span className="font-semibold">Median:</span> {fmtStat(median)}
+                          </span>
+                        )}
+                        {unit && (
+                          <span
+                            title={
+                              variable.units && variable.unit_concept_name && variable.units !== variable.unit_concept_name
+                                ? `Unit concept: ${variable.unit_concept_name}`
+                                : undefined
+                            }
+                          >
+                            <span className="font-semibold">Unit:</span> {unit}
                           </span>
                         )}
                       </div>
