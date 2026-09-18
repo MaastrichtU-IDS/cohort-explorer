@@ -57,3 +57,13 @@ export async function loadEdaSummaryStats(cohortId: string): Promise<SummaryStat
 
 export const statsFor = (stats: SummaryStatsByName | null | undefined, varName: string): SummaryStats | undefined =>
   stats?.[String(varName).toLowerCase().trim()];
+
+// Min / max / median to display for a variable. The cohort's summary
+// statistics (computed from the data) come first; the dictionary's min / max
+// are used only when no statistics are available, because dictionaries
+// sometimes carry a missing-value code (e.g. 9999) as the max.
+export const valueRange = (v: Variable, stats?: SummaryStats): {min: any; max: any; median: any} => ({
+  min: hasValue(stats?.min) ? stats?.min : v.min,
+  max: hasValue(stats?.max) ? stats?.max : v.max,
+  median: stats?.median,
+});

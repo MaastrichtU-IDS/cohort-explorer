@@ -8,7 +8,7 @@ import {InfoIcon} from '@/components/Icons';
 import {Concept, Variable} from '@/types';
 import {apiUrl} from '@/utils';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
-import {fmtStat, loadEdaSummaryStats, SummaryStatsByName} from '@/utils/variableStats';
+import {fmtStat, loadEdaSummaryStats, valueRange, SummaryStatsByName} from '@/utils/variableStats';
 import {SemanticMatchIndex, EMPTY_SEMANTIC_MATCH_INDEX, VariableSemanticMatches, semanticMatchKey} from '@/utils/semanticMatches';
 import {Link2} from 'react-feather';
 
@@ -799,16 +799,15 @@ const VariablesList = ({
                   </div>
                 )}
 
-                {/* Min, max (dictionary first, summary statistics as fallback),
-                    median (summary statistics) and, last, the unit - the only
-                    place the unit is shown on the card. Rendered for any
-                    variable that has at least one of these (a few non-numeric
-                    variables carry a unit too). */}
+                {/* Min, max and median from the cohort's summary statistics
+                    (the dictionary's min / max only when there are none - see
+                    valueRange) and, last, the unit - the only place the unit
+                    is shown on the card. Rendered for any variable that has at
+                    least one of these (a few non-numeric variables carry a
+                    unit too). */}
                 {(() => {
                     const s = edaStats?.[String(variable.var_name).toLowerCase().trim()];
-                    const min = variable.min || s?.min;
-                    const max = variable.max || s?.max;
-                    const median = s?.median;
+                    const {min, max, median} = valueRange(variable, s);
                     const unit = variable.units || variable.unit_concept_name;
                     const has = (x: any) => x !== null && x !== undefined && x !== '';
                     if (!unit && !has(min) && !has(max) && !has(median)) return null;

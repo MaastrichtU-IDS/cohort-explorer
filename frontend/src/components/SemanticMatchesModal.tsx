@@ -17,6 +17,7 @@ import {
   isNumericVariable,
   loadEdaSummaryStats,
   statsFor,
+  valueRange,
   variableKind,
 } from '@/utils/variableStats';
 
@@ -56,9 +57,9 @@ function TypeCell({v}: {v: Variable}) {
   );
 }
 
-// Numeric: min, max, median and unit (dictionary first, summary statistics
-// as fallback). Categorical: every encoding (value -> meaning) on one
-// wrapping line.
+// Numeric: min, max, median and unit (summary statistics first, the
+// dictionary's min / max as fallback - see valueRange). Categorical: every
+// encoding (value -> meaning) on one wrapping line.
 function ValuesCell({v, stats}: {v: Variable; stats?: SummaryStats}) {
   if (v.categories?.length > 0) {
     return (
@@ -73,9 +74,7 @@ function ValuesCell({v, stats}: {v: Variable; stats?: SummaryStats}) {
       </div>
     );
   }
-  const min = hasValue(v.min) ? v.min : stats?.min;
-  const max = hasValue(v.max) ? v.max : stats?.max;
-  const median = stats?.median;
+  const {min, max, median} = valueRange(v, stats);
   const unit = v.units || v.unit_concept_name;
   const parts: [string, string][] = [];
   if (hasValue(min)) parts.push(['Min', fmtStat(min)]);
@@ -417,8 +416,8 @@ export default function SemanticMatchesModal({
         </div>
 
         <p className="text-xs text-base-content/50">
-          Values: min / max from the data dictionary, or from the cohort&apos;s summary statistics when the dictionary has
-          none; median from the summary statistics. An amber marker next to a variable means the other cohort
+          Values: min / max / median from the cohort&apos;s summary statistics; the data dictionary&apos;s min / max only
+          when no statistics are available. An amber marker next to a variable means the other cohort
           standardized the same concept with a different concept code or OMOP ID (hover for details).
         </p>
       </div>
