@@ -635,8 +635,9 @@ const VariablesList = ({
 
       </aside>
 
-      {/* List of variables */}
-      <div className="flex flex-col">
+      {/* List of variables: takes the remaining width up to a readable
+          maximum, and can shrink so long lines wrap instead of widening the cards */}
+      <div className="flex flex-col flex-1 min-w-0 max-w-5xl">
         {/* Source tabs for multi-source cohorts — paper-folder style */}
         {sourceTabs.length > 0 && (
           <div className="mb-0">
@@ -788,7 +789,7 @@ const VariablesList = ({
                   <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                     <span className="font-semibold">Variable&apos;s values:</span>{' '}
                     {variable.categories.map((cat: any, idx: number) => (
-                      <span key={idx} className="whitespace-nowrap">
+                      <span key={idx}>
                         {idx > 0 && <span className="text-gray-400">, </span>}
                         <span className="badge badge-sm badge-ghost mr-1">
                           <HighlightedText text={cat.value || ''} searchTerms={searchTerms} searchMode={searchMode} />
@@ -860,91 +861,101 @@ const VariablesList = ({
                   </div>
                 )}
 
-                {/* Popup with additional infos about the variable */}
+                {/* (i) popup: the variable's row of the cohort's data dictionary,
+                    column by column, as uploaded - nothing computed, no
+                    summary statistics, no mappings made elsewhere. */}
                 {openedModal === variable.var_name && (
                   <dialog id={`source_modal_${cohortId}_${variable.var_name}`} className="modal">
-                    <div className="modal-box space-y-2 max-w-none w-fit">
-                      <div className="flex justify-between items-start items-center">
-                        <div>
-                          <h5 className="font-bold text-lg">{variable.var_name}</h5>
+                    <div className="modal-box max-w-3xl">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="text-[11px] uppercase tracking-wide text-base-content/50">Data dictionary entry</div>
+                          <h5 className="font-bold text-lg font-mono truncate">{variable.var_name}</h5>
+                          <p className="text-sm text-base-content/60 mt-1">
+                            The row for this variable in the data dictionary uploaded for {cohortId}, shown as written
+                            there. Nothing on this page is computed: no summary statistics, and no mappings made outside
+                            the dictionary.
+                          </p>
                         </div>
-                        <div className="ml-8">
-                          <AutocompleteConcept
-                            query={variable.var_label}
-                            value={variable.mapped_id || ''}
-                            domain={variable.omop_domain}
-                            index={`${cohortId}_${variable.index}_inside`}
-                            tooltip={variable.mapped_label || variable.mapped_id || ''}
-                            onSelect={(concept: any) => handleConceptSelect(variable.var_name, concept)}
-                            canEdit={false} /* manual per-variable mapping is deprecated: read-only badge, mapping happens on the mapping page */
-                          />
-                        </div>
+                        <form method="dialog">
+                          <button className="btn btn-sm btn-circle btn-ghost" aria-label="Close">
+                            ✕
+                          </button>
+                        </form>
                       </div>
-                      <p className="py-2 lg:mr-32">{variable.var_label}</p>
-                      <p>
-                        Type: {variable.categorical ? 'Categorical ' : ''}
-                        {variable.var_type}
-                      </p>
-                      {variable.units && (
-                        <p>
-                          Unit: <span className="badge badge-ghost mx-2">{variable.units}</span>
-                        </p>
-                      )}
-                      {(variable.min || variable.max) && (
-                        <p>
-                          Min: {variable.min} {variable.units} | Max: {variable.max} {variable.units}
-                        </p>
-                      )}
-                      {variable.categories.length > 0 && (
-                        <table className="table w-full">
-                          <thead>
-                            <tr>
-                              <th>Category value</th>
-                              <th>Meaning</th>
-                              <th>Map to concept</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {variable.categories.map((option: any, index: number) => (
-                              <tr key={index}>
-                                <td>
-                                  <HighlightedText text={option.value || ''} searchTerms={searchTerms} searchMode={searchMode} />
-                                </td>
-                                <td>
-                                  <HighlightedText text={option.label || ''} searchTerms={searchTerms} searchMode={searchMode} />
-                                </td>
-                                <td>
-                                  <AutocompleteConcept
-                                    query={option.label}
-                                    index={`${cohortId}_${variable.index}_category_${index}`}
-                                    value={option.mapped_id || option.concept_id}
-                                    tooltip={option.mapped_label || option.mapped_id || option.concept_id}
-                                    onSelect={concept => handleConceptSelect(variable.var_name, concept, index)}
-                                    canEdit={false} /* manual per-variable mapping is deprecated: read-only badge, mapping happens on the mapping page */
-                                  />
-                                </td>
+                      {(() => {
+                        const join = (xs: (string | null | undefined)[]) => xs.filter(x => x).join(' | ');
+                        const cats = variable.categories || [];
+                        const rows: [string, React.ReactNode][] = [];
+                        const add = (col: string, v: any) => {
+                          if (v === null || v === undefined || v === '' || v === 0) return;
+                          rows.push([col, v]);
+                        };
+                        add('VARIABLENAME', variable.var_name);
+                        add('VARIABLELABEL', variable.var_label);
+                        add('VARTYPE', variable.var_type);
+                        add('UNITS', variable.units);
+                        add('MIN', variable.min);
+                        add('MAX', variable.max);
+                        add('COUNT', variable.count);
+                        add('NA', variable.na);
+                        if (cats.length > 0) {
+                          add(
+                            'CATEGORICAL',
+                            <div className="space-y-0.5">
+                              {cats.map((c: any, i: number) => (
+                                <div key={i}>
+                                  <span className="font-mono">{c.value}</span>
+                                  <span className="text-base-content/40"> = </span>
+                                  {c.label}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                          add('CATEGORICAL VALUE CONCEPT CODE', join(cats.map((c: any) => c.concept_id)));
+                          add('CATEGORICAL VALUE CONCEPT NAME', join(cats.map((c: any) => c.mapped_label)));
+                          add('CATEGORICAL VALUE OMOP ID', join(cats.map((c: any) => c.mapped_id)));
+                        }
+                        add('FORMULA', variable.formula && <code className="p-1 bg-base-200 rounded">{variable.formula}</code>);
+                        add('DEFINITION', variable.definition);
+                        add('VISITS', variable.visits);
+                        add('VISIT CONCEPT NAME', variable.visit_concept_name);
+                        add('VISIT CONCEPT CODE', variable.visit_concept_code);
+                        add('VISIT OMOP ID', variable.visit_omop_id);
+                        add('VARIABLE CONCEPT NAME', variable.concept_name);
+                        add('VARIABLE CONCEPT CODE', variable.concept_code);
+                        add('VARIABLE OMOP ID', variable.omop_id);
+                        add('DOMAIN', variable.omop_domain);
+                        add('ADDITIONAL CONTEXT CONCEPT NAME', variable.additional_context);
+                        add('UNIT CONCEPT NAME', variable.unit_concept_name);
+                        add('SOURCENAME', variable.source_name);
+                        add('SOURCE LABEL', variable.source_label);
+                        add('FREQUENCY', variable.frequency);
+                        add('DURATION', variable.duration);
+                        return (
+                          <table className="table table-sm mt-3">
+                            <thead>
+                              <tr>
+                                <th className="w-64">Dictionary column</th>
+                                <th>Value</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
-                      {variable.formula && (
-                        <p>
-                          Formula: <code className="p-1 bg-base-300 rounded-md">{variable.formula}</code>
-                        </p>
-                      )}
-                      {variable.definition && <p>Definition: {variable.definition}</p>}
-                      {variable.visit_concept_name && <p>Visit concept name: {variable.visit_concept_name}</p>}
-                      {variable.additional_context && <p>Additional context: {variable.additional_context}</p>}
-                      {variable.unit_concept_name && <p>Unit concept name: {variable.unit_concept_name}</p>}
-                      {variable.visits && <p>Visit: {variable.visits}</p>}
-                      {variable.frequency && <p>Frequency: {variable.frequency}</p>}
-                      {variable.duration && <p>Duration: {variable.duration}</p>}
-                      {variable.omop_domain && (
-                        <p>
-                          OMOP Domain: <span className="badge badge-ghost">{variable.omop_domain}</span>
-                        </p>
-                      )}
+                            </thead>
+                            <tbody>
+                              {rows.map(([col, v]) => (
+                                <tr key={col}>
+                                  <td className="font-mono text-xs text-base-content/60 align-top whitespace-nowrap">{col}</td>
+                                  <td className="text-sm align-top break-words">{v}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        );
+                      })()}
+                      <div className="modal-action justify-center">
+                        <form method="dialog">
+                          <button className="btn btn-sm btn-ghost border border-base-300 px-6">Close</button>
+                        </form>
+                      </div>
                     </div>
 
                     <form method="dialog" className="modal-backdrop">

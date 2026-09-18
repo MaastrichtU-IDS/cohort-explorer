@@ -216,15 +216,15 @@ function CohortGroup({
         </span>
         <span className="flex-1" />
         <Link
-          href={{pathname: '/cohorts', query: {cohort: cohortId}}}
+          href={{pathname: '/cohorts', query: {cohort: cohortId, tab: 'list'}}}
           onClick={e => {
             e.stopPropagation();
             onNavigate();
           }}
           className="inline-flex items-center gap-1 text-xs link link-hover text-base-content/60"
-          title={`Open ${cohortId} on the explore page`}
+          title={`Open the variables list of ${cohortId}`}
         >
-          open cohort <ExternalLink size={12} />
+          open study <ExternalLink size={12} />
         </Link>
       </div>
       {!collapsed && (
@@ -324,7 +324,20 @@ export default function SemanticMatchesModal({
   return (
     <dialog ref={ref} className="modal">
       <div className="modal-box max-w-6xl w-[95vw] space-y-3">
-        <div className="flex items-start justify-between gap-4">
+        {/* Close button pinned to the top-right corner while the modal scrolls:
+            a zero-height sticky row at the very top of the scroll container. */}
+        <div className="sticky top-0 z-20 h-0 flex justify-end pointer-events-none">
+          <button
+            type="button"
+            className="pointer-events-auto btn btn-circle btn-ghost bg-base-100/90 shadow-sm -mt-2 -mr-2"
+            onClick={close}
+            aria-label="Close"
+            title="Close"
+          >
+            <X size={24} />
+          </button>
+        </div>
+        <div className="flex items-start justify-between gap-4 pr-12 !mt-0">
           <div className="min-w-0 flex-1">
             <h3 className="font-bold text-lg flex items-center gap-2">
               <Link2 size={18} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
@@ -333,11 +346,18 @@ export default function SemanticMatchesModal({
             </h3>
             {/* The concept behind the matches: its name and identifiers, prominent */}
             <div className="mt-2 rounded-lg bg-base-200/60 px-4 py-3">
-              {variable.concept_name ? (
-                <div className="text-xl font-semibold leading-snug">{variable.concept_name}</div>
-              ) : (
-                <div className="text-base text-base-content/50 italic">No concept name in the dictionary</div>
-              )}
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="text-xs uppercase tracking-wide text-base-content/70 whitespace-nowrap">
+                  Standard concept name
+                </span>
+                {variable.concept_name ? (
+                  <span className="text-xl font-semibold leading-snug text-red-400 dark:text-red-300">
+                    {variable.concept_name}
+                  </span>
+                ) : (
+                  <span className="text-base text-base-content/50 italic">none in the dictionary</span>
+                )}
+              </div>
               <div className="flex flex-wrap items-center gap-2 mt-2">
                 {variable.concept_code && (
                   <span className="badge badge-lg font-mono text-base" style={idBadgeStyle}>
@@ -368,7 +388,7 @@ export default function SemanticMatchesModal({
                   key={id}
                   type="button"
                   onClick={() => jumpTo(id)}
-                  className="badge gap-1 border cursor-pointer bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700 dark:hover:bg-emerald-900/50"
+                  className="badge badge-sm gap-1 border cursor-pointer bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700 dark:hover:bg-emerald-900/50"
                   title={`Jump to the ${rows.length} matching ${rows.length === 1 ? 'variable' : 'variables'} of ${id}`}
                 >
                   {id}
@@ -377,9 +397,6 @@ export default function SemanticMatchesModal({
               ))}
             </div>
           </div>
-          <button type="button" className="btn btn-circle btn-ghost flex-shrink-0" onClick={close} aria-label="Close" title="Close">
-            <X size={24} />
-          </button>
         </div>
 
         {/* The variable itself, for side-by-side comparison with its matches */}
@@ -420,6 +437,11 @@ export default function SemanticMatchesModal({
           when no statistics are available. An amber marker next to a variable means the other cohort
           standardized the same concept with a different concept code or OMOP ID (hover for details).
         </p>
+        <div className="modal-action justify-center">
+          <button type="button" className="btn btn-sm btn-ghost border border-base-300 px-6" onClick={close}>
+            Close
+          </button>
+        </div>
       </div>
       <form method="dialog" className="modal-backdrop">
         <button>close</button>
