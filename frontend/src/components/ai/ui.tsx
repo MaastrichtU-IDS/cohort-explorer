@@ -823,9 +823,9 @@ export function Composer({
     <div className={`flex items-end gap-2 bg-base-100 border border-base-300 rounded-2xl shadow-sm ${large ? 'p-3' : 'p-2'}`}>
       <textarea
         className={`textarea textarea-ghost flex-1 resize-none focus:outline-none ${
-          large ? 'max-h-60 min-h-[4.5rem] text-lg' : 'max-h-40 min-h-[2.75rem] text-base'
+          large ? 'max-h-60 min-h-[6.25rem] text-lg' : 'max-h-40 min-h-[2.75rem] text-base'
         }`}
-        rows={large ? 2 : 1}
+        rows={large ? 3 : 1}
         value={value}
         placeholder={placeholder || 'Ask about the studies…'}
         disabled={disabled}
