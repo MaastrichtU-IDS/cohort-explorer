@@ -622,7 +622,6 @@ function ICareAI() {
         ) : chat.messages.length === 0 ? (
           /* Chat landing: big centered box + suggested questions */
           <div className="flex-1 flex flex-col justify-center max-w-3xl mx-auto w-full px-4 pb-16">
-            <h2 className="text-3xl font-bold text-center mb-5">What would you like to know?</h2>
             <div className="shadow-lg rounded-2xl">
               <Composer
                 value={chat.input}
