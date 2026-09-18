@@ -59,13 +59,16 @@ function TypeCell({v}: {v: Variable}) {
 
 // Numeric: min, max, median and unit (summary statistics first, the
 // dictionary's min / max as fallback - see valueRange). Categorical: every
-// encoding (value -> meaning) on one wrapping line.
+// encoding (value -> meaning). Either way the cell is capped at about fifty
+// characters and wraps inside that, so a long list never widens the table.
+const VALUES_WIDTH = 'max-w-[24rem] min-w-[12rem] whitespace-normal';
+
 function ValuesCell({v, stats}: {v: Variable; stats?: SummaryStats}) {
   if (v.categories?.length > 0) {
     return (
-      <div className="min-w-[12rem] leading-relaxed">
+      <div className={`${VALUES_WIDTH} leading-relaxed`}>
         {v.categories.map((c, i) => (
-          <span key={i} className="whitespace-nowrap">
+          <span key={i}>
             {i > 0 && <span className="text-base-content/30">, </span>}
             <span className="badge badge-xs badge-ghost font-mono mr-1">{c.value}</span>
             <span>{c.label}</span>
@@ -82,17 +85,21 @@ function ValuesCell({v, stats}: {v: Variable; stats?: SummaryStats}) {
   if (hasValue(median)) parts.push(['Median', fmtStat(median)]);
   if (parts.length === 0 && !unit) return <span className="text-base-content/40">—</span>;
   return (
-    <div className="whitespace-nowrap">
+    <div className={VALUES_WIDTH}>
       {parts.map(([label, value], i) => (
         <span key={label}>
           {i > 0 && <span className="text-base-content/30"> · </span>}
-          <span className="text-base-content/50">{label}</span> <span className="font-mono">{value}</span>
+          <span className="whitespace-nowrap">
+            <span className="text-base-content/50">{label}</span> <span className="font-mono">{value}</span>
+          </span>
         </span>
       ))}
       {unit && (
         <span>
           {parts.length > 0 && <span className="text-base-content/30"> · </span>}
-          <span className="text-base-content/50">Unit</span> {unit}
+          <span className="whitespace-nowrap">
+            <span className="text-base-content/50">Unit</span> {unit}
+          </span>
         </span>
       )}
       {isNumericVariable(v) && parts.length === 0 && unit && (
@@ -171,7 +178,7 @@ function VariableRow({
       <td className="text-xs">
         <TypeCell v={v} />
       </td>
-      <td className="text-xs">
+      <td className="text-xs whitespace-normal">
         <ValuesCell v={v} stats={stats} />
       </td>
     </tr>
