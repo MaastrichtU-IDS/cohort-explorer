@@ -722,31 +722,82 @@ export function MessageList({
   onSummaryViewed?: (index: number) => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
-  // Follow the stream only while the reader is already at the bottom. Scrolling
-  // up (say, to study the search panel mid-answer) sets nearBottom false and
-  // the auto-scroll stops fighting; scrolling back down resumes following. A
-  // NEW message (the user just sent one) always jumps to the end.
-  const nearBottom = useRef(true);
+  // Follow the stream (keep the end in view as chunks arrive) only until the
+  // reader shows they want to read something else: a wheel-up, a touch drag
+  // or PageUp / ArrowUp / Home stops the following at once, whatever the
+  // scroll position - a position-based rule cannot work here, because every
+  // chunk snaps the view back down before the reader gets far enough away.
+  // Scrolling back to the very end resumes following; so does a NEW message
+  // (the user just sent one), which always jumps to the end.
+  const followingRef = useRef(true);
+  const [following, setFollowing] = useState(true);
+  const setFollow = (v: boolean) => {
+    if (followingRef.current === v) return;
+    followingRef.current = v;
+    setFollowing(v);
+  };
+  const lastIntentAt = useRef(0);
   const prevCount = useRef(0);
   useEffect(() => {
-    const check = () => {
-      const el = endRef.current;
-      if (!el) return;
-      nearBottom.current = el.getBoundingClientRect().top <= (window.innerHeight || document.documentElement.clientHeight) + 160;
+    // The nearest scrollable ancestor of the thread (the chat pane), or the window.
+    const atBottom = (): boolean => {
+      let el: HTMLElement | null = endRef.current?.parentElement || null;
+      while (el) {
+        const oy = getComputedStyle(el).overflowY;
+        if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) {
+          return el.scrollHeight - el.scrollTop - el.clientHeight <= 4;
+        }
+        el = el.parentElement;
+      }
+      const de = document.documentElement;
+      return de.scrollHeight - window.scrollY - de.clientHeight <= 4;
     };
-    // capture: also catches scrolling inside nested containers
-    window.addEventListener('scroll', check, {passive: true, capture: true});
-    return () => window.removeEventListener('scroll', check, {capture: true});
+    const unfollow = () => {
+      lastIntentAt.current = Date.now();
+      setFollow(false);
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) unfollow();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable)) return;
+      if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') unfollow();
+    };
+    // Resume when the reader has scrolled back to the end - but not in the
+    // first moments after they scrolled up, when a smooth scroll may still
+    // report a position within a few pixels of the bottom.
+    const onScroll = () => {
+      if (Date.now() - lastIntentAt.current < 400) return;
+      if (atBottom()) setFollow(true);
+    };
+    // capture: the events happen inside nested scroll containers
+    window.addEventListener('wheel', onWheel, {passive: true, capture: true});
+    window.addEventListener('touchmove', unfollow, {passive: true, capture: true});
+    window.addEventListener('keydown', onKey, {capture: true});
+    window.addEventListener('scroll', onScroll, {passive: true, capture: true});
+    return () => {
+      window.removeEventListener('wheel', onWheel, {capture: true});
+      window.removeEventListener('touchmove', unfollow, {capture: true});
+      window.removeEventListener('keydown', onKey, {capture: true});
+      window.removeEventListener('scroll', onScroll, {capture: true});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     const isNewMessage = messages.length !== prevCount.current;
     prevCount.current = messages.length;
-    if (isNewMessage || nearBottom.current) {
+    if (isNewMessage) setFollow(true);
+    if (isNewMessage || followingRef.current) {
       // instant while following chunk-by-chunk; smooth only on a new turn
       endRef.current?.scrollIntoView({behavior: isNewMessage ? 'smooth' : 'auto', block: 'end'});
-      nearBottom.current = true;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
+  const jumpToLatest = () => {
+    setFollow(true);
+    endRef.current?.scrollIntoView({behavior: 'smooth', block: 'end'});
+  };
   // Chart markers are only trusted for variables the searches actually flagged
   // with an EDA; anything else the model wrote is dropped at render time.
   const validEda = new Set<string>();
@@ -788,6 +839,19 @@ export function MessageList({
           )}
         </React.Fragment>
       ))}
+      {/* While an answer streams and the reader has scrolled up: one tap to
+          go back to the end and follow again. */}
+      {streaming && !following && (
+        <div className="sticky bottom-2 flex justify-center pointer-events-none">
+          <button
+            type="button"
+            className="pointer-events-auto btn btn-sm gap-1 bg-base-100 border-base-300 shadow-md hover:bg-base-200"
+            onClick={jumpToLatest}
+          >
+            ↓ Follow the answer
+          </button>
+        </div>
+      )}
       <div ref={endRef} />
     </div>
   );
