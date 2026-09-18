@@ -1,4 +1,4 @@
-import React, {useState, useMemo, useEffect, useCallback} from 'react';
+import React, {useState, useMemo, useEffect, useCallback, useRef} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
@@ -101,6 +101,25 @@ const VariablesList = ({
   const semanticMatchesOf = (varName: string): VariableSemanticMatches | undefined =>
     matchIndex.byVariable.get(semanticMatchKey(cohortId, varName));
   const [openedMatchesModal, setOpenedMatchesModal] = useState<string | null>(null);
+  // The filter panel is never capped or scrolled on its own: it always shows
+  // every filter in full. It stays pinned while scrolling through the variable
+  // list only when it fits the viewport; a taller panel scrolls with the page
+  // instead, so its bottom filters remain reachable.
+  const asideRef = useRef<HTMLElement>(null);
+  const [asideFits, setAsideFits] = useState(true);
+  useEffect(() => {
+    const el = asideRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const check = () => setAsideFits(el.offsetHeight + 32 <= window.innerHeight);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    window.addEventListener('resize', check);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', check);
+    };
+  }, []);
   const [order, setOrder] = useState<VariableOrder>('matches');
   const [activeSourceTab, setActiveSourceTab] = useState<string | null>(null);
   const [isTabSwitching, setIsTabSwitching] = useState(false);
@@ -472,7 +491,10 @@ const VariablesList = ({
 
   return (
     <main className="flex w-full space-x-4">
-      <aside className="flex-shrink-0 text-center flex flex-col items-center w-52 sticky top-4 self-start max-h-[calc(100vh-2rem)] overflow-y-auto">
+      <aside
+        ref={asideRef}
+        className={`flex-shrink-0 text-center flex flex-col items-center w-52 self-start ${asideFits ? 'sticky top-4' : ''}`}
+      >
         {/* NOTE: You will need to create an API endpoint just to ddl the imgs for the cohort stats
         If the <img> I set up dont work, then you'll need to use a fetch call
         e.g. const response = await fetch(`${apiUrl}/cohort-stats/${cohortId}`, {credentials: 'include'});
