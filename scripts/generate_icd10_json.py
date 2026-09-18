@@ -10,33 +10,6 @@ XML_PATH = Path.home() / "Downloads" / "icd102019en.xml"
 OUT_PATH = Path(__file__).parent.parent / "frontend" / "public" / "icd10.json"
 
 
-CHAIN_HIERARCHY = Path(__file__).parent.parent / "icarechain" / "api" / "services" / "ontology" / "icd10_hierarchy.json"
-CHAIN_OUT = OUT_PATH.parent / "icd10-chain.json"
-
-
-def write_chain_subset() -> None:
-    """Export the subset of ICD-10 the icarechain API actually accepts.
-
-    icarechain validates requester disease codes against its own small
-    hierarchy (api/services/ontology/icd10_hierarchy.json): a requester code
-    must be a *terminal* code there (or roll up to a known code by stripping
-    trailing characters after the dot). The DCR form mirrors that rule
-    client-side using this file so users get feedback before submitting.
-    """
-    with open(CHAIN_HIERARCHY, encoding="utf-8") as f:
-        raw = json.load(f)
-    parents = {k.upper(): v.upper() for k, v in raw["parents"].items()}
-    leaves = sorted({c.upper() for c in raw["requester_leaves"]})
-    known = sorted(set(parents) | set(parents.values()) | set(leaves))
-    children: dict[str, list[str]] = {}
-    for child, parent in parents.items():
-        children.setdefault(parent, []).append(child)
-    out = {"leaves": leaves, "known": known, "children": {k: sorted(v) for k, v in children.items()}}
-    with open(CHAIN_OUT, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
-    print(f"Written {CHAIN_OUT} ({len(leaves)} requester leaves, {len(known)} known codes)")
-
-
 def main():
     print(f"Parsing {XML_PATH} ...")
     tree = ET.parse(XML_PATH)
@@ -235,9 +208,6 @@ def augment_main():
 
 
 if __name__ == "__main__":
-    if "--chain" in sys.argv:
-        write_chain_subset()
-        sys.exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "augment":
         augment_main()
     elif len(sys.argv) > 1 and sys.argv[1] == "parents-map":

@@ -1701,7 +1701,7 @@ export default function CohortsList() {
                                     <span key={m} className="badge badge-outline badge-sm mr-1">{m}</span>
                                   ))}</p>
                                 )}
-                                {c.diseaseCode && <p><strong>Disease Code:</strong> {c.diseaseCode}</p>}
+                                {(c.diseaseCodes?.length > 0 || c.diseaseCode) && <p><strong>Disease Code{(c.diseaseCodes?.length ?? 0) > 1 ? 's' : ''}:</strong> {(c.diseaseCodes?.length ? c.diseaseCodes : [c.diseaseCode]).join(', ')}</p>}
                                 {c.allowedCountries?.length > 0 && <p><strong>Allowed Countries:</strong> {c.allowedCountries.join(', ')}</p>}
                                 {c.allowedInstitutions?.length > 0 && <p><strong>Allowed Institutions:</strong> {c.allowedInstitutions.join(', ')}</p>}
                                 {c.allowedProjects?.length > 0 && <p><strong>Allowed Projects:</strong> {c.allowedProjects.join(', ')}</p>}

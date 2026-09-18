@@ -1,3 +1,4 @@
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -70,6 +71,7 @@ async def admin_overview(user: AuthenticatedUser = Depends(get_current_user)) ->
             "research_scope": c.get("research_scope"),
             "allowed_countries": c.get("allowed_countries", []),
             "allowed_institutions": c.get("allowed_institutions", []),
+            "allowed_projects": c.get("allowed_projects", []),
             "moratorium_months": c.get("moratorium_months"),
             "active": bool(c.get("active", False)),
             "valid_until": c.get("valid_until"),
@@ -139,14 +141,46 @@ async def admin_reset(user: AuthenticatedUser = Depends(get_current_user)) -> di
             raise HTTPException(502, f"{method} failed: {resp['error']}")
         return resp.get("result")
 
-    # Snapshot ids are single-use: prefer the one saved after the last reset, then the deployer's.
+    # Snapshot ids are single-use, and a snapshot is only meaningful for the deployment it was taken
+    # under: reverting to one that predates the current deployment erases the very contracts this API
+    # points at. So the id saved after a reset is stored together with the deployment's timestamp and
+    # is trusted only while that still matches deployments.json; otherwise fall back to the deployer's.
+    deployments = load_deployments()
+    deployment_tag = str(deployments.get("timestamp") or "")
+    vault_address = (deployments.get("contracts") or {}).get("duoConsentVaultV2")
+
+    def has_code(addr: str | None) -> bool:
+        if not addr:
+            return False
+        code = rpc("eth_getCode", [addr, "latest"])
+        return bool(code) and code != "0x"
+
+    if not has_code(vault_address):
+        raise HTTPException(
+            409,
+            "The contracts in deployments.json are not on the Hardhat node (the chain is older than the "
+            "current deployment). Recreate the chain: docker compose rm -sf icarechain-hardhat "
+            "icarechain-deployer icarechain-api && docker compose up -d",
+        )
+
+    # NOTE on ordering: Hardhat (EDR) drops every snapshot with an id >= the requested one *before*
+    # checking that it exists, so a failed evm_revert to a stale LOWER id destroys valid later
+    # snapshots. A record whose tag matches means resets already happened under this deployment and
+    # the deployer's base id is consumed: try only the saved id. A missing or mismatched record means
+    # no reset has happened under this deployment yet: the base id is fresh, try only that.
     candidates: list[str] = []
     if redis is not None:
         saved = await redis.get(SNAPSHOT_KEY)
         if saved:
-            candidates.append(saved.decode() if isinstance(saved, bytes) else str(saved))
-    base = load_deployments().get("snapshotId")
-    if base:
+            raw = saved.decode() if isinstance(saved, bytes) else str(saved)
+            try:
+                rec = json.loads(raw)
+            except ValueError:
+                rec = None  # legacy plain id with no deployment tag: not trustworthy
+            if isinstance(rec, dict) and rec.get("deployment") == deployment_tag and rec.get("id"):
+                candidates.append(str(rec["id"]))
+    base = deployments.get("snapshotId")
+    if not candidates and base:
         candidates.append(str(base))
 
     reverted_to = None
@@ -157,8 +191,16 @@ async def admin_reset(user: AuthenticatedUser = Depends(get_current_user)) -> di
     if reverted_to is None:
         raise HTTPException(
             409,
-            "No usable snapshot on the Hardhat node. Restart the stack (docker compose down && docker compose up -d) "
-            "so the deployer records a fresh snapshot.",
+            "No usable snapshot on the Hardhat node. Recreate the chain: docker compose rm -sf "
+            "icarechain-hardhat icarechain-deployer icarechain-api && docker compose up -d",
+        )
+
+    if not has_code(vault_address):
+        # Should be impossible given the tag check above; fail loudly rather than leave a silent broken state.
+        raise HTTPException(
+            500,
+            f"Reverted to snapshot {reverted_to} but the deployed contracts are gone. Recreate the chain: "
+            "docker compose rm -sf icarechain-hardhat icarechain-deployer icarechain-api && docker compose up -d",
         )
 
     new_snapshot = rpc("evm_snapshot", [])
@@ -166,9 +208,9 @@ async def admin_reset(user: AuthenticatedUser = Depends(get_current_user)) -> di
     # Chain state is gone; everything cached from it is now stale.
     if redis is not None:
         await redis.flushdb()
-        await redis.set(SNAPSHOT_KEY, str(new_snapshot))
+        await redis.set(SNAPSHOT_KEY, json.dumps({"id": str(new_snapshot), "deployment": deployment_tag}))
     else:
         await cache.clear()
 
-    logger.warning("Local chain reset by %s: reverted to snapshot %s, new snapshot %s", user.email, reverted_to, new_snapshot)
+    logger.warning("Local chain reset by %s: reverted to snapshot %s, new snapshot %s", user.email or user.email_hash, reverted_to, new_snapshot)
     return {"success": True, "revertedTo": reverted_to, "snapshotId": new_snapshot, "blockNumber": w3.eth.block_number}

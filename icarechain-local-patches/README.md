@@ -28,9 +28,12 @@ touched when we re-copy the upstream branch.
    `snapshotId` into `deployments.json`; this is what `/admin/reset` reverts to.
    Kept as `patches/deploy-ts-snapshot.patch`.
 
-5. **`deploy-and-generate.sh`** — `RPC_URL` is taken from the environment
-   (`${RPC_URL:-http://hardhat:8545}`) because the root compose names the node
-   service `icarechain-hardhat`, not `hardhat`.
+5. **`deploy-and-generate.sh`** — kept as a whole file in this overlay. `RPC_URL` is
+   taken from the environment (the root compose names the node service
+   `icarechain-hardhat`, not `hardhat`), and deployment is skipped when the node
+   already holds the contracts listed in `deployments.json`. `docker compose up`
+   re-runs one-shot services, and redeploying onto a live node creates a second
+   contract set at new addresses, orphans the cache, and breaks chain reset.
 
 ## Running list of local changes to `icarechain/`
 
@@ -46,6 +49,9 @@ proposing to Ankur's `iCARE4CHAIN` branch, so the row can eventually be dropped.
 | 2026-09-15 | `api/routes/admin.py` | overview emits `disease_codes` list per consent and per grant | dashboard showed only the first code; chain and cache already store the full list | yes |
 | 2026-09-15 | `api/services/ontology/icd10_hierarchy.json` | add `C00-C97`, `C00-C75` blocks | upload dropdown offers them; icarechain rejected them with 422 "not a supported ICD-10 code" | yes |
 | 2026-09-15 | `api/routes/admin.py` | overview emits `reason`, `reason_detail`, `decided_at` per grant and a `rejected_access_requests` stat | dashboard needs to show why the chain rejected a request | yes |
+| 2026-09-17 | `api/routes/admin.py` | overview emits `allowed_projects` per consent | dashboard shows the project list for PS cohorts and flags each grant's project id against it | yes |
+| 2026-09-17 | `deploy-and-generate.sh` | skip deployment when the node already has the contracts from `deployments.json` | `compose up` re-ran the deployer onto a live node: new addresses, orphaned cache, and a later reset reverted past the new contracts | yes |
+| 2026-09-17 | `api/routes/admin.py` | reset: saved snapshot is tagged with the deployment timestamp and ignored if it doesn't match; contract-presence check before and after revert | a reset reverted to a snapshot older than the current deployment and erased its contracts | dev-only, with the reset |
 | 2026-09-15 | `scripts/deploy.ts` | `evm_snapshot` after deploy → `deployments.json.snapshotId` | target for local chain reset | dev-only, optional |
 | 2026-09-15 | `api/routes/admin.py` | `POST /admin/reset` (Hardhat 31337 only) | "Reset local chain" button on the consent dashboard; also clears the Redis cache, which a compose restart does not | dev-only, optional |
 

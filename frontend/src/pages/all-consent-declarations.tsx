@@ -52,6 +52,7 @@ interface ConsentRecord {
   research_scope?: string;
   allowed_countries: string[];
   allowed_institutions: string[];
+  allowed_projects?: string[];
   moratorium_months?: number;
   active: boolean;
   valid_until?: string;
@@ -141,6 +142,15 @@ function ConsentCard({c, defaultOpen}: {c: ConsentRecord; defaultOpen?: boolean}
             {c.data_use_description && <div className="col-span-2 sm:col-span-4"><span className="font-semibold block mb-0.5">Data Use Description</span>{c.data_use_description}</div>}
             {c.research_scope && <div className="col-span-2 sm:col-span-4"><span className="font-semibold block mb-0.5">Research Scope</span>{c.research_scope}</div>}
             {c.allowed_countries?.length > 0 && <div><span className="font-semibold block mb-0.5">Allowed Countries</span>{c.allowed_countries.join(', ')}</div>}
+            {c.allowed_institutions?.length > 0 && <div className="col-span-2"><span className="font-semibold block mb-0.5">Allowed Institutions</span><span className="break-all">{c.allowed_institutions.join(', ')}</span></div>}
+            {(c.modifiers.includes('PS') || (c.allowed_projects?.length ?? 0) > 0) && (
+              <div className="col-span-2">
+                <span className="font-semibold block mb-0.5">Allowed Projects</span>
+                {c.allowed_projects?.length ? (
+                  <span className="flex gap-1 flex-wrap">{c.allowed_projects.map(p => <span key={p} className="badge badge-xs badge-outline font-mono">{p}</span>)}</span>
+                ) : <span className="text-warning">PS modifier set but no project list recorded</span>}
+              </div>
+            )}
             {c.moratorium_months && <div><span className="font-semibold block mb-0.5">Moratorium</span>{c.moratorium_months} months</div>}
           </div>
 
@@ -165,6 +175,14 @@ function ConsentCard({c, defaultOpen}: {c: ConsentRecord; defaultOpen?: boolean}
                         <span className="text-base-content/50 font-semibold block">Intended Use</span>
                         {g.intended_use || '—'}
                         {codesOf(g).length > 0 && <span className="ml-1 font-mono text-primary">· {codesOf(g).join(', ')}</span>}
+                        {(g.project_id || c.modifiers.includes('PS')) && (
+                          <span className="block">
+                            <span className="text-base-content/50">Project:</span>{' '}
+                            {g.project_id
+                              ? <span className={`font-mono ${c.allowed_projects?.includes(g.project_id) ? 'text-success' : 'text-error'}`}>{g.project_id}</span>
+                              : <span className="text-error">none given</span>}
+                          </span>
+                        )}
                       </div>
                       <div>
                         <span className="text-base-content/50 font-semibold block">Requested</span>

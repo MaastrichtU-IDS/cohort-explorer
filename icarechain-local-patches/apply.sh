@@ -9,7 +9,7 @@
 #   2. api/main.py                            -> register the `admin` router (2 spots)
 #   3. api/services/ontology/icd10_hierarchy.json -> add C00-C97 / C00-C75 blocks
 #   4. scripts/deploy.ts                      -> evm_snapshot after deploy (patches/deploy-ts-snapshot.patch)
-#   5. deploy-and-generate.sh                 -> honour RPC_URL from the environment
+#   5. deploy-and-generate.sh                 -> RPC_URL from env; skip redeploy onto a node that already has the contracts (whole file)
 #
 # Everything else (e.g. friendlier 404 messages) lives in the frontend, so it
 # never needs re-applying here.
@@ -107,13 +107,10 @@ else
     echo "    - patched scripts/deploy.ts (evm_snapshot)"
 fi
 
-# 5. deploy-and-generate.sh: take RPC_URL from the environment (idempotent).
-if grep -q 'export RPC_URL=\${RPC_URL:-' "$ICARECHAIN_DIR/deploy-and-generate.sh"; then
-    echo "    - deploy-and-generate.sh already honours RPC_URL (no change)"
-else
-    sed -i.bak 's#^export RPC_URL=http://hardhat:8545#export RPC_URL=${RPC_URL:-http://hardhat:8545}#' "$ICARECHAIN_DIR/deploy-and-generate.sh" \
-        && rm -f "$ICARECHAIN_DIR/deploy-and-generate.sh.bak"
-    echo "    - patched deploy-and-generate.sh (RPC_URL from env)"
-fi
+# 5. deploy-and-generate.sh: RPC_URL from the environment + skip deployment when the node already
+#    holds the contracts in deployments.json. Kept as a whole file in the overlay.
+cp "$OVERLAY_DIR/deploy-and-generate.sh" "$ICARECHAIN_DIR/deploy-and-generate.sh"
+chmod +x "$ICARECHAIN_DIR/deploy-and-generate.sh"
+echo "    - copied deploy-and-generate.sh"
 
 echo "==> Done."
