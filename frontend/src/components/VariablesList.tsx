@@ -1,13 +1,30 @@
-import React, {useState, useMemo, useEffect} from 'react';
+import React, {useState, useMemo, useEffect, useCallback} from 'react';
 import {useCohorts} from '@/components/CohortsContext';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import VariableGraphModal from '@/components/VariableGraphModal';
+import CounterpartsModal from '@/components/CounterpartsModal';
 import {InfoIcon} from '@/components/Icons';
 import {Concept, Variable} from '@/types';
 import {apiUrl} from '@/utils';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
 import {parseEdaJson} from '@/utils/edaParsing';
+import {CounterpartIndex, EMPTY_COUNTERPART_INDEX, VariableCounterparts, counterpartKey} from '@/utils/counterparts';
+import {Link2} from 'react-feather';
+
+// Frame of a variable card that has counterparts in other cohorts: a light
+// emerald border plus a left accent whose depth grows with the number of other
+// cohorts holding a counterpart (1 / 2 / 3+), so a list sorted "shared first"
+// fades from dark to light as you scroll. Dark mode brightens instead.
+const sharedFrameClass = (otherCohorts: number): string => {
+  const accent =
+    otherCohorts >= 3
+      ? 'border-l-emerald-700 dark:border-l-emerald-300'
+      : otherCohorts === 2
+        ? 'border-l-emerald-500 dark:border-l-emerald-500'
+        : 'border-l-emerald-300 dark:border-l-emerald-700';
+  return `border-emerald-200 dark:border-emerald-800 border-l-4 ${accent}`;
+};
 
 // Compact number for the card's numeric summary line ("120", "2.5", "3.14").
 const fmtStat = (x: any): string => {
@@ -68,9 +85,19 @@ const VariablesList = ({
   onResetFilters,
   onCloseCohort
 }: VariablesListProps) => {
-  const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom} = useCohorts();
+  const {cohortsData, updateCohortData, dataCleanRoom, setDataCleanRoom, counterpartIndex} = useCohorts();
   const [openedModal, setOpenedModal] = useState('');
   const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
+  // Cross-cohort counterparts (see utils/counterparts): variables of OTHER
+  // cohorts sharing this variable's concept code or OMOP ID. Cards of such
+  // variables get an emerald frame and a badge that opens the list; by
+  // default they are listed first, ordered by how many other cohorts hold a
+  // counterpart, then by how many counterpart variables there are.
+  const counterparts: CounterpartIndex = counterpartIndex || EMPTY_COUNTERPART_INDEX;
+  const counterpartsOf = (varName: string): VariableCounterparts | undefined =>
+    counterparts.byVariable.get(counterpartKey(cohortId, varName));
+  const [openedCounterpartsModal, setOpenedCounterpartsModal] = useState<string | null>(null);
+  const [sharedFirst, setSharedFirst] = useState(true);
   const [activeSourceTab, setActiveSourceTab] = useState<string | null>(null);
   const [isTabSwitching, setIsTabSwitching] = useState(false);
   // Summary statistics for this cohort's variables (median; min/max as a
@@ -384,10 +411,21 @@ const VariablesList = ({
   // Variables to display: filtered by active source tab (if tabs exist)
   // A variable belongs to a tab if any of its pipe-separated sources matches
   const displayedVars = useMemo(() => {
-    if (sourceTabs.length === 0) return filteredVars;
-    if (!activeSourceTab || activeSourceTab === '__all__') return filteredVars;
-    return filteredVars.filter((v: any) => parseSources(v.source_name).includes(activeSourceTab));
-  }, [filteredVars, sourceTabs, activeSourceTab]);
+    let vars = filteredVars;
+    if (sourceTabs.length > 0 && activeSourceTab && activeSourceTab !== '__all__') {
+      vars = filteredVars.filter((v: any) => parseSources(v.source_name).includes(activeSourceTab));
+    }
+    if (!sharedFirst) return vars;
+    // Stable sort: ties keep the dictionary order.
+    const rank = (v: any): [number, number] => {
+      const c = counterparts.byVariable.get(counterpartKey(cohortId, v.var_name));
+      return c ? [c.cohortIds.length, c.counterparts.length] : [0, 0];
+    };
+    return vars
+      .map((v: any, i: number) => ({v, i, r: rank(v)}))
+      .sort((a: any, b: any) => b.r[0] - a.r[0] || b.r[1] - a.r[1] || a.i - b.i)
+      .map((x: any) => x.v);
+  }, [filteredVars, sourceTabs, activeSourceTab, sharedFirst, counterparts, cohortId]);
 
   // Handle tab switching with animation
   const handleSourceTabClick = (tab: string) => {
@@ -424,6 +462,10 @@ const VariablesList = ({
   const handleCloseGraphModal = () => {
     setOpenedGraphModal(null);
   };
+
+  const handleCloseCounterpartsModal = useCallback(() => {
+    setOpenedCounterpartsModal(null);
+  }, []);
 
   // Function to count filtered vars based on filter type
   // const countMatches = (filterType: string, item: string | null) => {
@@ -490,6 +532,35 @@ const VariablesList = ({
           </div>
         )}
         
+        {/* Order: shared (cross-cohort counterparts) first, or dictionary order */}
+        <div
+          className="join w-full mb-1"
+          title="Variables with an emerald frame have counterparts in other cohorts (same concept code or OMOP ID). 'Shared first' lists them at the top, most cohorts first."
+        >
+          <button
+            type="button"
+            className={`join-item btn btn-xs flex-1 gap-1 ${sharedFirst ? 'bg-emerald-100 border-emerald-300 text-emerald-900 hover:bg-emerald-200 hover:border-emerald-300 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-100' : 'btn-ghost text-base-content/60'}`}
+            onClick={() => setSharedFirst(true)}
+          >
+            <Link2 size={12} /> Shared first
+          </button>
+          <button
+            type="button"
+            className={`join-item btn btn-xs flex-1 ${!sharedFirst ? 'btn-active' : 'btn-ghost text-base-content/60'}`}
+            onClick={() => setSharedFirst(false)}
+          >
+            Dictionary
+          </button>
+        </div>
+        <div className="flex items-center justify-center gap-1.5 text-[11px] text-base-content/50 mb-1">
+          <span className="inline-flex gap-0.5" aria-hidden="true">
+            <span className="w-1 h-3 rounded-sm bg-emerald-300 dark:bg-emerald-700" />
+            <span className="w-1 h-3 rounded-sm bg-emerald-500" />
+            <span className="w-1 h-3 rounded-sm bg-emerald-700 dark:bg-emerald-300" />
+          </span>
+          <span>edge = counterparts in 1 / 2 / 3+ other cohorts</span>
+        </div>
+
         {/* Outcome Variables Filter Button */}
         <div className="my-4">
           <button
@@ -603,10 +674,14 @@ const VariablesList = ({
           </div>
         )}
         <div className={`space-y-2 transition-opacity duration-200 ${isTabSwitching ? 'opacity-0' : 'opacity-100'}`}>
-          {displayedVars?.map((variable: any, varIdx: number) => (
+          {displayedVars?.map((variable: any, varIdx: number) => {
+            const shared = counterpartsOf(variable.var_name);
+            return (
             <div
               key={variable.var_name}
-              className="card card-compact card-bordered bg-base-100 shadow-xl"
+              className={`card card-compact card-bordered bg-base-100 shadow-xl ${
+                shared ? sharedFrameClass(shared.cohortIds.length) : ''
+              }`}
               style={{
                 animation: !isTabSwitching ? `varFadeIn 0.3s ease-out ${varIdx * 0.03}s both` : 'none',
               }}>
@@ -616,6 +691,18 @@ const VariablesList = ({
                     <h2 className="font-bold text-lg">
                       <HighlightedText text={variable.var_name} searchTerms={searchTerms} searchMode={searchMode} />
                     </h2>
+                    {shared && (
+                      <button
+                        type="button"
+                        className="badge gap-1 border cursor-pointer bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700 dark:hover:bg-emerald-900/50"
+                        title={`${shared.counterparts.length} variable${shared.counterparts.length === 1 ? '' : 's'} in ${shared.cohortIds.join(', ')} share${shared.counterparts.length === 1 ? 's' : ''} this variable's concept code or OMOP ID. Click to see them.`}
+                        onClick={() => setOpenedCounterpartsModal(variable.var_name)}
+                      >
+                        <Link2 size={12} />
+                        {shared.counterparts.length} {shared.counterparts.length === 1 ? 'counterpart' : 'counterparts'} in{' '}
+                        {shared.cohortIds.length} {shared.cohortIds.length === 1 ? 'cohort' : 'cohorts'}
+                      </button>
+                    )}
                     {/* Badges for units and categorical variable */}
                     <span className="badge badge-ghost">{variable.var_type}</span>
                     {variable.units && <span className="badge badge-ghost">{variable.units}</span>}
@@ -860,9 +947,24 @@ const VariablesList = ({
                   /> */}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
+      {/* Counterparts modal - outside the card loop, like the graph modal */}
+      {openedCounterpartsModal && (() => {
+        const variable = displayedVars.find((v: any) => v.var_name === openedCounterpartsModal);
+        const shared = variable ? counterpartsOf(variable.var_name) : undefined;
+        if (!variable || !shared) return null;
+        return (
+          <CounterpartsModal
+            cohortId={cohortId}
+            variable={variable}
+            counterparts={shared}
+            onClose={handleCloseCounterpartsModal}
+          />
+        );
+      })()}
       {/* Graph modal - rendered outside the card loop so it's not clipped */}
       {openedGraphModal && (() => {
         const variable = displayedVars.find((v: any) => v.var_name === openedGraphModal);

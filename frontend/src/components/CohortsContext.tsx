@@ -1,8 +1,9 @@
 'use client';
 
-import React, {createContext, useState, useEffect, useContext, useRef, useCallback, MutableRefObject} from 'react';
+import React, {createContext, useState, useEffect, useContext, useRef, useCallback, useMemo, MutableRefObject} from 'react';
 import {Cohort} from '@/types';
 import {apiUrl} from '@/utils';
+import {buildCounterpartIndex} from '@/utils/counterparts';
 
 // Define statistics interface
 interface CohortStatistics {
@@ -56,6 +57,11 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
 
   // Add loading state
   const [isLoading, setIsLoading] = useState(false);
+
+  // Cross-cohort counterparts (variables of other cohorts sharing a concept
+  // code or OMOP ID), built once per data load and shared by every cohort's
+  // variable list on the explore page.
+  const counterpartIndex = useMemo(() => buildCounterpartIndex(cohortsData), [cohortsData]);
 
   // Function to calculate data metrics
   const calculateDataMetrics = (data: {[cohortId: string]: Cohort}): {cohortCount: number, variableCount: number, categoryCount: number} => {
@@ -261,7 +267,8 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
         calculateStatistics,
         // Expose loading metrics and state
         loadingMetrics,
-        isLoading
+        isLoading,
+        counterpartIndex
       }}
     >
       {children}
