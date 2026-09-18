@@ -8,7 +8,7 @@ import {InfoIcon} from '@/components/Icons';
 import {Concept, Variable} from '@/types';
 import {apiUrl} from '@/utils';
 import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/search';
-import {parseEdaJson} from '@/utils/edaParsing';
+import {fmtStat, loadEdaSummaryStats, SummaryStatsByName} from '@/utils/variableStats';
 import {SemanticMatchIndex, EMPTY_SEMANTIC_MATCH_INDEX, VariableSemanticMatches, semanticMatchKey} from '@/utils/semanticMatches';
 import {Link2} from 'react-feather';
 
@@ -38,14 +38,6 @@ const ORDER_OPTIONS: {value: VariableOrder; label: string; title: string}[] = [
 ];
 
 const byName = (a: string, b: string) => a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'});
-
-// Compact number for the card's numeric summary line ("120", "2.5", "3.14").
-const fmtStat = (x: any): string => {
-  if (x === null || x === undefined || x === '') return '';
-  const n = Number(x);
-  if (!Number.isFinite(n)) return String(x);
-  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '');
-};
 
 // Helper component to render highlighted text
 const HighlightedText = ({text, searchTerms, searchMode}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact'}) => {
@@ -115,27 +107,12 @@ const VariablesList = ({
   // Summary statistics for this cohort's variables (median; min/max as a
   // fallback when the dictionary has none), keyed by lowercased name. null
   // until fetched, {} when the cohort has no summary statistics.
-  const [edaStats, setEdaStats] = useState<Record<string, {median?: number; min?: number; max?: number}> | null>(null);
+  const [edaStats, setEdaStats] = useState<SummaryStatsByName | null>(null);
   useEffect(() => {
     let alive = true;
-    fetch(`/api/cohort-eda-output/${encodeURIComponent(cohortId)}`)
-      .then(res => (res.ok ? res.json() : null))
-      .then(raw => {
-        if (!alive) return;
-        if (!raw) {
-          setEdaStats({});
-          return;
-        }
-        const data = parseEdaJson(raw);
-        const map: Record<string, {median?: number; min?: number; max?: number}> = {};
-        (data?.variables || []).forEach(v => {
-          map[v.name.toLowerCase().trim()] = {median: v.median, min: v.min, max: v.max};
-        });
-        setEdaStats(map);
-      })
-      .catch(() => {
-        if (alive) setEdaStats({});
-      });
+    loadEdaSummaryStats(cohortId).then(map => {
+      if (alive) setEdaStats(map);
+    });
     return () => {
       alive = false;
     };
