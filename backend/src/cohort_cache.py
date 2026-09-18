@@ -1055,10 +1055,12 @@ def sort_cohorts_with_variables_first(cohorts: Dict[str, Cohort]) -> Dict[str, C
     return {cid: cohorts[cid] for cid in (*with_vars, *without_vars)}
 
 
-def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
-    """Get all cohorts from the cache, updating the can_edit field based on user email."""
+def _ensure_cache_loaded() -> None:
+    """Fill this worker's in-memory cache if it is empty (from disk, or by
+    building it from the source files), and pick up a newer on-disk cache
+    written by another worker."""
     global _cohorts_cache, _cache_initialized
-    
+
     import time
 
     # Cross-worker invalidation: if any other uvicorn worker has written a
@@ -1095,7 +1097,22 @@ def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
             # Timestamp exists but no cache file - rebuild from source files
             logging.info("No cache file found, initializing from source files")
             initialize_cache_from_source_files()
-    
+
+
+def get_cached_cohort_ids() -> List[str]:
+    """Ids of every cohort in the catalog: no permission handling and no
+    copying of the cohorts. For public features that only need the names,
+    such as linking cohort mentions in the front-page announcements."""
+    _ensure_cache_loaded()
+    return list(_cohorts_cache.keys())
+
+
+def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
+    """Get all cohorts from the cache, updating the can_edit field based on user email."""
+    global _cohorts_cache
+
+    _ensure_cache_loaded()
+
     # If still empty, return empty dict
     if not _cohorts_cache:
         logging.warning("Cache is empty after initialization attempts")

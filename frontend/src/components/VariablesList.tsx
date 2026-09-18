@@ -685,18 +685,6 @@ const VariablesList = ({
                     <h2 className="font-bold text-lg">
                       <HighlightedText text={variable.var_name} searchTerms={searchTerms} searchMode={searchMode} />
                     </h2>
-                    {shared && (
-                      <button
-                        type="button"
-                        className="badge gap-1 border cursor-pointer bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700 dark:hover:bg-emerald-900/50"
-                        title={`${shared.matches.length} variable${shared.matches.length === 1 ? '' : 's'} in ${shared.cohortIds.join(', ')} match${shared.matches.length === 1 ? 'es' : ''} this variable on concept code or OMOP ID. Click to see them.`}
-                        onClick={() => setOpenedMatchesModal(variable.var_name)}
-                      >
-                        <Link2 size={12} />
-                        {shared.matches.length} semantic {shared.matches.length === 1 ? 'match' : 'matches'} in{' '}
-                        {shared.cohortIds.length} {shared.cohortIds.length === 1 ? 'cohort' : 'cohorts'}
-                      </button>
-                    )}
                     {/* Badges for units and categorical variable */}
                     <span className="badge badge-ghost">{variable.var_type}</span>
                     {variable.units && <span className="badge badge-ghost">{variable.units}</span>}
@@ -779,23 +767,20 @@ const VariablesList = ({
                   </div>
                 )}
 
-                {/* Categorical variables: the categories (value -> meaning)
-                    right on the card, under the concept/visit line. */}
+                {/* Categorical variables: every category (value -> meaning) on
+                    one wrapping line, under the concept/visit line. */}
                 {variable.categories.length > 0 && (
-                  <div className="mt-1 space-y-0.5">
-                    {variable.categories.slice(0, 12).map((cat: any, idx: number) => (
-                      <div key={idx} className="text-sm text-gray-600 dark:text-gray-400">
-                        <span className="badge badge-sm badge-ghost mr-2">
+                  <div className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                    <span className="font-semibold">Variable&apos;s values:</span>{' '}
+                    {variable.categories.map((cat: any, idx: number) => (
+                      <span key={idx} className="whitespace-nowrap">
+                        {idx > 0 && <span className="text-gray-400">, </span>}
+                        <span className="badge badge-sm badge-ghost mr-1">
                           <HighlightedText text={cat.value || ''} searchTerms={searchTerms} searchMode={searchMode} />
                         </span>
                         <HighlightedText text={cat.label || ''} searchTerms={searchTerms} searchMode={searchMode} />
-                      </div>
+                      </span>
                     ))}
-                    {variable.categories.length > 12 && (
-                      <div className="text-xs text-gray-500 italic">
-                        +{variable.categories.length - 12} more categories (open the ⓘ popup for the full list)
-                      </div>
-                    )}
                   </div>
                 )}
 
@@ -835,6 +820,22 @@ const VariablesList = ({
                       </div>
                     );
                   })()}
+
+                {/* Semantic matches in other cohorts: the badge that opens the list */}
+                {shared && (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      className="badge gap-1 border cursor-pointer bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700 dark:hover:bg-emerald-900/50"
+                      title={`${shared.matches.length} variable${shared.matches.length === 1 ? '' : 's'} in ${shared.cohortIds.join(', ')} match${shared.matches.length === 1 ? 'es' : ''} this variable on concept code or OMOP ID. Click to see them.`}
+                      onClick={() => setOpenedMatchesModal(variable.var_name)}
+                    >
+                      <Link2 size={12} />
+                      {shared.matches.length} semantic {shared.matches.length === 1 ? 'match' : 'matches'} in{' '}
+                      {shared.cohortIds.length} {shared.cohortIds.length === 1 ? 'cohort' : 'cohorts'}
+                    </button>
+                  </div>
+                )}
 
                 {/* Popup with additional infos about the variable */}
                 {openedModal === variable.var_name && (

@@ -10,6 +10,7 @@ only to admins - the front page never shows it.
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from datetime import date, datetime
@@ -19,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from jose import JWTError, jwt
 
 from src.auth import JWT_ALGORITHM, get_current_user
+from src.cohort_cache import get_cached_cohort_ids
 from src.config import settings
 
 router = APIRouter(tags=["announcements"])
@@ -70,6 +72,40 @@ def _is_admin(user: Any) -> bool:
     return bool(user) and user["email"].lower() in settings.admins_list
 
 
+# Separators tolerated inside a cohort name: whitespace, ASCII hyphen and the
+# unicode dashes. Mirrors CohortLinkedText on the front end.
+_SEP_RE = re.compile(r"[\s\u2010-\u2015\u2212-]+")
+
+
+def _mentioned_cohorts(text: str, cohort_ids: list[str]) -> list[str]:
+    """Catalog cohort ids mentioned in an announcement text, matched the way
+    the front end links them: case-insensitive, tolerant of hyphen / space /
+    unicode-dash variance, whole names only. Returned with every announcement
+    so the front page can link cohort names for visitors who are not logged
+    in and therefore have no cohort list of their own; only names that occur
+    in the (public) text are ever returned."""
+    found: list[str] = []
+    for cid in cohort_ids:
+        if not cid or len(cid) < 3:
+            continue
+        parts = [re.escape(p) for p in _SEP_RE.split(cid) if p]
+        if not parts:
+            continue
+        pattern = r"(?<![\w-])" + _SEP_RE.pattern.join(parts) + r"(?![\w-])"
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            found.append(cid)
+    return found
+
+
+def _with_cohorts(items: list[dict]) -> list[dict]:
+    try:
+        cohort_ids = get_cached_cohort_ids()
+    except Exception as exc:  # the box must never break because the catalog is unavailable
+        logging.warning("Announcements: could not list cohort ids for linking: %s", exc)
+        cohort_ids = []
+    return [{**a, "cohorts": _mentioned_cohorts(str(a.get("text") or ""), cohort_ids)} for a in items]
+
+
 def optional_user(request: Request) -> Any:
     """The logged-in user if the session cookie is present and valid, else
     None - no 401. The front-page announcements box is shown to everyone,
@@ -92,7 +128,7 @@ def list_announcements(user: Any = Depends(optional_user)) -> list[dict]:
     # they see the front page too; the manage page uses /announcements/all).
     if not store["enabled"]:
         return []
-    items = _sorted(store["items"])
+    items = _with_cohorts(_sorted(store["items"]))
     if _is_admin(user):
         return items
     # Non-admins (the front page) never see who added an announcement.

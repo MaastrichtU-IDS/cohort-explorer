@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import Link from 'next/link';
-import {Link2, ExternalLink} from 'react-feather';
+import {Link2, ExternalLink, AlertTriangle, ChevronDown, ChevronRight} from 'react-feather';
 import {Variable} from '@/types';
 import {
   SemanticMatch,
@@ -22,8 +22,6 @@ import {
 
 // Rows shown per cohort before the "show all" button.
 const ROWS_PER_COHORT = 15;
-// Category encodings shown in the Values column before "+n more".
-const CATEGORIES_SHOWN = 6;
 
 const IDENTIFIER_ORDER: MatchIdentifier[] = ['concept_code', 'omop_id'];
 
@@ -59,27 +57,19 @@ function TypeCell({v}: {v: Variable}) {
 }
 
 // Numeric: min, max, median and unit (dictionary first, summary statistics
-// as fallback). Categorical: the encodings (value → meaning).
+// as fallback). Categorical: every encoding (value -> meaning) on one
+// wrapping line.
 function ValuesCell({v, stats}: {v: Variable; stats?: SummaryStats}) {
   if (v.categories?.length > 0) {
-    const shown = v.categories.slice(0, CATEGORIES_SHOWN);
-    const hidden = v.categories.length - shown.length;
     return (
-      <div className="space-y-0.5 min-w-[10rem]">
-        {shown.map((c, i) => (
-          <div key={i} className="leading-tight">
+      <div className="min-w-[12rem] leading-relaxed">
+        {v.categories.map((c, i) => (
+          <span key={i} className="whitespace-nowrap">
+            {i > 0 && <span className="text-base-content/30">, </span>}
             <span className="badge badge-xs badge-ghost font-mono mr-1">{c.value}</span>
             <span>{c.label}</span>
-          </div>
+          </span>
         ))}
-        {hidden > 0 && (
-          <div
-            className="text-[11px] text-base-content/50 italic cursor-help"
-            title={v.categories.map(c => `${c.value} = ${c.label}`).join('\n')}
-          >
-            +{hidden} more (hover for all)
-          </div>
-        )}
       </div>
     );
   }
@@ -127,55 +117,58 @@ function VisitCell({v}: {v: Variable}) {
   );
 }
 
-function HeaderRow({last}: {last: string}) {
+function HeaderRow() {
   return (
     <thead>
       <tr>
         <th>Variable</th>
         <th>Label</th>
         <th>Concept name</th>
-        <th>Concept code</th>
-        <th>OMOP ID</th>
         <th>Visit</th>
         <th>Type</th>
         <th>Values</th>
-        <th>{last}</th>
       </tr>
     </thead>
   );
 }
 
-// The cells shared by the reference row (the variable itself) and each match.
-// `reference` is the variable the row is compared with: an identifier the row
-// does NOT share, while both sides carry one, points at a standardization
-// discrepancy (the same convention as the Concept Clusters page) and is tinted
-// amber.
-function VariableCells({
+// Identifiers on which a match does NOT agree with the reference variable
+// while both sides carry one: the two cohorts standardized the same concept
+// differently (the Concept Clusters page's convention). Shown as an amber
+// marker next to the variable name.
+function discrepancies(v: Variable, reference: Variable, matchedOn: MatchIdentifier[]): string[] {
+  return IDENTIFIER_ORDER.filter(
+    id =>
+      !matchedOn.includes(id) &&
+      splitIdentifierValues(v[id]).length > 0 &&
+      splitIdentifierValues(reference[id]).length > 0 &&
+      !sameValues(v[id], reference[id])
+  ).map(id => `${IDENTIFIER_LABELS[id]}: ${v[id]} (this variable: ${reference[id]})`);
+}
+
+function VariableRow({
+  name,
   v,
   stats,
-  reference,
-  matchedOn,
+  discrepancy,
 }: {
+  name: string;
   v: Variable;
   stats?: SummaryStats;
-  reference?: Variable;
-  matchedOn?: MatchIdentifier[];
+  discrepancy?: string[];
 }) {
-  const differs = (id: MatchIdentifier) =>
-    !!reference &&
-    !!matchedOn &&
-    !matchedOn.includes(id) &&
-    splitIdentifierValues(v[id]).length > 0 &&
-    splitIdentifierValues(reference[id]).length > 0 &&
-    !sameValues(v[id], reference[id]);
-  const idClass = (id: MatchIdentifier) =>
-    `text-xs font-mono ${differs(id) ? 'text-amber-700 dark:text-amber-400 font-semibold' : ''}`;
   return (
-    <>
+    <tr className="align-top">
+      <td className="font-mono text-xs whitespace-nowrap">
+        {discrepancy && discrepancy.length > 0 && (
+          <span title={`Standardized differently - ${discrepancy.join('; ')}`} className="cursor-help">
+            <AlertTriangle size={11} className="inline mr-1 text-amber-700 dark:text-amber-400" />
+          </span>
+        )}
+        {name}
+      </td>
       <td className="text-xs">{v.var_label || '—'}</td>
       <td className="text-xs">{v.concept_name || '—'}</td>
-      <td className={idClass('concept_code')}>{v.concept_code || '—'}</td>
-      <td className={idClass('omop_id')}>{v.omop_id || '—'}</td>
       <td className="text-xs">
         <VisitCell v={v} />
       </td>
@@ -185,7 +178,7 @@ function VariableCells({
       <td className="text-xs">
         <ValuesCell v={v} stats={stats} />
       </td>
-    </>
+    </tr>
   );
 }
 
@@ -194,60 +187,76 @@ function CohortGroup({
   rows,
   variable,
   stats,
+  collapsed,
+  onToggle,
   onNavigate,
+  innerRef,
 }: {
   cohortId: string;
   rows: SemanticMatch[];
   variable: Variable;
   stats?: SummaryStatsByName;
+  collapsed: boolean;
+  onToggle: () => void;
   onNavigate: () => void;
+  innerRef: (el: HTMLDivElement | null) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? rows : rows.slice(0, ROWS_PER_COHORT);
   const hidden = rows.length - visible.length;
 
   return (
-    <div className="rounded-lg border border-base-300 bg-base-100">
-      <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-base-200">
-        <Link
-          href={{pathname: '/cohorts', query: {cohort: cohortId}}}
-          onClick={onNavigate}
-          className="inline-flex items-center gap-1.5 font-semibold link link-hover"
-          title={`Open ${cohortId} on the explore page`}
-        >
-          {cohortId}
-          <ExternalLink size={13} className="opacity-60" />
-        </Link>
+    <div ref={innerRef} className="rounded-lg border border-base-300 bg-base-100 scroll-mt-2">
+      <div
+        className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none hover:bg-base-200/60 rounded-t-lg"
+        onClick={onToggle}
+        role="button"
+        aria-expanded={!collapsed}
+      >
+        {collapsed ? <ChevronRight size={14} className="opacity-60" /> : <ChevronDown size={14} className="opacity-60" />}
+        <span className="font-semibold">{cohortId}</span>
         <span className="badge badge-sm badge-ghost">
           {rows.length} {rows.length === 1 ? 'variable' : 'variables'}
         </span>
+        <span className="flex-1" />
+        <Link
+          href={{pathname: '/cohorts', query: {cohort: cohortId}}}
+          onClick={e => {
+            e.stopPropagation();
+            onNavigate();
+          }}
+          className="inline-flex items-center gap-1 text-xs link link-hover text-base-content/60"
+          title={`Open ${cohortId} on the explore page`}
+        >
+          open cohort <ExternalLink size={12} />
+        </Link>
       </div>
-      <div className="overflow-x-auto">
-        <table className="table table-xs">
-          <HeaderRow last="Matched on" />
-          <tbody>
-            {visible.map(c => (
-              <tr key={c.varName} className="align-top">
-                <td className="font-mono text-xs whitespace-nowrap">{c.varName}</td>
-                <VariableCells v={c.variable} stats={statsFor(stats, c.varName)} reference={variable} matchedOn={c.matchedOn} />
-                <td className="text-xs whitespace-nowrap">
-                  {IDENTIFIER_ORDER.filter(id => c.matchedOn.includes(id)).map(id => (
-                    <span key={id} className="badge badge-xs mr-1" style={idBadgeStyle}>
-                      {IDENTIFIER_LABELS[id]}
-                    </span>
-                  ))}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {hidden > 0 && (
-        <div className="px-3 py-1.5 border-t border-base-200">
-          <button type="button" className="btn btn-ghost btn-xs" onClick={() => setShowAll(true)}>
-            Show all {rows.length} ({hidden} more)
-          </button>
-        </div>
+      {!collapsed && (
+        <>
+          <div className="overflow-x-auto border-t border-base-200">
+            <table className="table table-xs">
+              <HeaderRow />
+              <tbody>
+                {visible.map(c => (
+                  <VariableRow
+                    key={c.varName}
+                    name={c.varName}
+                    v={c.variable}
+                    stats={statsFor(stats, c.varName)}
+                    discrepancy={discrepancies(c.variable, variable, c.matchedOn)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {hidden > 0 && (
+            <div className="px-3 py-1.5 border-t border-base-200">
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setShowAll(true)}>
+                Show all {rows.length} ({hidden} more)
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -265,6 +274,8 @@ export default function SemanticMatchesModal({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const dialog = ref.current;
@@ -306,9 +317,17 @@ export default function SemanticMatchesModal({
   const nCohorts = semanticMatches.cohortIds.length;
   const close = () => ref.current?.close();
 
+  // A cohort chip expands its group (if collapsed) and scrolls the modal to it.
+  const jumpTo = (id: string) => {
+    setCollapsed(prev => ({...prev, [id]: false}));
+    requestAnimationFrame(() => {
+      groupRefs.current[id]?.scrollIntoView({behavior: 'smooth', block: 'start'});
+    });
+  };
+
   return (
     <dialog ref={ref} className="modal">
-      <div className="modal-box max-w-7xl w-[95vw] space-y-3">
+      <div className="modal-box max-w-6xl w-[95vw] space-y-3">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h3 className="font-bold text-lg flex items-center gap-2">
@@ -332,6 +351,22 @@ export default function SemanticMatchesModal({
               ))}
               .
             </p>
+            {/* Cohort chips: one per cohort with matches, click to jump to its group */}
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              <span className="text-xs text-base-content/50">In:</span>
+              {byCohort.map(([id, rows]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => jumpTo(id)}
+                  className="badge gap-1 border cursor-pointer bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700 dark:hover:bg-emerald-900/50"
+                  title={`Jump to the ${rows.length} matching ${rows.length === 1 ? 'variable' : 'variables'} of ${id}`}
+                >
+                  {id}
+                  <span className="font-mono text-[10px] opacity-70">{rows.length}</span>
+                </button>
+              ))}
+            </div>
           </div>
           <button type="button" className="btn btn-sm btn-circle btn-ghost flex-shrink-0" onClick={close} aria-label="Close">
             ✕
@@ -340,20 +375,14 @@ export default function SemanticMatchesModal({
 
         {/* The variable itself, for side-by-side comparison with its matches */}
         <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 border-l-4 border-l-emerald-500 bg-base-100">
-          <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-base-200">
-            <span className="font-semibold">
-              This variable <span className="text-base-content/50 font-normal">({cohortId})</span>
-            </span>
+          <div className="px-3 py-2 border-b border-base-200 font-semibold">
+            This variable <span className="text-base-content/50 font-normal">({cohortId})</span>
           </div>
           <div className="overflow-x-auto">
             <table className="table table-xs">
-              <HeaderRow last="" />
+              <HeaderRow />
               <tbody>
-                <tr className="align-top">
-                  <td className="font-mono text-xs whitespace-nowrap">{variable.var_name}</td>
-                  <VariableCells v={variable} stats={statsFor(statsByCohort[cohortId], variable.var_name)} />
-                  <td />
-                </tr>
+                <VariableRow name={variable.var_name} v={variable} stats={statsFor(statsByCohort[cohortId], variable.var_name)} />
               </tbody>
             </table>
           </div>
@@ -367,15 +396,21 @@ export default function SemanticMatchesModal({
               rows={rows}
               variable={variable}
               stats={statsByCohort[otherCohortId]}
+              collapsed={!!collapsed[otherCohortId]}
+              onToggle={() => setCollapsed(prev => ({...prev, [otherCohortId]: !prev[otherCohortId]}))}
               onNavigate={close}
+              innerRef={el => {
+                groupRefs.current[otherCohortId] = el;
+              }}
             />
           ))}
         </div>
 
         <p className="text-xs text-base-content/50">
           Values: min / max from the data dictionary, or from the cohort&apos;s summary statistics when the dictionary has
-          none; median from the summary statistics. Amber identifiers differ from this variable&apos;s: the two cohorts
-          standardized the same concept differently. The full picture across all cohorts is on the{' '}
+          none; median from the summary statistics. An amber marker next to a variable means the other cohort
+          standardized the same concept with a different concept code or OMOP ID (hover for details). The full picture
+          across all cohorts is on the{' '}
           <Link href="/concept-clusters" className="link" onClick={close}>
             Concept Clusters
           </Link>{' '}

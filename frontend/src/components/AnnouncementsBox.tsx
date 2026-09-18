@@ -15,6 +15,10 @@ export interface Announcement {
   text: string;
   date: string; // YYYY-MM-DD
   tag: string;
+  // Catalog cohorts mentioned in the text, matched by the backend. Lets the
+  // names link even for visitors who are not logged in (they have no cohort
+  // list of their own); the link then leads to the explore page's login prompt.
+  cohorts?: string[];
 }
 
 const ROTATE_MS = 7000;
@@ -44,8 +48,10 @@ function formatDate(iso: string): string {
 export default function AnnouncementsBox() {
   const {cohortsData} = useCohorts();
   // Catalog cohort names: mentions in announcement texts become links to the
-  // explore page with that cohort's section opened.
+  // explore page with that cohort's section opened. The loaded cohorts (when
+  // logged in) are joined with the names the backend found in each text.
   const cohortNames = useMemo(() => Object.keys(cohortsData || {}), [cohortsData]);
+  const namesFor = (a: Announcement) => [...cohortNames, ...(a.cohorts || [])];
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [index, setIndex] = useState(0);
   const [showAll, setShowAll] = useState(false);
@@ -133,7 +139,7 @@ export default function AnnouncementsBox() {
             announcements rotate, so nothing below it shifts. Keyed on the
             announcement so each change fades in. */}
         <p key={current.id} className="announce-fade text-base leading-6 mt-2 min-h-[4.5rem] line-clamp-3">
-          <CohortLinkedText text={current.text} names={cohortNames} />
+          <CohortLinkedText text={current.text} names={namesFor(current)} />
         </p>
       </div>
 
@@ -163,7 +169,7 @@ export default function AnnouncementsBox() {
                   <span className="text-xs text-base-content/50 whitespace-nowrap w-24 shrink-0 pt-0.5">{formatDate(a.date)}</span>
                   <TagChip tag={a.tag} />
                   <span className="text-sm">
-                    <CohortLinkedText text={a.text} names={cohortNames} />
+                    <CohortLinkedText text={a.text} names={namesFor(a)} />
                   </span>
                 </li>
               ))}
