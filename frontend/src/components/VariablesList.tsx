@@ -26,6 +26,19 @@ const matchedFrameClass = (otherCohorts: number): string => {
   return `border-emerald-200 dark:border-emerald-800 border-l-4 ${accent}`;
 };
 
+// Order of the variable cards: by number of semantic matches (most other
+// cohorts first, then most matching variables), alphabetically by name, or as
+// listed in the cohort's metadata (data dictionary). Ties keep the metadata order.
+type VariableOrder = 'matches' | 'alpha' | 'metadata';
+
+const ORDER_OPTIONS: {value: VariableOrder; label: string; title: string}[] = [
+  {value: 'matches', label: 'Matches', title: 'Variables with semantic matches in other cohorts first: most cohorts, then most matching variables'},
+  {value: 'alpha', label: 'A–Z', title: 'Alphabetically by variable name'},
+  {value: 'metadata', label: 'Metadata', title: 'As listed in the cohort\'s metadata (data dictionary)'},
+];
+
+const byName = (a: string, b: string) => a.localeCompare(b, undefined, {numeric: true, sensitivity: 'base'});
+
 // Compact number for the card's numeric summary line ("120", "2.5", "3.14").
 const fmtStat = (x: any): string => {
   if (x === null || x === undefined || x === '') return '';
@@ -91,13 +104,12 @@ const VariablesList = ({
   // Semantic matches (see utils/semanticMatches): variables of OTHER cohorts
   // sharing this variable's concept code or OMOP ID. Cards of such variables
   // get an emerald frame and a badge that opens the list; by default they are
-  // listed first, ordered by how many other cohorts hold a match, then by how
-  // many matching variables there are.
+  // listed first (see VariableOrder).
   const matchIndex: SemanticMatchIndex = semanticMatchIndex || EMPTY_SEMANTIC_MATCH_INDEX;
   const semanticMatchesOf = (varName: string): VariableSemanticMatches | undefined =>
     matchIndex.byVariable.get(semanticMatchKey(cohortId, varName));
   const [openedMatchesModal, setOpenedMatchesModal] = useState<string | null>(null);
-  const [matchesFirst, setMatchesFirst] = useState(true);
+  const [order, setOrder] = useState<VariableOrder>('matches');
   const [activeSourceTab, setActiveSourceTab] = useState<string | null>(null);
   const [isTabSwitching, setIsTabSwitching] = useState(false);
   // Summary statistics for this cohort's variables (median; min/max as a
@@ -415,8 +427,9 @@ const VariablesList = ({
     if (sourceTabs.length > 0 && activeSourceTab && activeSourceTab !== '__all__') {
       vars = filteredVars.filter((v: any) => parseSources(v.source_name).includes(activeSourceTab));
     }
-    if (!matchesFirst) return vars;
-    // Stable sort: ties keep the dictionary order.
+    if (order === 'metadata') return vars;
+    if (order === 'alpha') return [...vars].sort((a: any, b: any) => byName(a.var_name, b.var_name));
+    // Stable sort: ties keep the metadata order.
     const rank = (v: any): [number, number] => {
       const c = matchIndex.byVariable.get(semanticMatchKey(cohortId, v.var_name));
       return c ? [c.cohortIds.length, c.matches.length] : [0, 0];
@@ -425,7 +438,7 @@ const VariablesList = ({
       .map((v: any, i: number) => ({v, i, r: rank(v)}))
       .sort((a: any, b: any) => b.r[0] - a.r[0] || b.r[1] - a.r[1] || a.i - b.i)
       .map((x: any) => x.v);
-  }, [filteredVars, sourceTabs, activeSourceTab, matchesFirst, matchIndex, cohortId]);
+  }, [filteredVars, sourceTabs, activeSourceTab, order, matchIndex, cohortId]);
 
   // Handle tab switching with animation
   const handleSourceTabClick = (tab: string) => {
@@ -532,25 +545,29 @@ const VariablesList = ({
           </div>
         )}
         
-        {/* Order: variables with semantic matches first, or dictionary order */}
-        <div
-          className="join w-full mb-1"
-          title="Variables with an emerald frame have semantic matches in other cohorts (same concept code or OMOP ID). 'Matches first' lists them at the top, most cohorts first."
-        >
-          <button
-            type="button"
-            className={`join-item btn btn-xs flex-1 gap-1 ${matchesFirst ? 'bg-emerald-100 border-emerald-300 text-emerald-900 hover:bg-emerald-200 hover:border-emerald-300 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-100' : 'btn-ghost text-base-content/60'}`}
-            onClick={() => setMatchesFirst(true)}
-          >
-            <Link2 size={12} /> Matches first
-          </button>
-          <button
-            type="button"
-            className={`join-item btn btn-xs flex-1 ${!matchesFirst ? 'btn-active' : 'btn-ghost text-base-content/60'}`}
-            onClick={() => setMatchesFirst(false)}
-          >
-            Dictionary
-          </button>
+        {/* Order of the cards: semantic matches / alphabetical / metadata */}
+        <div className="text-[11px] uppercase tracking-wide text-base-content/50 mb-0.5">Order by</div>
+        <div className="join w-full mb-1">
+          {ORDER_OPTIONS.map(opt => {
+            const active = order === opt.value;
+            const activeClass =
+              opt.value === 'matches'
+                ? 'bg-emerald-100 border-emerald-300 text-emerald-900 hover:bg-emerald-200 hover:border-emerald-300 dark:bg-emerald-900/40 dark:border-emerald-700 dark:text-emerald-100'
+                : 'btn-active';
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                className={`join-item btn btn-xs flex-1 gap-1 px-1 ${active ? activeClass : 'btn-ghost text-base-content/60'}`}
+                title={opt.title}
+                aria-pressed={active}
+                onClick={() => setOrder(opt.value)}
+              >
+                {opt.value === 'matches' && <Link2 size={12} />}
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
         <div className="flex items-center justify-center gap-1.5 text-[11px] text-base-content/50 mb-1">
           <span className="inline-flex gap-0.5" aria-hidden="true">
