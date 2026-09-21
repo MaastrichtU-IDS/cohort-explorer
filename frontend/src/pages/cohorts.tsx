@@ -6,6 +6,9 @@ import {useCohorts} from '@/components/CohortsContext';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
 import VariablesList from '@/components/VariablesList';
+import SemanticMatchesModal from '@/components/SemanticMatchesModal';
+import SemanticMatchesBadge, {matchedFrameClass} from '@/components/SemanticMatchesBadge';
+import {EMPTY_SEMANTIC_MATCH_INDEX, SemanticMatchIndex, semanticMatchKey} from '@/utils/semanticMatches';
 import CohortSummaryGraphs from '@/components/CohortSummaryGraphs';
 import GenderPieChart from '@/components/GenderPieChart';
 import AgeDistributionBar from '@/components/AgeDistributionBar';
@@ -486,9 +489,14 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
   searchTerms: string[];
   searchMode: 'or' | 'and' | 'exact';
 }) => {
-  const {cohortsData, updateCohortData} = useCohorts();
+  const {cohortsData, updateCohortData, semanticMatchIndex} = useCohorts();
   const [openedModal, setOpenedModal] = useState('');
   const [openedGraphModal, setOpenedGraphModal] = useState<string | null>(null);
+  // Semantic matches in other cohorts: same frame, badge and modal as the
+  // variable cards of the Variables List tab.
+  const matchIndex: SemanticMatchIndex = semanticMatchIndex || EMPTY_SEMANTIC_MATCH_INDEX;
+  const [openedMatchesModal, setOpenedMatchesModal] = useState<string | null>(null);
+  const handleCloseMatchesModal = useCallback(() => setOpenedMatchesModal(null), []);
   // Names (lowercased) of this cohort's variables that have summary statistics
   // on record: those names render in teal with a clickable stats chip; null
   // while loading (renders plain until known).
@@ -625,8 +633,13 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
       {matchedVariables.length > 0 && (
         <div className="space-y-2">
           <h3 className="font-bold text-lg">Matching Variables</h3>
-          {matchedVariables.map((variable: any) => (
-            <div key={variable.var_name} className="card card-compact card-bordered bg-base-100 shadow-xl">
+          {matchedVariables.map((variable: any) => {
+            const shared = matchIndex.byVariable.get(semanticMatchKey(cohortId, variable.var_name));
+            return (
+            <div
+              key={variable.var_name}
+              className={`card card-compact card-bordered bg-base-100 shadow-xl ${shared ? matchedFrameClass(shared.cohortIds.length) : ''}`}
+            >
               <div className="card-body">
                 <div className="flex justify-between">
                   <div className="flex flex-wrap items-center space-x-3">
@@ -730,6 +743,9 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
                   </div>
                 )}
 
+                {/* Semantic matches in other cohorts: the badge that opens the list */}
+                {shared && <SemanticMatchesBadge shared={shared} onClick={() => setOpenedMatchesModal(variable.var_name)} />}
+
                 {/* Source info modal */}
                 {openedModal === variable.var_name && (
                   <dialog id={`source_modal_search_${cohortId}_${variable.var_name}`} className="modal">
@@ -823,9 +839,18 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
+
+      {/* Semantic matches modal — rendered outside the card loop */}
+      {openedMatchesModal && (() => {
+        const variable = matchedVariables.find((v: any) => v.var_name === openedMatchesModal);
+        const shared = variable ? matchIndex.byVariable.get(semanticMatchKey(cohortId, variable.var_name)) : undefined;
+        if (!variable || !shared) return null;
+        return <SemanticMatchesModal cohortId={cohortId} variable={variable} semanticMatches={shared} onClose={handleCloseMatchesModal} />;
+      })()}
 
       {/* Graph modal — rendered outside the card loop */}
       {openedGraphModal && (() => {
@@ -863,7 +888,9 @@ export default function CohortsList() {
   // State to track which cohorts have collapsed metadata
   const [collapsedMetadata, setCollapsedMetadata] = useState<{[key: string]: boolean}>({});
   // State to track active sub-tab for each cohort ('metadata' | 'graphs' | 'list' | 'eda')
-  const [activeSubTab, setActiveSubTab] = useState<{[key: string]: 'metadata' | 'graphs' | 'list' | 'eda'}>({});
+  // 'search' = the per-cohort search results ("Search Matches"), available
+  // while that cohort's search box holds a query.
+  const [activeSubTab, setActiveSubTab] = useState<{[key: string]: 'metadata' | 'graphs' | 'list' | 'eda' | 'search'}>({});
   // State to track which cohorts have EDA data available
   const [edaAvailability, setEdaAvailability] = useState<{[key: string]: boolean}>({});
   // cohortId -> variables (lowercased) with summary statistics: marks matched
@@ -1129,17 +1156,18 @@ export default function CohortsList() {
     // Expand the cohort if not already expanded
     if (!expandedCohorts[cohortId]) {
       setExpandedCohorts(prev => ({ ...prev, [cohortId]: true }));
-      setActiveSubTab(prev => ({ ...prev, [cohortId]: 'metadata' }));
       setShimmerActive(prev => ({ ...prev, [cohortId]: true }));
       setTimeout(() => {
         setShimmerActive(prev => ({ ...prev, [cohortId]: false }));
       }, 1500);
     }
-    // Set the per-cohort search query to the same terms as the main search
+    // Set the per-cohort search query to the same terms as the main search,
+    // and show its results
     setCohortSearchQueries(prev => ({
       ...prev,
       [cohortId]: searchInput
     }));
+    setActiveSubTab(prev => ({ ...prev, [cohortId]: 'search' }));
     // Scroll to the cohort after a short delay to allow expansion
     setTimeout(() => {
       const el = document.getElementById(`cohort-card-${cohortId}`);
@@ -1687,6 +1715,25 @@ export default function CohortsList() {
                           Analyses & Insights <span className="text-xs font-normal opacity-70">(beta)</span>
                         </button>
                       )}
+                      {/* Search Matches: the results of this cohort's search box,
+                          present while it holds a query. The other sub-tabs stay
+                          usable meanwhile - the search is kept, not cleared. */}
+                      {(cohortSearchQueries[cohortData.cohort_id] || '').trim() && (
+                        <button
+                          onClick={(e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            setActiveSubTab(prev => ({...prev, [cohortData.cohort_id]: 'search'}));
+                          }}
+                          className={`btn btn-lg rounded-full ${
+                            activeSubTab[cohortData.cohort_id] === 'search'
+                              ? 'bg-amber-400 border-amber-400 text-black hover:bg-amber-500 hover:border-amber-500'
+                              : 'btn-outline border-amber-400 text-amber-900 hover:bg-amber-100 hover:border-amber-400 hover:text-amber-900'
+                          }`}
+                          style={{ minWidth: '200px' }}
+                        >
+                          🔍 Search Matches
+                        </button>
+                      )}
                     </div>
                     
                     {/* Action buttons - below the sub-tabs */}
@@ -1769,10 +1816,16 @@ export default function CohortsList() {
                           value={cohortSearchQueries[cohortData.cohort_id] || ''}
                           onChange={(e) => {
                             e.stopPropagation();
+                            const value = e.target.value;
                             setCohortSearchQueries(prev => ({
                               ...prev,
-                              [cohortData.cohort_id]: e.target.value
+                              [cohortData.cohort_id]: value
                             }));
+                            // A query shows its matches; an emptied box leaves the search tab
+                            setActiveSubTab(prev => {
+                              if (value.trim()) return {...prev, [cohortData.cohort_id]: 'search'};
+                              return prev[cohortData.cohort_id] === 'search' ? {...prev, [cohortData.cohort_id]: 'metadata'} : prev;
+                            });
                           }}
                           onClick={(e) => e.stopPropagation()}
                         />
@@ -1785,6 +1838,9 @@ export default function CohortsList() {
                                 delete next[cohortData.cohort_id];
                                 return next;
                               });
+                              setActiveSubTab(prev =>
+                                prev[cohortData.cohort_id] === 'search' ? {...prev, [cohortData.cohort_id]: 'metadata'} : prev
+                              );
                             }}
                             className="btn btn-sm btn-ghost btn-circle"
                             title="Clear search"
@@ -1797,8 +1853,8 @@ export default function CohortsList() {
                   </>
                 )}
 
-                {/* Per-cohort search results — shown above normal content when active */}
-                {(() => {
+                {/* Search Matches tab content: the per-cohort search results */}
+                {activeSubTab[cohortData.cohort_id] === 'search' && (() => {
                   const cohortSearchQ = cohortSearchQueries[cohortData.cohort_id] || '';
                   const cohortSearchTerms = cohortSearchQ.trim().split(/\s+/).filter((t: string) => t.length > 0);
                   if (cohortSearchTerms.length === 0) return null;
@@ -1812,8 +1868,10 @@ export default function CohortsList() {
                   );
                 })()}
 
-                {/* Study Metadata Tab Content — hidden when per-cohort search is active */}
-                {(!(cohortSearchQueries[cohortData.cohort_id] || '').trim()) && (activeSubTab[cohortData.cohort_id] === 'metadata' || !activeSubTab[cohortData.cohort_id]) && (
+                {/* Study Metadata Tab Content (also the fallback when the search tab is selected but its box is empty) */}
+                {(activeSubTab[cohortData.cohort_id] === 'metadata' ||
+                  !activeSubTab[cohortData.cohort_id] ||
+                  (activeSubTab[cohortData.cohort_id] === 'search' && !(cohortSearchQueries[cohortData.cohort_id] || '').trim())) && (
                   <>
                 {/* Display study objective section */}
                 {cohortData.study_objective && (
@@ -2182,8 +2240,8 @@ export default function CohortsList() {
                   </>
                 )}
                 
-                {/* Variables Graphs + List Tab Content — hidden when per-cohort search is active */}
-                {!(cohortSearchQueries[cohortData.cohort_id] || '').trim() && activeSubTab[cohortData.cohort_id] === 'graphs' && (
+                {/* Variables Graphs + List Tab Content */}
+                {activeSubTab[cohortData.cohort_id] === 'graphs' && (
                   <>
                     {/* Summary Graphs Section */}
                     <CohortSummaryGraphs 
@@ -2229,8 +2287,8 @@ export default function CohortsList() {
                   </>
                 )}
                 
-                {/* Variables List Only Tab Content — hidden when per-cohort search is active */}
-                {!(cohortSearchQueries[cohortData.cohort_id] || '').trim() && activeSubTab[cohortData.cohort_id] === 'list' && (
+                {/* Variables List Only Tab Content */}
+                {activeSubTab[cohortData.cohort_id] === 'list' && (
                   <VariablesList 
                     cohortId={cohortData.cohort_id} 
                     searchFilters={{
@@ -2255,8 +2313,8 @@ export default function CohortsList() {
                   />
                 )}
                 
-                {/* Analyses & Insights Tab Content — hidden when per-cohort search is active */}
-                {!(cohortSearchQueries[cohortData.cohort_id] || '').trim() && activeSubTab[cohortData.cohort_id] === 'eda' && (
+                {/* Analyses & Insights Tab Content */}
+                {activeSubTab[cohortData.cohort_id] === 'eda' && (
                   <EdaDashboard cohortId={cohortData.cohort_id} />
                 )}
               </div>

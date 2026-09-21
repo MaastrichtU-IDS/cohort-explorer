@@ -4,6 +4,7 @@ import AutocompleteConcept from '@/components/AutocompleteConcept';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import VariableGraphModal from '@/components/VariableGraphModal';
 import SemanticMatchesModal from '@/components/SemanticMatchesModal';
+import SemanticMatchesBadge, {matchedFrameClass} from '@/components/SemanticMatchesBadge';
 import {InfoIcon} from '@/components/Icons';
 import {Concept, Variable} from '@/types';
 import {apiUrl} from '@/utils';
@@ -11,20 +12,6 @@ import {parseSearchQuery, searchInObject, highlightSearchTerms} from '@/utils/se
 import {fmtStat, loadEdaSummaryStats, valueRange, SummaryStatsByName} from '@/utils/variableStats';
 import {SemanticMatchIndex, EMPTY_SEMANTIC_MATCH_INDEX, VariableSemanticMatches, semanticMatchKey} from '@/utils/semanticMatches';
 import {Link2} from 'react-feather';
-
-// Frame of a variable card that has semantic matches in other cohorts: a
-// light emerald border plus a left accent whose depth grows with the number of
-// other cohorts holding a match (1 / 2 / 3+), so a list sorted "matches first"
-// fades from dark to light as you scroll. Dark mode brightens instead.
-const matchedFrameClass = (otherCohorts: number): string => {
-  const accent =
-    otherCohorts >= 3
-      ? 'border-l-emerald-700 dark:border-l-emerald-300'
-      : otherCohorts === 2
-        ? 'border-l-emerald-500 dark:border-l-emerald-500'
-        : 'border-l-emerald-300 dark:border-l-emerald-700';
-  return `border-emerald-200 dark:border-emerald-800 border-l-4 ${accent}`;
-};
 
 // Order of the variable cards: by number of semantic matches (most other
 // cohorts first, then most matching variables), alphabetically by name, or as
@@ -844,22 +831,8 @@ const VariablesList = ({
                     );
                   })()}
 
-                {/* Semantic matches in other cohorts: the badge that opens the
-                    list, centered on the card's bottom line */}
-                {shared && (
-                  <div className="mt-2 flex justify-center">
-                    <button
-                      type="button"
-                      className="badge gap-1 border cursor-pointer bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700 dark:hover:bg-emerald-900/50"
-                      title={`${shared.matches.length} variable${shared.matches.length === 1 ? '' : 's'} in ${shared.cohortIds.join(', ')} match${shared.matches.length === 1 ? 'es' : ''} this variable on concept code or OMOP ID. Click to see them.`}
-                      onClick={() => setOpenedMatchesModal(variable.var_name)}
-                    >
-                      <Link2 size={12} />
-                      {shared.matches.length} semantic {shared.matches.length === 1 ? 'match' : 'matches'} in{' '}
-                      {shared.cohortIds.length} {shared.cohortIds.length === 1 ? 'cohort' : 'cohorts'}
-                    </button>
-                  </div>
-                )}
+                {/* Semantic matches in other cohorts: the badge that opens the list */}
+                {shared && <SemanticMatchesBadge shared={shared} onClick={() => setOpenedMatchesModal(variable.var_name)} />}
 
                 {/* (i) popup: the variable's row of the cohort's data dictionary,
                     column by column, as uploaded - nothing computed, no
