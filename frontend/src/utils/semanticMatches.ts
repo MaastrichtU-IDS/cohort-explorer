@@ -2,8 +2,9 @@ import {Cohort, Variable} from '@/types';
 
 // Semantic matches: a variable's semantic matches are the variables of OTHER
 // cohorts that share one of its standard identifiers (concept code or OMOP
-// ID). Same-cohort siblings (e.g. the same concept at several visits) are not
-// matches. Identifiers may be pipe-separated lists, are compared
+// ID); they decide which variables are marked and how they rank. Same-cohort
+// siblings (e.g. the same concept at several visits) are recorded alongside,
+// for display only. Identifiers may be pipe-separated lists, are compared
 // case-insensitively, and empty /
 // "NA" values are ignored. "0" is skipped as well: OMOP concept id 0 is the
 // "no matching concept" sentinel and would link every unmapped variable.
@@ -24,10 +25,12 @@ export interface SemanticMatch {
 }
 
 export interface VariableSemanticMatches {
-  // Sorted by cohort id, then variable name.
+  // Matches in OTHER cohorts, sorted by cohort id, then variable name.
   matches: SemanticMatch[];
   // Distinct other cohorts holding a match, sorted.
   cohortIds: string[];
+  // Other variables of the SAME cohort sharing an identifier, sorted by name.
+  sameCohort: SemanticMatch[];
   // The variable's own identifier values that found a match (as written in
   // its dictionary), per identifier type.
   matchedValues: Record<MatchIdentifier, string[]>;
@@ -86,6 +89,7 @@ export function buildSemanticMatchIndex(cohortsData: Record<string, Cohort> | nu
 
   for (const {cohortId, varName, variable} of all) {
     const found = new Map<string, SemanticMatch>();
+    const foundSame = new Map<string, SemanticMatch>();
     const matchedValues: Record<MatchIdentifier, string[]> = {concept_code: [], omop_id: []};
     for (const id of identifiers) {
       for (const value of splitIdentifierValues(variable[id])) {
@@ -93,25 +97,29 @@ export function buildSemanticMatchIndex(cohortsData: Record<string, Cohort> | nu
         if (!hits) continue;
         let matched = false;
         for (const hit of hits) {
-          if (hit.cohortId === cohortId) continue;
-          matched = true;
+          const same = hit.cohortId === cohortId;
+          if (same && hit.varName === varName) continue;
+          if (!same) matched = true;
+          const bucket = same ? foundSame : found;
           const key = semanticMatchKey(hit.cohortId, hit.varName);
-          const existing = found.get(key);
+          const existing = bucket.get(key);
           if (existing) {
             if (!existing.matchedOn.includes(id)) existing.matchedOn.push(id);
           } else {
-            found.set(key, {cohortId: hit.cohortId, varName: hit.varName, variable: hit.variable, matchedOn: [id]});
+            bucket.set(key, {cohortId: hit.cohortId, varName: hit.varName, variable: hit.variable, matchedOn: [id]});
           }
         }
         if (matched && !matchedValues[id].includes(value)) matchedValues[id].push(value);
       }
     }
+    // Only cross-cohort matches mark a variable; same-cohort siblings ride along.
     if (found.size === 0) continue;
     const matches = Array.from(found.values()).sort(
       (a, b) => a.cohortId.localeCompare(b.cohortId) || a.varName.localeCompare(b.varName)
     );
     const cohortIds = Array.from(new Set(matches.map(c => c.cohortId))).sort();
-    byVariable.set(semanticMatchKey(cohortId, varName), {matches, cohortIds, matchedValues});
+    const sameCohort = Array.from(foundSame.values()).sort((a, b) => a.varName.localeCompare(b.varName));
+    byVariable.set(semanticMatchKey(cohortId, varName), {matches, cohortIds, sameCohort, matchedValues});
   }
 
   return {byVariable};

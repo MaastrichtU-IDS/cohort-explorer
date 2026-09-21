@@ -28,16 +28,20 @@ export default function SemanticMatchesBadge({
 }) {
   const n = shared.matches.length;
   const c = shared.cohortIds.length;
+  const same = shared.sameCohort.length;
   return (
     <div className="mt-2 flex justify-center">
       <button
         type="button"
         className="badge gap-1 border cursor-pointer bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-700 dark:hover:bg-emerald-900/50"
-        title={`${n} variable${n === 1 ? '' : 's'} in ${shared.cohortIds.join(', ')} match${n === 1 ? 'es' : ''} this variable on concept code or OMOP ID. Click to see them.`}
+        title={`${n} variable${n === 1 ? '' : 's'} in ${shared.cohortIds.join(', ')} match${n === 1 ? 'es' : ''} this variable on concept code or OMOP ID${
+          same > 0 ? `, plus ${same} in this cohort` : ''
+        }. Click to see them.`}
         onClick={onClick}
       >
         <Link2 size={12} />
         {n} semantic {n === 1 ? 'match' : 'matches'} in {c} {c === 1 ? 'cohort' : 'cohorts'}
+        {same > 0 && <span className="opacity-70 font-normal">· {same} in this cohort</span>}
       </button>
     </div>
   );

@@ -194,6 +194,7 @@ function CohortGroup({
   onToggle,
   onNavigate,
   innerRef,
+  home = false,
 }: {
   cohortId: string;
   rows: SemanticMatch[];
@@ -203,13 +204,20 @@ function CohortGroup({
   onToggle: () => void;
   onNavigate: () => void;
   innerRef: (el: HTMLDivElement | null) => void;
+  // The variable's own cohort: its other variables sharing an identifier.
+  home?: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? rows : rows.slice(0, ROWS_PER_COHORT);
   const hidden = rows.length - visible.length;
 
   return (
-    <div ref={innerRef} className="rounded-lg border border-base-300 bg-base-100 scroll-mt-2">
+    <div
+      ref={innerRef}
+      className={`rounded-lg border bg-base-100 scroll-mt-2 ${
+        home ? 'border-emerald-200 dark:border-emerald-800 border-dashed' : 'border-base-300'
+      }`}
+    >
       <div
         className="flex items-center gap-2 px-3 py-2 cursor-pointer select-none hover:bg-base-200/60 rounded-t-lg"
         onClick={onToggle}
@@ -217,22 +225,30 @@ function CohortGroup({
         aria-expanded={!collapsed}
       >
         {collapsed ? <ChevronRight size={14} className="opacity-60" /> : <ChevronDown size={14} className="opacity-60" />}
-        <span className="font-semibold">{cohortId}</span>
+        {home ? (
+          <span className="font-semibold">
+            Also in {cohortId} <span className="text-base-content/50 font-normal">(this cohort)</span>
+          </span>
+        ) : (
+          <span className="font-semibold">{cohortId}</span>
+        )}
         <span className="badge badge-sm badge-ghost">
           {rows.length} {rows.length === 1 ? 'variable' : 'variables'}
         </span>
         <span className="flex-1" />
-        <Link
-          href={{pathname: '/cohorts', query: {cohort: cohortId, tab: 'list'}}}
-          onClick={e => {
-            e.stopPropagation();
-            onNavigate();
-          }}
-          className="inline-flex items-center gap-1 text-xs link link-hover text-base-content/60"
-          title={`Open the variables list of ${cohortId}`}
-        >
-          open study <ExternalLink size={12} />
-        </Link>
+        {!home && (
+          <Link
+            href={{pathname: '/cohorts', query: {cohort: cohortId, tab: 'list'}}}
+            onClick={e => {
+              e.stopPropagation();
+              onNavigate();
+            }}
+            className="inline-flex items-center gap-1 text-xs link link-hover text-base-content/60"
+            title={`Open the variables list of ${cohortId}`}
+          >
+            open study <ExternalLink size={12} />
+          </Link>
+        )}
       </div>
       {!collapsed && (
         <>
@@ -318,6 +334,7 @@ export default function SemanticMatchesModal({
 
   const total = semanticMatches.matches.length;
   const nCohorts = semanticMatches.cohortIds.length;
+  const sameCohort = semanticMatches.sameCohort;
   const close = () => ref.current?.close();
 
   // A cohort chip expands its group (if collapsed) and scrolls the modal to it.
@@ -386,10 +403,27 @@ export default function SemanticMatchesModal({
                 .map(id => `the ${IDENTIFIER_LABELS[id]}`)
                 .join(' or ')}
               .
+              {sameCohort.length > 0 && (
+                <>
+                  {' '}
+                  <span className="font-semibold">{sameCohort.length}</span> more within {cohortId} itself.
+                </>
+              )}
             </p>
             {/* Cohort chips: one per cohort with matches, click to jump to its group */}
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
               <span className="text-xs text-base-content/50">In:</span>
+              {sameCohort.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => jumpTo(cohortId)}
+                  className="badge badge-sm gap-1 border border-dashed cursor-pointer bg-base-100 text-emerald-800 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-200 dark:border-emerald-700 dark:hover:bg-emerald-900/30"
+                  title={`Jump to the ${sameCohort.length} other ${sameCohort.length === 1 ? 'variable' : 'variables'} of ${cohortId} sharing an identifier`}
+                >
+                  {cohortId} <span className="opacity-60 font-normal">(this cohort)</span>
+                  <span className="font-mono text-[10px] opacity-70">{sameCohort.length}</span>
+                </button>
+              )}
               {byCohort.map(([id, rows]) => (
                 <button
                   key={id}
@@ -420,6 +454,24 @@ export default function SemanticMatchesModal({
             </table>
           </div>
         </div>
+
+        {/* Other variables of the same cohort sharing an identifier (e.g. the
+            same concept at several visits): right under the variable itself. */}
+        {sameCohort.length > 0 && (
+          <CohortGroup
+            cohortId={cohortId}
+            rows={sameCohort}
+            variable={variable}
+            stats={statsByCohort[cohortId]}
+            collapsed={!!collapsed[cohortId]}
+            onToggle={() => setCollapsed(prev => ({...prev, [cohortId]: !prev[cohortId]}))}
+            onNavigate={close}
+            innerRef={el => {
+              groupRefs.current[cohortId] = el;
+            }}
+            home
+          />
+        )}
 
         <div className="space-y-8 pt-2">
           {byCohort.map(([otherCohortId, rows]) => (
