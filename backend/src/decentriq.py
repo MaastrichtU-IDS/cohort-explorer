@@ -191,10 +191,13 @@ def create_provision_dcr(
             "custom_variables": ["varname", ...]}. Baked into the script at
             provision time.
     """
-    additional_analysts = additional_analysts or []
-    excluded_data_owners = excluded_data_owners or []
+    # Request emails trimmed and lower-cased (split_emails), like every other
+    # address that reaches Decentriq: a case difference must never create a
+    # second participant or defeat an exclusion.
+    additional_analysts = split_emails(additional_analysts)
+    excluded_data_owners = split_emails(excluded_data_owners)
     # The creator must never be excluded from their own DCR.
-    creator_email = user["email"]
+    creator_email = (user["email"] or "").strip().lower()
     excluded_data_owners = [e for e in excluded_data_owners if e != creator_email]
     import time
     start_time = time.time()
@@ -2301,7 +2304,11 @@ def build_dcr_participants(
             }
         }
     """
-    excluded_data_owners = excluded_data_owners or []
+    # Request emails trimmed and lower-cased (split_emails), like the data
+    # owners below and the session email.
+    user_email = (user_email or "").strip().lower()
+    additional_analysts = split_emails(additional_analysts)
+    excluded_data_owners = split_emails(excluded_data_owners)
     participants = {}
     participants[user_email] = {"data_owner_of": set(), "analyst_of": set()}
     

@@ -621,8 +621,10 @@ export function Nav() {
   };
 
   const addAnalyst = useCallback(() => {
-    const email = newAnalystEmail.trim();
-    if (email && !additionalAnalysts.includes(email) && email !== userEmail) {
+    // Stored lower-cased: Decentriq matches participants by exact address and
+    // the backend lower-cases every other email it adds.
+    const email = newAnalystEmail.trim().toLowerCase();
+    if (email && !additionalAnalysts.includes(email) && email !== (userEmail || '').toLowerCase()) {
       setAdditionalAnalysts([...additionalAnalysts, email]);
       setNewAnalystEmail('');
     }
@@ -799,7 +801,7 @@ export function Nav() {
     }
   }, [dataOwners, userEmail, manuallyIncludedOwners]);
   const excludedDataOwners = useMemo(
-    () => dataOwners.map(o => o.email).filter(e => !manuallyIncludedOwners.includes(e)),
+    () => dataOwners.map(o => o.email.toLowerCase()).filter(e => !manuallyIncludedOwners.map(m => m.toLowerCase()).includes(e)),
     [dataOwners, manuallyIncludedOwners]
   );
 
