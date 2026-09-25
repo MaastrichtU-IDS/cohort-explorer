@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useCohorts } from '@/components/CohortsContext';
+import LoginPrompt from '@/components/LoginPrompt';
+import { apiUrl } from '@/utils';
 import { Cohort, Variable } from '@/types';
 import { Grid, ChevronLeft, ChevronRight, Search, Download } from 'react-feather';
 
@@ -83,6 +85,36 @@ function compareVisitKeys(a: string, b: string): number {
   return ka[2].localeCompare(kb[2]);
 }
 
+// Non-null observation counts from the EDA output files (variable profiling),
+// via GET /eda-observation-counts. The dictionary COUNT column is only a
+// fallback: it is declared by the data owners and often 0/empty.
+type EdaCounts = Record<
+  string,
+  { eda_version: string; n_rows: number | null; variables: Record<string, number> }
+>;
+
+function edaCountFor(counts: EdaCounts | null, cohortId: string, varName: string): number | undefined {
+  return counts?.[cohortId]?.variables?.[String(varName).trim().toLowerCase()];
+}
+
+type CountSource = 'eda' | 'dict';
+
+// A variable's non-null count: from the EDA profiling when available, else
+// from the metadata dictionary's COUNT column (empty/0 counts as absent there,
+// since owners leave the column blank far more often than a variable is truly
+// all-missing).
+function variableCount(
+  counts: EdaCounts | null,
+  cohortId: string,
+  variable: Variable
+): { n: number | null; source: CountSource | null } {
+  const eda = edaCountFor(counts, cohortId, variable.var_name);
+  if (eda !== undefined) return { n: eda, source: 'eda' };
+  const dict = Number(variable.count);
+  if (Number.isFinite(dict) && dict > 0) return { n: dict, source: 'dict' };
+  return { n: null, source: null };
+}
+
 // --- Cohort typing: wide format / long format / no variable profiling ---
 
 type CohortType = 'wide' | 'long' | 'none';
@@ -104,7 +136,7 @@ const TYPE_CHIP: Record<CohortType, string> = {
 const CSV_SUFFIX: Record<CohortType, string> = {
   wide: '',
   long: ' (long data format)',
-  none: ' (no variable profiling yet - number of participants shown)',
+  none: ' (no profiling yet. counts from metadata dictionary)',
 };
 
 // Patient-id concept identifiers, same as the c4 longitudinal script.
@@ -123,14 +155,14 @@ function isPatientIdOrGenderVar(v: Variable): boolean {
 
 // Long format = profiled, but the observation count of patient id / gender
 // exceeds the number of participants (several rows per subject).
-function classifyCohort(cohort: Cohort, participants: number | null): CohortType {
-  if (!cohort.eda_version) return 'none';
+function classifyCohort(cohort: Cohort, participants: number | null, counts: EdaCounts | null): CohortType {
+  if (!cohort.eda_version && !counts?.[cohort.cohort_id]) return 'none';
   if (!participants || !cohort.variables) return 'wide';
   let maxIdCount = 0;
   for (const variable of Object.values(cohort.variables) as Variable[]) {
     if (!isPatientIdOrGenderVar(variable)) continue;
-    const count = Number(variable.count);
-    if (Number.isFinite(count) && count > maxIdCount) maxIdCount = count;
+    const { n } = variableCount(counts, cohort.cohort_id, variable);
+    if (n !== null && n > maxIdCount) maxIdCount = n;
   }
   return maxIdCount > participants ? 'long' : 'wide';
 }
@@ -164,6 +196,7 @@ interface CellEntry {
   varName: string;
   varLabel: string;
   count: number | null;
+  source: CountSource | null;
 }
 
 interface HeatCluster {
@@ -189,7 +222,7 @@ function variableIdentifiers(variable: Variable): string[] {
   ];
 }
 
-function buildHeatModel(cohortsData: Record<string, Cohort>): HeatModel {
+function buildHeatModel(cohortsData: Record<string, Cohort>, counts: EdaCounts | null): HeatModel {
   const uf = new UnionFind();
   const members: { cohortId: string; variable: Variable; visitKeys: string[]; ids: string[] }[] = [];
   const visitRegistry: Record<string, Map<string, string>> = {};
@@ -262,15 +295,15 @@ function buildHeatModel(cohortsData: Record<string, Cohort>): HeatModel {
     });
 
     for (const m of group) {
-      const rawCount = m.variable.count;
-      const count = rawCount === null || rawCount === undefined || Number.isNaN(Number(rawCount)) ? null : Number(rawCount);
+      const { n, source } = variableCount(counts, m.cohortId, m.variable);
       for (const visitKey of m.visitKeys) {
         const cellKey = `${m.cohortId}||${visitKey}||${key}`;
         if (!cells.has(cellKey)) cells.set(cellKey, []);
         cells.get(cellKey)!.push({
           varName: m.variable.var_name,
           varLabel: m.variable.var_label || m.variable.var_name,
-          count,
+          count: n,
+          source,
         });
       }
     }
@@ -290,10 +323,26 @@ function buildHeatModel(cohortsData: Record<string, Cohort>): HeatModel {
   return { clusters, visitsByCohort, cells, cohortIds: [...cohortsSeen] };
 }
 
-function cellValue(entries: CellEntry[] | undefined): { n: number | null; entries: CellEntry[] } {
-  if (!entries || entries.length === 0) return { n: null, entries: [] };
-  const counts = entries.map(e => e.count).filter((c): c is number => c !== null);
-  return { n: counts.length > 0 ? Math.max(...counts) : null, entries };
+// The cell's value is the highest count among its variables (EDA counts win
+// ties over dictionary ones); `source` is where that winning count came from.
+function cellValue(entries: CellEntry[] | undefined): {
+  n: number | null;
+  source: CountSource | null;
+  entries: CellEntry[];
+} {
+  if (!entries || entries.length === 0) return { n: null, source: null, entries: [] };
+  let best: CellEntry | null = null;
+  for (const e of entries) {
+    if (e.count === null) continue;
+    if (
+      best === null ||
+      e.count > best.count! ||
+      (e.count === best.count && e.source === 'eda' && best.source !== 'eda')
+    ) {
+      best = e;
+    }
+  }
+  return { n: best ? best.count : null, source: best ? best.source : null, entries };
 }
 
 function formatPct(pct: number): string {
@@ -330,10 +379,11 @@ function buildCsv(
     const values = clusters.map(cluster => {
       const { n, entries } = cellValue(cells.get(`${row.cohortId}||${row.visitKey}||${cluster.key}`));
       if (entries.length === 0) return '';
-      if (row.type === 'none') {
-        return numberFormat === 'raw' ? (row.participants ?? '') : '';
+      if (n === null) {
+        // No EDA and no dictionary count: non-profiled cohorts fall back to
+        // the overall participant count (raw exports only).
+        return numberFormat === 'raw' && row.type === 'none' ? (row.participants ?? '') : '';
       }
-      if (n === null) return '';
       if (numberFormat === 'raw') return n;
       return row.participants ? Number(((n / row.participants) * 100).toFixed(1)) : '';
     });
@@ -361,7 +411,7 @@ function downloadCsv(csv: string, filename: string): void {
 type ExportStep = 'options' | 'warn_mix' | 'warn_pct';
 
 export default function ConceptCoverageHeatmapPage() {
-  const { cohortsData, isLoading } = useCohorts();
+  const { cohortsData, isLoading, userEmail } = useCohorts();
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [cohortFilter, setCohortFilter] = useState<Record<string, boolean>>({});
   const [clusterFilter, setClusterFilter] = useState<Record<string, boolean>>({});
@@ -373,6 +423,24 @@ export default function ConceptCoverageHeatmapPage() {
   const [exportExcludeNonWide, setExportExcludeNonWide] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // null while loading; {} when the request failed (dictionary counts as fallback)
+  const [edaCounts, setEdaCounts] = useState<EdaCounts | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`${apiUrl}/eda-observation-counts`, { credentials: 'include' })
+      .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then(data => {
+        if (alive) setEdaCounts(data && typeof data === 'object' ? (data as EdaCounts) : {});
+      })
+      .catch(err => {
+        console.error('eda observation counts:', err);
+        if (alive) setEdaCounts({});
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -384,18 +452,18 @@ export default function ConceptCoverageHeatmapPage() {
     if (!cohortsData || Object.keys(cohortsData).length === 0) {
       return { clusters: [], visitsByCohort: {}, cells: new Map(), cohortIds: [] } as HeatModel;
     }
-    return buildHeatModel(cohortsData);
-  }, [cohortsData]);
+    return buildHeatModel(cohortsData, edaCounts);
+  }, [cohortsData, edaCounts]);
 
   const cohortInfo = useMemo(() => {
     const out: Record<string, { type: CohortType; participants: number | null }> = {};
     for (const id of model.cohortIds) {
       const cohort = cohortsData?.[id];
       const participants = parseParticipants(cohort?.study_participants);
-      out[id] = { type: cohort ? classifyCohort(cohort, participants) : 'none', participants };
+      out[id] = { type: cohort ? classifyCohort(cohort, participants, edaCounts) : 'none', participants };
     }
     return out;
-  }, [model, cohortsData]);
+  }, [model, cohortsData, edaCounts]);
 
   // Wide format first, then long format, then no profiling; alphabetical within each.
   const allCohortIds = useMemo(
@@ -437,7 +505,6 @@ export default function ConceptCoverageHeatmapPage() {
   const maxN = useMemo(() => {
     let max = 0;
     for (const row of rows) {
-      if (row.type === 'none') continue;
       for (const cluster of visibleClusters) {
         const { n } = cellValue(model.cells.get(`${row.cohortId}||${row.visitKey}||${cluster.key}`));
         if (n !== null && n > max) max = n;
@@ -543,6 +610,14 @@ export default function ConceptCoverageHeatmapPage() {
     </button>
   );
 
+  if (userEmail === null && apiUrl !== 'mock') {
+    return (
+      <main className="flex flex-col items-center justify-center p-4">
+        <LoginPrompt />
+      </main>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-base-100">
       <div className="px-4 py-6">
@@ -553,7 +628,8 @@ export default function ConceptCoverageHeatmapPage() {
           </h1>
           <p className="text-base-content/60 mt-1 text-sm">
             Rows are cohort + visit; columns are variable clusters (variables sharing an OMOP ID or a concept code,
-            inclusive). Each cell shows the number of non-null observations and its percentage of the cohort&apos;s
+            inclusive). Each cell shows the number of non-null observations (from the EDA variable profiling, falling
+            back to the dictionary COUNT column when a cohort has no EDA output) and its percentage of the cohort&apos;s
             participants.
           </p>
         </div>
@@ -753,7 +829,7 @@ export default function ConceptCoverageHeatmapPage() {
                               {row.visitLabel}
                             </td>
                             {visibleClusters.map(cluster => {
-                              const { n, entries } = cellValue(
+                              const { n, source, entries } = cellValue(
                                 model.cells.get(`${row.cohortId}||${row.visitKey}||${cluster.key}`)
                               );
                               if (entries.length === 0) {
@@ -768,8 +844,8 @@ export default function ConceptCoverageHeatmapPage() {
                                   </td>
                                 );
                               }
-                              if (row.type === 'none') {
-                                // No variable profiling yet: only presence is known;
+                              if (n === null && row.type === 'none') {
+                                // Non-profiled cohort AND no dictionary count:
                                 // the participant count stands in for the cell value.
                                 return (
                                   <td
@@ -778,7 +854,7 @@ export default function ConceptCoverageHeatmapPage() {
                                       row.firstOfCohort ? 'border-t border-t-base-300' : ''
                                     }`}
                                     style={{ backgroundColor: 'rgba(148, 163, 184, 0.25)' }}
-                                    title={`No variable profiling yet — participant count shown\n${entries
+                                    title={`No profiling and no dictionary count — overall participant count shown\n${entries
                                       .map(e => `${e.varName} — ${e.varLabel}`)
                                       .join('\n')}`}
                                   >
@@ -791,9 +867,18 @@ export default function ConceptCoverageHeatmapPage() {
                               const intensity =
                                 pct !== null ? Math.min(pct, 1) : n !== null && maxN > 0 ? Math.min(n / maxN, 1) : 0.15;
                               const bg = `rgba(16, 185, 129, ${0.08 + 0.62 * intensity})`;
-                              const tooltip = entries
-                                .map(e => `${e.varName}: ${e.count === null ? 'count n/a' : e.count} — ${e.varLabel}`)
-                                .join('\n');
+                              const sourceNote =
+                                source === 'dict' ? 'count from the metadata dictionary, not EDA profiling' : '';
+                              const tooltip =
+                                (sourceNote ? `${sourceNote}\n` : '') +
+                                entries
+                                  .map(
+                                    e =>
+                                      `${e.varName}: ${e.count === null ? 'count n/a' : e.count}${
+                                        e.source === 'dict' ? ' (dict)' : ''
+                                      } — ${e.varLabel}`
+                                  )
+                                  .join('\n');
                               return (
                                 <td
                                   key={cluster.key}
@@ -803,9 +888,13 @@ export default function ConceptCoverageHeatmapPage() {
                                   style={{ backgroundColor: bg }}
                                   title={tooltip}
                                 >
-                                  <div className="font-mono font-semibold">{n === null ? '?' : n}</div>
+                                  <div className="font-mono font-semibold">
+                                    {n === null ? '?' : n}
+                                    {source === 'dict' && <span className="font-sans font-normal text-base-content/50">*</span>}
+                                  </div>
                                   <div className="text-[10px] text-base-content/60">
                                     {pct !== null ? formatPct(pct) : '—'}
+                                    {source === 'dict' ? ' · dict' : ''}
                                     {entries.length > 1 ? ` · ${entries.length} vars` : ''}
                                   </div>
                                 </td>
@@ -820,7 +909,8 @@ export default function ConceptCoverageHeatmapPage() {
                 <p className="mt-2 text-xs text-base-content/40">
                   Cell color scales with the percentage of non-null observations over the cohort&apos;s participant count.
                   When several variables of a cohort fall in the same cluster and visit, the highest count is shown (hover
-                  for all). Gray cells belong to cohorts without variable profiling: only the participant count is known.
+                  for all). Counts marked with * (&quot;dict&quot;) come from the metadata dictionary&apos;s COUNT column
+                  instead of the EDA profiling. Gray cells have neither: the overall participant count is shown.
                   Long-format cohorts have no fixed visit columns, so their counts aggregate over all visits.
                 </p>
               </main>
@@ -926,9 +1016,10 @@ export default function ConceptCoverageHeatmapPage() {
                 )}
                 {exportTypes.has('none') && (
                   <li>
-                    <span className="font-semibold">Cohorts without variable profiling</span> have no observation counts
-                    yet, so their numbers are the <span className="font-semibold">overall number of participants</span>,
-                    not observation counts.
+                    <span className="font-semibold">Cohorts without variable profiling</span> have no verified
+                    observation counts yet: their numbers come from the{' '}
+                    <span className="font-semibold">metadata dictionary&apos;s COUNT column</span> as declared by the
+                    data owners (or the overall participant count where even that is missing).
                   </li>
                 )}
               </ul>

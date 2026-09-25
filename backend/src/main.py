@@ -16,6 +16,7 @@ from src.data_analysis import router as data_analysis_router
 from src.data_analysis import bare_router as data_analysis_bare_router
 from src.decentriq import router as decentriq_router
 from src.decentriq import refresh_all_dcrs_via_decentriq_api
+from src.eda_counts import router as eda_counts_router
 from src.explore import router as explore_router
 from src.mapping import router as mapping_router
 from src.upload import init_triplestore
@@ -76,6 +77,7 @@ app = FastAPI(
 )
 
 app.include_router(explore_router, tags=["explore"])
+app.include_router(eda_counts_router, tags=["explore"])
 app.include_router(mapping_router, prefix="/api", tags=["mapping"])
 app.include_router(data_analysis_router, prefix="/api", tags=["data-analysis"])
 app.include_router(data_analysis_bare_router, tags=["data-analysis"])
