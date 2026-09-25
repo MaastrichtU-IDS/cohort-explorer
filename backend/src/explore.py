@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from src.auth import get_current_user
 from src.config import settings
 from src.models import Cohort
+from src.observation_counts import all_observation_counts
 from src.utils import retrieve_cohorts_metadata
 from src.cohort_cache import (
     get_cohorts_from_cache,
@@ -45,6 +46,17 @@ def get_cohorts_metadata(summary: bool = False, user: Any = Depends(get_current_
 
     result = cohorts if not summary else {cid: {k: v for k, v in cohort_to_dict(c).items() if k != "variables"} for cid, c in cohorts.items()}
     return {**result, "userEmail": user_email}
+
+
+@router.get("/observation-counts")
+def get_observation_counts(user: Any = Depends(get_current_user)) -> dict:
+    """Per-variable observation counts of every cohort that went through EDA.
+
+    {cohort_id: {eda_version, n_rows, variables: {lowercased var name: {n, empty, missing}}}},
+    where n is the count of non-empty, non-coded-missing values. Cohorts without
+    EDA output are absent. Read from the EDA files and cached until they change.
+    """
+    return all_observation_counts(_get_all_cohort_ids())
 
 
 @router.head("/cohort-eda-output/{cohort_name}")

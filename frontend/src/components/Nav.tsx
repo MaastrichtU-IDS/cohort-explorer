@@ -16,6 +16,24 @@ import {goToLogin} from '@/components/LoginPrompt';
 // OAuth: https://github.com/nextauthjs/next-auth/blob/main/packages/core/src/providers/oauth.ts
 // https://github.com/nextauthjs/next-auth-example/blob/cc1c91a65c70e1a51bfbbb550dbc85e605f0e402/auth.ts
 
+// Nav icon of the Concept Coverage page: a 3 x 3 plain weave (Feather-style strokes),
+// each thread alternately over and under the threads it crosses.
+const WeaveIcon = ({size = 24}: {size?: number}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    aria-hidden="true"
+  >
+    <path d="M6 3v7M6 14v7M12 3v1M12 8v8M12 20v1M18 3v7M18 14v7" />
+    <path d="M3 6h1M8 6h8M20 6h1M3 12h7M14 12h7M3 18h1M8 18h8M20 18h1" />
+  </svg>
+);
+
 export function Nav() {
   const router = useRouter();
   const { pathname } = router;
@@ -822,6 +840,16 @@ export function Nav() {
             </Link>
           </li>
           <li>
+            <Link
+              href="/concept-coverage"
+              className={pathname === '/concept-coverage' ? 'active' : ''}
+              title="Concept Coverage: observation counts of matched concepts across cohorts"
+            >
+              <WeaveIcon size={24} />
+              <span className="text-base">Concept Coverage</span>
+            </Link>
+          </li>
+          <li>
             <Link href="/mapping" className={pathname === '/mapping' ? 'active' : ''}>
               <Map size={24} />
               <span className="text-base">Mapping</span>
@@ -855,6 +883,7 @@ export function Nav() {
           <ul tabIndex={0} className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
             <li><Link href="/upload">Upload</Link></li>
             <li><Link href="/cohorts">Explore</Link></li>
+            <li><Link href="/concept-coverage">Concept Coverage</Link></li>
             <li><Link href="/mapping">Mapping</Link></li>
             <li><Link href="/dcrs">My DCRs</Link></li>
             {aiNavEnabled && <li><Link href="/ai">iCARE-AI</Link></li>}
@@ -876,6 +905,7 @@ export function Nav() {
             pathname === '/cohorts' ||
             pathname === '/mapping' ||
             pathname === '/dcrs' ||
+            pathname === '/concept-coverage' ||
             pathname === '/ai' ||
             pathname.startsWith('/ai/')) && (
             <button id="dcr-button" onClick={openDcrWizard} className="btn bg-white border-2 border-gray-300 shadow-md hover:shadow-lg hover:bg-gray-50 transition-all duration-200 py-3 px-6" style={{ minWidth: '280px' }}>

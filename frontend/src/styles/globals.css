@@ -150,3 +150,71 @@ a.link {
   animation: icare-shimmer 2.2s ease-in-out infinite;
   pointer-events: none;
 }
+
+/* ------------------------------------------------------------------------
+   Concept Coverage (/concept-coverage): the cross-cohort concept x cohort matrix.
+   The matrix surface is the theme's base-100. Only data wears colour: the
+   five --loom-bin-* steps are ONE blue hue (light -> dark on light, dark ->
+   light on dark: more is always more contrast), validated against #ffffff /
+   #faf7f5 and #1d232a. Everything else is neutral ink. The canvas reads these
+   variables with getComputedStyle and redraws when the theme changes.
+   ------------------------------------------------------------------------ */
+.loom-root {
+  --loom-bin-1: #6da7ec;
+  --loom-bin-2: #3987e5;
+  --loom-bin-3: #256abf;
+  --loom-bin-4: #184f95;
+  --loom-bin-5: #0d366b;
+  --loom-mark: #6b7280; /* rings, dash, slash, visit dot */
+  --loom-ink-fill: #4b5563; /* presence fill, marginal dots, coverage fill */
+  --loom-soft-fill: #9ca3af; /* fringe "single-cohort" */
+  --loom-fog: #d1d5db; /* 45deg hatch: "unknown" (the only texture) */
+  --loom-hairline: #e5e7eb;
+  --loom-ink: #1f2937; /* focus ring, selection, pulled bar */
+  --loom-wash: rgba(31, 41, 55, 0.06); /* crosshair row / column wash */
+  --loom-accent: #2a78d6; /* woven glyph weft only */
+  background-color: oklch(var(--b1));
+  color: oklch(var(--bc));
+}
+[data-theme='dark'] .loom-root,
+.dark .loom-root {
+  --loom-bin-1: #1c5cab;
+  --loom-bin-2: #2a78d6;
+  --loom-bin-3: #5598e7;
+  --loom-bin-4: #86b6ef;
+  --loom-bin-5: #cde2fb;
+  --loom-mark: #8b93a1;
+  --loom-ink-fill: #a6adbb;
+  --loom-soft-fill: #6b7385;
+  --loom-fog: #374151;
+  --loom-hairline: #2a323c;
+  --loom-ink: #a6adbb;
+  --loom-wash: rgba(166, 173, 187, 0.08);
+  --loom-accent: #5598e7;
+}
+/* "Unknown, not absent": the no-dictionary hatch, drawn by CSS, never redrawn. */
+.loom-fog {
+  background-image: repeating-linear-gradient(-45deg, var(--loom-fog) 0 1px, transparent 1px 6px);
+}
+.loom-tabular {
+  font-variant-numeric: tabular-nums;
+}
+@keyframes loom-flash {
+  0% {
+    background-color: var(--loom-wash);
+  }
+  30% {
+    background-color: rgba(42, 120, 214, 0.18);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.loom-flash {
+  animation: loom-flash 1.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .loom-flash {
+    animation: none;
+  }
+}
