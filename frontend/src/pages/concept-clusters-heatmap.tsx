@@ -153,6 +153,26 @@ function isPatientIdOrGenderVar(v: Variable): boolean {
   return false;
 }
 
+function isPatientIdVar(v: Variable): boolean {
+  if (splitValues(v.omop_id as string).some(id => PATIENT_OMOP_IDS.has(normalizeValue(id)))) return true;
+  if (splitValues(v.concept_code as string).some(c => normalizeValue(c).includes(PATIENT_CONCEPT_CODE))) return true;
+  const text = `${v.var_name || ''} ${v.var_label || ''} ${v.concept_name || ''}`.toLowerCase();
+  if (/\b(patient|subject|record|study)[\s_-]*id\b/.test(text)) return true;
+  return String(v.var_name || '').trim().toLowerCase() === 'id';
+}
+
+// The cohort's count of patient IDs: the highest non-null count among its
+// patient-id variables (null when it has none, or none with a count).
+function patientIdCount(cohort: Cohort, counts: EdaCounts | null): number | null {
+  let max: number | null = null;
+  for (const variable of Object.values(cohort.variables || {}) as Variable[]) {
+    if (!isPatientIdVar(variable)) continue;
+    const { n } = variableCount(counts, cohort.cohort_id, variable);
+    if (n !== null && (max === null || n > max)) max = n;
+  }
+  return max;
+}
+
 // Long format = profiled, but the observation count of patient id / gender
 // exceeds the number of participants (several rows per subject).
 function classifyCohort(cohort: Cohort, participants: number | null, counts: EdaCounts | null): CohortType {
@@ -350,6 +370,46 @@ function formatPct(pct: number): string {
   return `${(pct * 100).toFixed(1)}%`;
 }
 
+// --- Colour scales ---
+// Profiled wide-format cohorts get the red -> amber -> green spectrum: their
+// numbers are comparable (one row per subject), so a share of the cohort
+// means something. Long-format and non-profiled cohorts get two gentler
+// single-hue scales that follow the counts only (never percentages).
+
+type ShadeBy = 'pct' | 'count';
+type PctMode = 'none' | 'declared' | 'ids';
+
+const PCT_MODE_LABELS: Record<PctMode, string> = {
+  none: 'No percentages',
+  declared: '% of declared participants',
+  ids: '% of patient IDs counted',
+};
+
+// t in [0, 1] -> red (0) .. amber .. green (1).
+const wideColor = (t: number): string => `hsl(${Math.round(120 * Math.min(1, Math.max(0, t)))}, 70%, 74%)`;
+// t in [0, 1] -> very light .. medium, one soft hue.
+const softColor = (hue: number, sat: number) => (t: number): string =>
+  `hsl(${hue}, ${sat}%, ${Math.round(95 - 25 * Math.min(1, Math.max(0, t)))}%)`;
+const longColor = softColor(212, 45); // slate blue
+const noneColor = softColor(275, 30); // muted violet
+
+const SCALE_COLOR: Record<CohortType, (t: number) => string> = {
+  wide: wideColor,
+  long: longColor,
+  none: noneColor,
+};
+
+// Counts span 1 .. 100k: shade on a log scale so small cohorts stay visible.
+const countShade = (n: number, max: number): number => (max > 1 && n > 0 ? Math.log(n) / Math.log(max) : n > 0 ? 1 : 0);
+
+// The percentage of a cell under the chosen basis; never for long-format
+// cohorts, whose counts aggregate several rows per subject.
+function cellPct(n: number | null, row: HeatRow, mode: PctMode): number | null {
+  if (n === null || mode === 'none' || row.type === 'long') return null;
+  const base = mode === 'ids' ? row.idCount : row.participants;
+  return base ? n / base : null;
+}
+
 // --- CSV export ---
 
 interface HeatRow {
@@ -359,6 +419,7 @@ interface HeatRow {
   visitLabel: string;
   firstOfCohort: boolean;
   participants: number | null;
+  idCount: number | null;
 }
 
 function csvField(value: string | number): string {
@@ -366,11 +427,14 @@ function csvField(value: string | number): string {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+type ExportFormat = 'raw' | 'pct' | 'both';
+
 function buildCsv(
   rows: HeatRow[],
   clusters: HeatCluster[],
   cells: Map<string, CellEntry[]>,
-  numberFormat: 'raw' | 'pct'
+  numberFormat: ExportFormat,
+  pctBasis: Exclude<PctMode, 'none'>
 ): { csv: string; cohortCount: number; conceptCount: number } {
   const lines: string[] = [];
   lines.push(['Cohort', 'Visit', ...clusters.map(c => c.label)].map(csvField).join(','));
@@ -385,7 +449,10 @@ function buildCsv(
         return numberFormat === 'raw' && row.type === 'none' ? (row.participants ?? '') : '';
       }
       if (numberFormat === 'raw') return n;
-      return row.participants ? Number(((n / row.participants) * 100).toFixed(1)) : '';
+      const pct = cellPct(n, row, pctBasis);
+      const pctText = pct === null ? '' : Number((pct * 100).toFixed(1));
+      if (numberFormat === 'pct') return pctText;
+      return pctText === '' ? n : `${n} (${pctText}%)`;
     });
     lines.push([cohortName, row.visitLabel, ...values].map(csvField).join(','));
   }
@@ -419,7 +486,13 @@ export default function ConceptCoverageHeatmapPage() {
   const [threshold, setThreshold] = useState(2);
   const [thresholdConfirm, setThresholdConfirm] = useState<{ cellCount: number } | null>(null);
   const [exportStep, setExportStep] = useState<ExportStep | null>(null);
-  const [exportFormat, setExportFormat] = useState<'raw' | 'pct'>('raw');
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('raw');
+  // Wide-format cells shade by percentage or by count; percentages shown under
+  // the counts (off by default), and relative to what.
+  const [shadeBy, setShadeBy] = useState<ShadeBy>('pct');
+  const [pctMode, setPctMode] = useState<PctMode>('none');
+  // Percentages need a basis even when none are shown (shading, export).
+  const pctBasis: Exclude<PctMode, 'none'> = pctMode === 'none' ? 'declared' : pctMode;
   const [exportExcludeNonWide, setExportExcludeNonWide] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -456,11 +529,15 @@ export default function ConceptCoverageHeatmapPage() {
   }, [cohortsData, edaCounts]);
 
   const cohortInfo = useMemo(() => {
-    const out: Record<string, { type: CohortType; participants: number | null }> = {};
+    const out: Record<string, { type: CohortType; participants: number | null; idCount: number | null }> = {};
     for (const id of model.cohortIds) {
       const cohort = cohortsData?.[id];
       const participants = parseParticipants(cohort?.study_participants);
-      out[id] = { type: cohort ? classifyCohort(cohort, participants, edaCounts) : 'none', participants };
+      out[id] = {
+        type: cohort ? classifyCohort(cohort, participants, edaCounts) : 'none',
+        participants,
+        idCount: cohort ? patientIdCount(cohort, edaCounts) : null,
+      };
     }
     return out;
   }, [model, cohortsData, edaCounts]);
@@ -494,20 +571,22 @@ export default function ConceptCoverageHeatmapPage() {
     const out: HeatRow[] = [];
     for (const cohortId of selectedCohorts) {
       const visits = model.visitsByCohort[cohortId] || [];
-      const { type, participants } = cohortInfo[cohortId];
+      const { type, participants, idCount } = cohortInfo[cohortId];
       visits.forEach((v, i) => {
-        out.push({ cohortId, type, visitKey: v.key, visitLabel: v.label, firstOfCohort: i === 0, participants });
+        out.push({ cohortId, type, visitKey: v.key, visitLabel: v.label, firstOfCohort: i === 0, participants, idCount });
       });
     }
     return out;
   }, [selectedCohorts, model, cohortInfo]);
 
-  const maxN = useMemo(() => {
-    let max = 0;
+  // Highest count per cohort type in the matrix shown: each colour scale
+  // spans its own range.
+  const maxByType = useMemo(() => {
+    const max: Record<CohortType, number> = { wide: 0, long: 0, none: 0 };
     for (const row of rows) {
       for (const cluster of visibleClusters) {
         const { n } = cellValue(model.cells.get(`${row.cohortId}||${row.visitKey}||${cluster.key}`));
-        if (n !== null && n > max) max = n;
+        if (n !== null && n > max[row.type]) max[row.type] = n;
       }
     }
     return max;
@@ -568,9 +647,12 @@ export default function ConceptCoverageHeatmapPage() {
 
   const exportTypes = useMemo(() => new Set(exportRows.map(r => r.type)), [exportRows]);
   const exportHasMixedTypes = exportTypes.size > 1 && (exportTypes.has('long') || exportTypes.has('none'));
+  // Cohorts whose percentage basis is unknown (long format never gets one).
+  const missingBasis = (r: HeatRow) => r.type !== 'long' && (pctBasis === 'ids' ? r.idCount : r.participants) === null;
   const exportMissingTotals = useMemo(
-    () => [...new Set(exportRows.filter(r => r.participants === null).map(r => r.cohortId))],
-    [exportRows]
+    () => [...new Set(exportRows.filter(missingBasis).map(r => r.cohortId))],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [exportRows, pctBasis]
   );
 
   const openExportDialog = () => {
@@ -581,7 +663,7 @@ export default function ConceptCoverageHeatmapPage() {
 
   const runExport = (excludeNonWide: boolean) => {
     const finalRows = excludeNonWide ? rows.filter(r => r.type === 'wide') : rows;
-    const { csv, cohortCount, conceptCount } = buildCsv(finalRows, visibleClusters, model.cells, exportFormat);
+    const { csv, cohortCount, conceptCount } = buildCsv(finalRows, visibleClusters, model.cells, exportFormat, pctBasis);
     downloadCsv(csv, `icare4cvd-concept-coverage-${cohortCount}cohorts-${conceptCount}concepts.csv`);
     setExportStep(null);
     setExportExcludeNonWide(false);
@@ -590,13 +672,13 @@ export default function ConceptCoverageHeatmapPage() {
   const advanceExport = (fromStep: ExportStep, excludeNonWide: boolean) => {
     setExportExcludeNonWide(excludeNonWide);
     const missingTotals = excludeNonWide
-      ? [...new Set(rows.filter(r => r.type === 'wide' && r.participants === null).map(r => r.cohortId))]
+      ? [...new Set(rows.filter(r => r.type === 'wide' && missingBasis(r)).map(r => r.cohortId))]
       : exportMissingTotals;
     if (fromStep === 'options' && !excludeNonWide && exportHasMixedTypes) {
       setExportStep('warn_mix');
       return;
     }
-    if (exportFormat === 'pct' && missingTotals.length > 0 && fromStep !== 'warn_pct') {
+    if (exportFormat !== 'raw' && missingTotals.length > 0 && fromStep !== 'warn_pct') {
       setExportStep('warn_pct');
       return;
     }
@@ -629,8 +711,7 @@ export default function ConceptCoverageHeatmapPage() {
           <p className="text-base-content/60 mt-1 text-sm">
             Rows are cohort + visit; columns are variable clusters (variables sharing an OMOP ID or a concept code,
             inclusive). Each cell shows the number of non-null observations (from the EDA variable profiling, falling
-            back to the dictionary COUNT column when a cohort has no EDA output) and its percentage of the cohort&apos;s
-            participants.
+            back to the dictionary COUNT column when a cohort has no EDA output), optionally with a percentage.
           </p>
         </div>
 
@@ -659,6 +740,42 @@ export default function ConceptCoverageHeatmapPage() {
                   onChange={e => onThresholdChange(Number(e.target.value))}
                   className="range range-sm range-primary w-48"
                 />
+              </div>
+              <div className="divider divider-horizontal mx-0"></div>
+              <div className="flex items-center gap-2" title="What the red-to-green shading of profiled wide-format cohorts follows">
+                <span className="text-sm text-base-content/60 whitespace-nowrap">Shade wide-format cells by</span>
+                <div className="join">
+                  {(['pct', 'count'] as ShadeBy[]).map(v => (
+                    <button
+                      key={v}
+                      className={`btn btn-xs join-item ${shadeBy === v ? 'btn-active' : ''}`}
+                      onClick={() => setShadeBy(v)}
+                      aria-pressed={shadeBy === v}
+                      title={
+                        v === 'pct'
+                          ? `Share of the cohort (${pctBasis === 'ids' ? 'patient IDs counted' : 'declared participants'})`
+                          : 'Number of non-null observations (log scale)'
+                      }
+                    >
+                      {v === 'pct' ? 'percentage' : 'count'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="divider divider-horizontal mx-0"></div>
+              <div className="flex items-center gap-3" role="radiogroup" aria-label="Percentages shown under the counts">
+                {(Object.keys(PCT_MODE_LABELS) as PctMode[]).map(m => (
+                  <label key={m} className="flex items-center gap-1.5 cursor-pointer text-sm">
+                    <input
+                      type="radio"
+                      name="pct-mode"
+                      className="radio radio-xs"
+                      checked={pctMode === m}
+                      onChange={() => setPctMode(m)}
+                    />
+                    <span className={pctMode === m ? 'text-base-content' : 'text-base-content/60'}>{PCT_MODE_LABELS[m]}</span>
+                  </label>
+                ))}
               </div>
               <div className="divider divider-horizontal mx-0"></div>
               {exportButton}
@@ -863,10 +980,17 @@ export default function ConceptCoverageHeatmapPage() {
                                   </td>
                                 );
                               }
-                              const pct = n !== null && row.participants ? n / row.participants : null;
-                              const intensity =
-                                pct !== null ? Math.min(pct, 1) : n !== null && maxN > 0 ? Math.min(n / maxN, 1) : 0.15;
-                              const bg = `rgba(16, 185, 129, ${0.08 + 0.62 * intensity})`;
+                              const pct = cellPct(n, row, pctMode);
+                              // Wide format: by percentage (or count, per the toggle);
+                              // long format and no profiling: by count, on their own scales.
+                              const sharePct = row.type === 'wide' && shadeBy === 'pct' ? cellPct(n, row, pctBasis) : null;
+                              const shade =
+                                n === null
+                                  ? 0
+                                  : sharePct !== null
+                                    ? Math.min(sharePct, 1)
+                                    : countShade(n, maxByType[row.type]);
+                              const bg = n === null ? 'transparent' : SCALE_COLOR[row.type](shade);
                               const sourceNote =
                                 source === 'dict' ? 'count from the metadata dictionary, not EDA profiling' : '';
                               const tooltip =
@@ -892,11 +1016,17 @@ export default function ConceptCoverageHeatmapPage() {
                                     {n === null ? '?' : n}
                                     {source === 'dict' && <span className="font-sans font-normal text-base-content/50">*</span>}
                                   </div>
-                                  <div className="text-[10px] text-base-content/60">
-                                    {pct !== null ? formatPct(pct) : '—'}
-                                    {source === 'dict' ? ' · dict' : ''}
-                                    {entries.length > 1 ? ` · ${entries.length} vars` : ''}
-                                  </div>
+                                  {(pct !== null || source === 'dict' || entries.length > 1) && (
+                                    <div className="text-[10px] text-base-content/70">
+                                      {[
+                                        pct !== null ? formatPct(pct) : '',
+                                        source === 'dict' ? 'dict' : '',
+                                        entries.length > 1 ? `${entries.length} vars` : '',
+                                      ]
+                                        .filter(Boolean)
+                                        .join(' · ')}
+                                    </div>
+                                  )}
                                 </td>
                               );
                             })}
@@ -907,8 +1037,9 @@ export default function ConceptCoverageHeatmapPage() {
                   </div>
                 )}
                 <p className="mt-2 text-xs text-base-content/40">
-                  Cell color scales with the percentage of non-null observations over the cohort&apos;s participant count.
-                  When several variables of a cohort fall in the same cluster and visit, the highest count is shown (hover
+                  Colours: profiled wide-format cohorts run red (low) to green (high), by percentage or count as chosen
+                  above; long-format cohorts (blue) and cohorts without profiling (violet) follow the counts only, on a
+                  log scale of their own. Percentages are never shown for long-format cohorts. When several variables of a cohort fall in the same cluster and visit, the highest count is shown (hover
                   for all). Counts marked with * (&quot;dict&quot;) come from the metadata dictionary&apos;s COUNT column
                   instead of the EDA profiling. Gray cells have neither: the overall participant count is shown.
                   Long-format cohorts have no fixed visit columns, so their counts aggregate over all visits.
@@ -982,8 +1113,23 @@ export default function ConceptCoverageHeatmapPage() {
                   checked={exportFormat === 'pct'}
                   onChange={() => setExportFormat('pct')}
                 />
-                <span className="text-sm">Percentages (of the cohort&apos;s participant count)</span>
+                <span className="text-sm">
+                  Percentages ({pctBasis === 'ids' ? 'of patient IDs counted' : 'of declared participants'})
+                </span>
               </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="export-format"
+                  className="radio radio-sm"
+                  checked={exportFormat === 'both'}
+                  onChange={() => setExportFormat('both')}
+                />
+                <span className="text-sm">Numbers and percentages, e.g. &quot;437 (70.3%)&quot;</span>
+              </label>
+              <p className="text-xs text-base-content/50">
+                Long-format cohorts never get a percentage: their counts span several rows per subject.
+              </p>
             </div>
             <div className="modal-action">
               <button className="btn btn-sm" onClick={() => setExportStep(null)}>
@@ -1046,12 +1192,13 @@ export default function ConceptCoverageHeatmapPage() {
             <h3 className="font-bold text-lg text-warning">Unknown participant totals</h3>
             <div className="py-3 text-sm space-y-2">
               <p>
-                Percentages cannot be computed for the following cohorts because their participant count is unknown;
-                their cells will be left empty:
+                Percentages cannot be computed for the following cohorts because their{' '}
+                {pctBasis === 'ids' ? 'patient ID count' : 'participant count'} is unknown; their cells will have no
+                percentage:
               </p>
               <p className="font-mono text-xs">
                 {(exportExcludeNonWide
-                  ? [...new Set(rows.filter(r => r.type === 'wide' && r.participants === null).map(r => r.cohortId))]
+                  ? [...new Set(rows.filter(r => r.type === 'wide' && missingBasis(r)).map(r => r.cohortId))]
                   : exportMissingTotals
                 ).join(', ')}
               </p>
