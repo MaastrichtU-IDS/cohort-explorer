@@ -1569,6 +1569,8 @@ export default function MappingPage() {
   // Loading and error state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A run that found no mappings at all: a plain notice, not an error.
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Reset showCacheInfo when mapping starts (new mapping request)
   React.useEffect(() => {
@@ -1594,6 +1596,7 @@ export default function MappingPage() {
     
     setLoading(true);
     setError(null);
+    setNotice(null);
     setMappingOutput(null);
     setCacheInfo(null);
     setComputeDuration(null);
@@ -1650,6 +1653,10 @@ export default function MappingPage() {
       
       if (!response.ok) {
         const result = await response.json();
+        if (result.no_mappings) {
+          setNotice(result.error || `No mappings were found for ${sourceCohort}.`);
+          return;
+        }
         let errorMsg = result.detail || result.error || 'Failed to generate mapping';
         if (
           response.status === 404 &&
@@ -2098,6 +2105,11 @@ export default function MappingPage() {
 
         {error && (
           <div className="mt-4 text-red-500 text-center">{error}</div>
+        )}
+        {notice && (
+          <div role="status" className="mt-4 mx-auto max-w-3xl rounded-md border border-base-300 bg-base-200 px-4 py-3 text-center text-base-content">
+            {notice}
+          </div>
         )}
 
         {/* Cohort Metadata Comparison Table — shown before and during mapping */}

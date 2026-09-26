@@ -1,5 +1,39 @@
+import logging
 import re
+import threading
+
+from SPARQLWrapper import JSON, SPARQLWrapper
+
 from .config import settings
+
+# Study graphs are published under the cohort id as written in the cohorts
+# spreadsheet ("https://w3id.org/CMEO/graph/Aachen-HF"), while the mapping
+# pipeline works with lowercased study names ("aachen-hf"). IRIs are case
+# sensitive, so the graph IRI is looked up among the graphs that actually exist
+# instead of being assembled from the lowercased name.
+_graph_names_lock = threading.Lock()
+_graph_names: dict[str, str] = {}  # lowercased graph name -> graph IRI
+
+
+def _separators_collapsed(name: str) -> str:
+    return re.sub(r"[\s_-]+", "", str(name).strip().lower())
+
+
+def _load_graph_names() -> dict[str, str]:
+    query = f"""
+        SELECT DISTINCT ?g WHERE {{
+            GRAPH ?g {{ ?s ?p ?o }}
+            FILTER(STRSTARTS(STR(?g), "{settings.GRAPH_REPO}/"))
+        }}
+    """
+    endpoint = SPARQLWrapper(settings.query_endpoint)
+    endpoint.setReturnFormat(JSON)
+    endpoint.setQuery(query)
+    names: dict[str, str] = {}
+    for b in endpoint.query().convert()["results"]["bindings"]:
+        iri = b["g"]["value"]
+        names[iri[len(settings.GRAPH_REPO) + 1:].lower()] = iri
+    return names
 
 class SPARQLQueryBuilder:
     """Responsible solely for constructing valid SPARQL queries."""
@@ -21,6 +55,34 @@ class SPARQLQueryBuilder:
     METADATA_GRAPH = "https://w3id.org/CMEO/graph/studies_metadata"
     GRAPHS_URI = settings.GRAPH_REPO
 
+    @classmethod
+    def graph_iri(cls, study: str) -> str:
+        """IRI of the study's named graph, whatever the case of `study`.
+
+        Exact (case-insensitive) name first, then a match ignoring spaces,
+        underscores and hyphens when it is unique. The graph list is cached and
+        re-read once on a miss, so a study uploaded after start-up is found.
+        Falls back to the name as given when no graph matches.
+        """
+        key = str(study).strip().lower()
+        global _graph_names
+        for attempt in range(2):
+            with _graph_names_lock:
+                if attempt == 1 or not _graph_names:
+                    try:
+                        _graph_names = _load_graph_names()
+                    except Exception as e:
+                        logging.warning("Could not list study graphs in the triplestore: %s", e)
+                names = dict(_graph_names)
+            if key in names:
+                return names[key]
+            collapsed = _separators_collapsed(key)
+            loose = [iri for name, iri in names.items() if _separators_collapsed(name) == collapsed]
+            if len(loose) == 1:
+                return loose[0]
+        logging.warning("No graph in the triplestore for study '%s'; queries will match nothing", study)
+        return f"{cls.GRAPHS_URI}/{study}"
+
 
     @classmethod
     def build_alignment_query(cls, source: str, target: str) -> str:
@@ -40,7 +102,7 @@ class SPARQLQueryBuilder:
                 {{
                     SELECT ?omop_id  ?lbl ?val ?src_de_str  ?src_combined ?src_val 
                     WHERE {{
-                        GRAPH <{cls.GRAPHS_URI}/{source}> {{
+                        GRAPH <{cls.graph_iri(source)}> {{
                              ?deA a cmeo:data_element ; 
                                 rdfs:label ?src_var_label ;
                                 dc:identifier ?src_var ;
@@ -64,7 +126,7 @@ class SPARQLQueryBuilder:
                 {{
                      SELECT ?omop_id ?lbl ?val ?tgt_de_str ?tgt_combined ?tgt_val 
                     WHERE {{
-                        GRAPH <{cls.GRAPHS_URI}/{target}> {{
+                        GRAPH <{cls.graph_iri(target)}> {{
                              ?deB a cmeo:data_element ; 
                                 rdfs:label ?tgt_var_label ;
                                 dc:identifier ?tgt_var ;
@@ -105,7 +167,7 @@ class SPARQLQueryBuilder:
             {cls.PREFIXES}
             SELECT ?var ?var_label ?visit_label ?domain_val ?stat_label ?unit_label
             WHERE {{
-                GRAPH <{cls.GRAPHS_URI}/{study}> {{
+                GRAPH <{cls.graph_iri(study)}> {{
                     ?de a cmeo:data_element ;
                         dc:identifier ?var ;
                         rdfs:label ?var_label .
@@ -124,7 +186,7 @@ class SPARQLQueryBuilder:
             {cls.PREFIXES}
             SELECT ?var ?var_label ?visit_label ?domain_val ?stat_label ?unit_label
             WHERE {{
-                GRAPH <{cls.GRAPHS_URI}/{study}> {{
+                GRAPH <{cls.graph_iri(study)}> {{
                     ?de a cmeo:data_element ;
                         dc:identifier ?var ;
                         rdfs:label ?var_label .
@@ -160,7 +222,7 @@ class SPARQLQueryBuilder:
         (SAMPLE(?_ordered_omop_ids) AS ?omop_ids)
 
         WHERE {{
-            GRAPH <{cls.GRAPHS_URI}/{source}> {{
+            GRAPH <{cls.graph_iri(source)}> {{
             VALUES ?identifier {{ {values_str} }}
             ?dataElement a cmeo:data_element ;
                 dc:identifier ?identifier .
@@ -234,7 +296,7 @@ class SPARQLQueryBuilder:
             (GROUP_CONCAT(?cV; SEPARATOR="||") AS ?_ordered_code_values)
             (GROUP_CONCAT(str(?omop_id); SEPARATOR="||") AS ?_ordered_omop_ids)
             WHERE {{
-            GRAPH <{cls.GRAPHS_URI}/{source}> {{
+            GRAPH <{cls.graph_iri(source)}> {{
             SELECT ?dataElement ?cL ?cV ?omop_id ?seqNum WHERE {{
             ?dataElement skos:closeMatch ?codeSet .
             ?codeSet ?seqPred ?codeNode .

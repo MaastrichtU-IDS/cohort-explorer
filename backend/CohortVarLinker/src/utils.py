@@ -1923,7 +1923,8 @@ def get_member_studies(study_name: str) -> List[str]:
                     GRAPH <https://w3id.org/CMEO/graph/studies_metadata> {{
                         # anchor the index study
                         ?study_design  dc:identifier ?study_name.
-                        VALUES (?study_name) {{ ("{study_name}") }} 
+                        # Study names reach us lowercased; dc:identifier keeps the spreadsheet case.
+                        FILTER(LCASE(STR(?study_name)) = "{str(study_name).strip().lower()}")
                         # membership in BOTH directions
                         {{
                         ?study_design obi:has_member ?related_study .
@@ -1947,8 +1948,9 @@ def get_member_studies(study_name: str) -> List[str]:
     studies_uris = []
     if results["results"]["bindings"]:
         for result in results["results"]["bindings"]:
-            related_study_uri = result["related_study"]["value"].split("/")[-2]
-            studies_uris.append(related_study_uri)
+            related_study_uri = result["related_study"]["value"].split("/")[-2].lower()
+            if related_study_uri not in studies_uris:
+                studies_uris.append(related_study_uri)
             
     return studies_uris
     

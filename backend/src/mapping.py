@@ -373,6 +373,22 @@ async def generate_mapping(
                     user=user.get("email", "unknown")):
         cache_info = generate_mapping_csv(source_study, target_studies)
 
+    if not cache_info.get("source_variables"):
+        # No variable of the source study was mapped onto any target: say so
+        # instead of serving an empty (or an older) mapping file.
+        log_main(PROCESS_CVL, "result_empty",
+                 f"No mappings produced for {source_study}",
+                 ctx={"source": source_study, "targets": target_names,
+                      "computed_pairs": cache_info.get("computed_pairs"),
+                      "skipped_pairs": cache_info.get("skipped_pairs")})
+        skipped = [p["target"] for p in cache_info.get("skipped_pairs") or []]
+        detail = (
+            f"No mappings were produced for {source_study} -> {', '.join(target_names)}. "
+            "None of the source study's variables could be matched to the target studies"
+        )
+        detail += f" ({', '.join(skipped)} skipped: same study family as the source)." if skipped else "."
+        return JSONResponse(status_code=422, content={"error": detail, "no_mappings": True, "cache_info": cache_info})
+
     output_dir = cohort_linker_settings.output_dir
     
     # generate_mapping_csv may expand target_studies with member/sub-studies,

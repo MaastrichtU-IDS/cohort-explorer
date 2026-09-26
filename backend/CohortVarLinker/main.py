@@ -323,6 +323,12 @@ def _combine_cross_mapping_json(source_study: str, target_studies: list[str],
 
     final_json = {k: {"from": source_study, "mappings": v}
                   for k, v in mappings.items()}
+    if not final_json:
+        # Nothing mapped: an empty "{}" file would be served as a successful
+        # result. Leave none behind (also drop an empty one from earlier runs).
+        if os.path.exists(json_path):
+            os.remove(json_path)
+        return 0
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(final_json, f, indent=2, ensure_ascii=False, default=str)
     return len(final_json)
