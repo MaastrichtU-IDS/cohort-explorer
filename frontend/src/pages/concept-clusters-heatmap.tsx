@@ -603,7 +603,8 @@ function ZoomOverlay({
   renderBody: (info: CellInfo) => React.ReactNode;
   onClose: () => void;
 }) {
-  const [includeEmpty, setIncludeEmpty] = useState(true);
+  // Empty cells hidden by default: the zoom is for reading what is there.
+  const [includeEmpty, setIncludeEmpty] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [bodyH, setBodyH] = useState(0);
   const shown = includeEmpty ? tiles : tiles.filter(t => t.info.kind !== 'empty');
@@ -639,8 +640,8 @@ function ZoomOverlay({
         className="flex h-[88vh] w-[94vw] flex-col rounded-xl bg-base-100 shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-base-300 px-5 py-3">
-          <div className="min-w-0 flex-1">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-6 border-b border-base-300 px-5 py-3">
+          <div className="min-w-0">
             <div className="text-xs uppercase tracking-wide text-base-content/50">
               {direction === 'column' ? 'Column (concept cluster)' : 'Row (cohort + visit)'}
             </div>
@@ -651,24 +652,28 @@ function ZoomOverlay({
               {subtitle}
             </div>
           </div>
-          <div className="text-sm text-base-content/60">
-            {withData} with data · {tiles.length - withData} empty
-          </div>
-          <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <label className="flex cursor-pointer items-center gap-3 rounded-full border border-base-300 px-4 py-2 text-base font-medium">
             <input
               type="checkbox"
-              className="toggle toggle-sm"
+              className="toggle toggle-md"
               checked={includeEmpty}
               onChange={e => setIncludeEmpty(e.target.checked)}
             />
-            Include empty cells
+            Show empty cells
           </label>
-          <span className="text-xs text-base-content/50">
-            {direction === 'column' ? 'Reads top to bottom, then left to right ↓ →' : 'Reads left to right, then down → ↓'}
-          </span>
-          <button className="btn btn-sm btn-ghost" onClick={onClose} aria-label="Close zoom">
-            <X size={18} />
-          </button>
+          <div className="flex items-center justify-end gap-4">
+            <div className="text-right">
+              <div className="text-sm text-base-content/60">
+                {withData} with data · {tiles.length - withData} empty
+              </div>
+              <div className="text-xs text-base-content/50">
+                {direction === 'column' ? 'Reads top to bottom, then left to right ↓ →' : 'Reads left to right, then down → ↓'}
+              </div>
+            </div>
+            <button className="btn btn-sm btn-ghost" onClick={onClose} aria-label="Close zoom">
+              <X size={18} />
+            </button>
+          </div>
         </div>
         <div ref={bodyRef} className={`min-h-0 flex-1 p-3 ${direction === 'column' ? 'overflow-x-auto overflow-y-hidden' : 'overflow-y-auto'}`}>
           {shown.length === 0 ? (
@@ -1404,20 +1409,22 @@ export default function ConceptCoverageHeatmapPage() {
           className="fixed right-4 top-20 z-40 w-72 rounded-lg border border-base-300 bg-base-100 shadow-lg"
           aria-label="Hidden items"
         >
-          <div className="flex items-center gap-2 border-b border-base-300 px-3 py-2">
+          {/* The whole header opens / closes the list. */}
+          <button
+            type="button"
+            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-base-200 ${
+              hiddenBoxOpen ? 'rounded-b-none border-b border-base-300' : ''
+            }`}
+            onClick={() => setHiddenBoxOpen(o => !o)}
+            aria-expanded={hiddenBoxOpen}
+            title={hiddenBoxOpen ? 'Collapse the hidden items' : 'Show the hidden items'}
+          >
             <EyeOff size={14} className="text-base-content/60" />
             <span className="flex-1 text-sm font-semibold">
               Hidden items ({hiddenRows.length + hiddenCols.length})
             </span>
-            <button
-              className="btn btn-xs btn-ghost px-1"
-              onClick={() => setHiddenBoxOpen(o => !o)}
-              aria-label={hiddenBoxOpen ? 'Collapse hidden items' : 'Expand hidden items'}
-              aria-expanded={hiddenBoxOpen}
-            >
-              {hiddenBoxOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
-          </div>
+            {hiddenBoxOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
           {hiddenBoxOpen && (
             <div className="max-h-72 space-y-3 overflow-y-auto px-3 py-2 text-sm">
               {(
