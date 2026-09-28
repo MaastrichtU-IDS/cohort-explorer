@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useCohorts } from '@/components/CohortsContext';
 import LoginPrompt from '@/components/LoginPrompt';
 import { apiUrl, parseParticipantCount } from '@/utils';
 import { Cohort, Variable } from '@/types';
-import { Grid, ChevronLeft, ChevronRight, Search, Download } from 'react-feather';
+import { Grid, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Search, Download, ZoomIn, X, EyeOff } from 'react-feather';
 
 const NO_VISIT_KEY = '__no_visit__';
 const NO_VISIT_LABEL = '(no visit)';
@@ -495,6 +495,231 @@ function downloadCsv(csv: string, filename: string): void {
 
 type ExportStep = 'options' | 'warn_mix';
 
+const rowKey = (cohortId: string, visitKey: string): string => `${cohortId}||${visitKey}`;
+
+interface HiddenItem {
+  key: string;
+  label: string;
+}
+
+type CellInfo =
+  | { kind: 'empty' }
+  | { kind: 'participants'; entries: CellEntry[]; participants: number | null; bg: string; tooltip: string }
+  | {
+      kind: 'value';
+      n: number | null;
+      source: CountSource | null;
+      entries: CellEntry[];
+      pct: number | null;
+      bg: string;
+      tooltip: string;
+    };
+
+type ZoomTarget = { kind: 'row'; row: HeatRow } | { kind: 'column'; cluster: HeatCluster };
+
+// --- Hide animation: a label flies from the hidden row / column into the box ---
+
+interface Ghost {
+  id: number;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+function FlyingGhost({ ghost, target, onDone }: { ghost: Ghost; target: HTMLElement | null; onDone: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !target) {
+      onDone();
+      return;
+    }
+    const t = target.getBoundingClientRect();
+    const frame = requestAnimationFrame(() => {
+      el.style.left = `${t.left + 12}px`;
+      el.style.top = `${t.top + 8}px`;
+      el.style.width = `${Math.min(t.width - 24, 220)}px`;
+      el.style.height = '22px';
+      el.style.opacity = '0.2';
+    });
+    const timer = setTimeout(onDone, 650);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div
+      ref={ref}
+      aria-hidden="true"
+      className="fixed z-[60] pointer-events-none overflow-hidden rounded-md border border-base-300 bg-base-100 px-2 text-xs font-semibold shadow-lg flex items-center"
+      style={{
+        left: ghost.x,
+        top: ghost.y,
+        width: ghost.w,
+        height: Math.max(22, Math.min(ghost.h, 60)),
+        opacity: 1,
+        transition: 'left 550ms cubic-bezier(.2,.8,.2,1), top 550ms cubic-bezier(.2,.8,.2,1), width 550ms ease, height 550ms ease, opacity 550ms ease',
+      }}
+    >
+      <span className="truncate">{ghost.label}</span>
+    </div>
+  );
+}
+
+// --- Zoom overlay ---
+// A zoomed COLUMN lists its cells (one per cohort + visit) top to bottom and
+// wraps into the next column when the window is full, like reading a
+// newspaper; a zoomed ROW lists its cells (one per concept) left to right and
+// wraps onto the next line, like reading text. Tiles are fixed-size so the
+// wrapping is regular; each carries its label and the cell's hover text.
+
+const TILE_W = 200;
+const TILE_H = 104;
+const TILE_GAP = 8;
+
+interface ZoomTile {
+  key: string;
+  label: string;
+  sublabel?: string;
+  info: CellInfo;
+}
+
+function ZoomOverlay({
+  title,
+  subtitle,
+  direction,
+  tiles,
+  renderBody,
+  onClose,
+}: {
+  title: string;
+  subtitle: string;
+  direction: 'column' | 'row';
+  tiles: ZoomTile[];
+  renderBody: (info: CellInfo) => React.ReactNode;
+  onClose: () => void;
+}) {
+  const [includeEmpty, setIncludeEmpty] = useState(true);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [bodyH, setBodyH] = useState(0);
+  const shown = includeEmpty ? tiles : tiles.filter(t => t.info.kind !== 'empty');
+  const withData = tiles.filter(t => t.info.kind !== 'empty').length;
+
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const measure = () => setBodyH(el.clientHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  // Tiles per column for the vertical flow (column zoom).
+  const perColumn = Math.max(1, Math.floor((bodyH - 24 + TILE_GAP) / (TILE_H + TILE_GAP)));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="flex h-[88vh] w-[94vw] flex-col rounded-xl bg-base-100 shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-base-300 px-5 py-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs uppercase tracking-wide text-base-content/50">
+              {direction === 'column' ? 'Column (concept cluster)' : 'Row (cohort + visit)'}
+            </div>
+            <h3 className="truncate text-lg font-bold" title={title}>
+              {title}
+            </h3>
+            <div className="truncate text-xs text-base-content/60" title={subtitle}>
+              {subtitle}
+            </div>
+          </div>
+          <div className="text-sm text-base-content/60">
+            {withData} with data · {tiles.length - withData} empty
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="toggle toggle-sm"
+              checked={includeEmpty}
+              onChange={e => setIncludeEmpty(e.target.checked)}
+            />
+            Include empty cells
+          </label>
+          <span className="text-xs text-base-content/50">
+            {direction === 'column' ? 'Reads top to bottom, then left to right ↓ →' : 'Reads left to right, then down → ↓'}
+          </span>
+          <button className="btn btn-sm btn-ghost" onClick={onClose} aria-label="Close zoom">
+            <X size={18} />
+          </button>
+        </div>
+        <div ref={bodyRef} className={`min-h-0 flex-1 p-3 ${direction === 'column' ? 'overflow-x-auto overflow-y-hidden' : 'overflow-y-auto'}`}>
+          {shown.length === 0 ? (
+            <p className="py-10 text-center text-sm text-base-content/50">No cells with data.</p>
+          ) : (
+            <div
+              className={direction === 'column' ? 'grid' : 'flex flex-wrap'}
+              style={
+                direction === 'column'
+                  ? {
+                      gridAutoFlow: 'column',
+                      gridTemplateRows: `repeat(${perColumn}, ${TILE_H}px)`,
+                      gridAutoColumns: `${TILE_W}px`,
+                      gap: TILE_GAP,
+                    }
+                  : { gap: TILE_GAP }
+              }
+            >
+              {shown.map(t => {
+                const empty = t.info.kind === 'empty';
+                return (
+                  <div
+                    key={t.key}
+                    className={`flex flex-col overflow-hidden rounded-md border px-2 py-1.5 text-xs ${
+                      empty ? 'border-dashed border-base-300 text-base-content/40' : 'border-base-300'
+                    }`}
+                    style={{
+                      width: TILE_W,
+                      height: TILE_H,
+                      backgroundColor: empty ? undefined : t.info.kind === 'empty' ? undefined : t.info.bg,
+                    }}
+                    title={t.info.kind === 'empty' ? `${t.label}: no variable here` : `${t.label}\n${t.info.tooltip}`}
+                  >
+                    <div className="truncate font-semibold text-base-content" title={t.label}>
+                      {t.label}
+                    </div>
+                    {t.sublabel && <div className="truncate text-[10px] text-base-content/60">{t.sublabel}</div>}
+                    <div className="mt-1 min-h-0 flex-1 overflow-hidden text-center">
+                      {empty ? <div className="pt-3">·</div> : renderBody(t.info)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ConceptCoverageHeatmapPage() {
   const { cohortsData, isLoading, userEmail } = useCohorts();
   const [filtersOpen, setFiltersOpen] = useState(true);
@@ -586,9 +811,17 @@ export default function ConceptCoverageHeatmapPage() {
     [model, threshold]
   );
 
+  // Rows (cohort + visit) and columns (clusters) hidden with their "x":
+  // kept apart from the filters, so the threshold slider and the filter
+  // checkboxes never bring them back; only Restore does.
+  const [hiddenRows, setHiddenRows] = useState<HiddenItem[]>([]);
+  const [hiddenCols, setHiddenCols] = useState<HiddenItem[]>([]);
+  const hiddenRowKeys = useMemo(() => new Set(hiddenRows.map(h => h.key)), [hiddenRows]);
+  const hiddenColKeys = useMemo(() => new Set(hiddenCols.map(h => h.key)), [hiddenCols]);
+
   const visibleClusters = useMemo(
-    () => thresholdClusters.filter(c => isClusterSelected(c.key)),
-    [thresholdClusters, clusterFilter]
+    () => thresholdClusters.filter(c => isClusterSelected(c.key) && !hiddenColKeys.has(c.key)),
+    [thresholdClusters, clusterFilter, hiddenColKeys]
   );
 
   const rows: HeatRow[] = useMemo(() => {
@@ -596,12 +829,15 @@ export default function ConceptCoverageHeatmapPage() {
     for (const cohortId of selectedCohorts) {
       const visits = model.visitsByCohort[cohortId] || [];
       const { type, participants, idCount } = cohortInfo[cohortId];
-      visits.forEach((v, i) => {
-        out.push({ cohortId, type, visitKey: v.key, visitLabel: v.label, firstOfCohort: i === 0, participants, idCount });
-      });
+      let first = true;
+      for (const v of visits) {
+        if (hiddenRowKeys.has(rowKey(cohortId, v.key))) continue;
+        out.push({ cohortId, type, visitKey: v.key, visitLabel: v.label, firstOfCohort: first, participants, idCount });
+        first = false;
+      }
     }
     return out;
-  }, [selectedCohorts, model, cohortInfo]);
+  }, [selectedCohorts, model, cohortInfo, hiddenRowKeys]);
 
   // Highest count per cohort type in the matrix shown: each colour scale
   // spans its own range.
@@ -615,6 +851,115 @@ export default function ConceptCoverageHeatmapPage() {
     }
     return max;
   }, [rows, visibleClusters, model]);
+
+  // One cell (row x cluster): what it shows, its colour and its hover text.
+  // Shared by the matrix and the zoom overlay so both read the same.
+  const cellInfo = (row: HeatRow, cluster: HeatCluster): CellInfo => {
+    const { n, source, entries } = cellValue(model.cells.get(`${row.cohortId}||${row.visitKey}||${cluster.key}`));
+    if (entries.length === 0) return { kind: 'empty' };
+    if (n === null && row.type === 'none') {
+      // Non-profiled cohort AND no dictionary count: the participant count
+      // stands in for the cell value.
+      return {
+        kind: 'participants',
+        entries,
+        participants: row.participants,
+        bg: 'rgba(148, 163, 184, 0.25)',
+        tooltip: `No profiling and no dictionary count — overall participant count shown\n${entries
+          .map(e => `${e.varName} — ${e.varLabel}`)
+          .join('\n')}`,
+      };
+    }
+    const pct = cellPct(n, row, pctMode);
+    // Wide format: by percentage (or count, per the toggle); long format and
+    // no profiling: by count, on their own scales.
+    const sharePct = row.type === 'wide' && shadeBy === 'pct' ? cellPct(n, row, pctBasis) : null;
+    const shade = n === null ? 0 : sharePct !== null ? Math.min(sharePct, 1) : countShade(n, maxByType[row.type]);
+    const sourceNote = source === 'dict' ? 'count from the metadata dictionary, not EDA profiling\n' : '';
+    return {
+      kind: 'value',
+      n,
+      source,
+      entries,
+      pct,
+      bg: n === null ? 'transparent' : SCALE_COLOR[row.type](shade),
+      tooltip:
+        sourceNote +
+        entries
+          .map(
+            e =>
+              `${e.varName}: ${e.count === null ? 'count n/a' : e.count}${e.source === 'dict' ? ' (dict)' : ''} — ${
+                e.varLabel
+              }`
+          )
+          .join('\n'),
+    };
+  };
+
+  const cellBody = (info: CellInfo, withNames: boolean) => {
+    if (info.kind === 'empty') return null;
+    const names = withNames && (
+      <div className="mt-0.5 text-[10px] leading-tight font-mono text-base-content/80 break-all">
+        {info.entries.map(e => e.varName).join(', ')}
+      </div>
+    );
+    if (info.kind === 'participants') {
+      return (
+        <>
+          <div className="font-mono font-semibold">{info.participants ?? '?'}</div>
+          <div className="text-[10px] text-base-content/60">participants</div>
+          {names}
+        </>
+      );
+    }
+    const { n, source, entries, pct } = info;
+    return (
+      <>
+        <div className="font-mono font-semibold">
+          {n === null ? '?' : n}
+          {source === 'dict' && <span className="font-sans font-normal text-base-content/50">*</span>}
+        </div>
+        {(pct !== null || source === 'dict' || entries.length > 1) && (
+          <div className="text-[10px] text-base-content/70">
+            {[pct !== null ? formatPct(pct) : '', source === 'dict' ? 'dict' : '', entries.length > 1 ? `${entries.length} vars` : '']
+              .filter(Boolean)
+              .join(' · ')}
+          </div>
+        )}
+        {names}
+      </>
+    );
+  };
+
+  // --- Hide / restore ---
+  // A hidden row or column flies into the "Hidden items" box (top right).
+  const hiddenBoxRef = useRef<HTMLDivElement>(null);
+  const [ghosts, setGhosts] = useState<Ghost[]>([]);
+  const ghostId = useRef(0);
+  const [hiddenBoxOpen, setHiddenBoxOpen] = useState(true);
+
+  const flyToHiddenBox = (label: string, from: Element | null) => {
+    if (!from || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const r = from.getBoundingClientRect();
+    ghostId.current += 1;
+    setGhosts(g => [...g, { id: ghostId.current, label, x: r.left, y: r.top, w: r.width, h: r.height }]);
+  };
+
+  const hideRow = (row: HeatRow, from: Element | null) => {
+    const label = `${row.cohortId} · ${row.visitLabel}`;
+    flyToHiddenBox(label, from);
+    setHiddenBoxOpen(true);
+    setHiddenRows(prev => [...prev, { key: rowKey(row.cohortId, row.visitKey), label }]);
+  };
+
+  const hideColumn = (cluster: HeatCluster, from: Element | null) => {
+    flyToHiddenBox(cluster.label, from);
+    setHiddenBoxOpen(true);
+    setHiddenCols(prev => [...prev, { key: cluster.key, label: cluster.label }]);
+  };
+
+  // --- Zoom ---
+  const [zoom, setZoom] = useState<ZoomTarget | null>(null);
 
   const clusterSearchLower = clusterSearch.trim().toLowerCase();
   const clusterListForFilter = useMemo(
@@ -928,9 +1273,29 @@ export default function ConceptCoverageHeatmapPage() {
                           {visibleClusters.map(c => (
                             <th
                               key={c.key}
-                              className="sticky top-0 z-10 bg-base-200 border-b border-r border-base-300 px-1 align-bottom"
+                              className="group/col sticky top-0 z-10 bg-base-200 border-b border-r border-base-300 px-1 align-bottom"
                               title={`${c.label} — ${c.identifiers.join(', ')}`}
                             >
+                              <div className="mb-1 flex justify-center gap-0.5 opacity-40 transition-opacity group-hover/col:opacity-100">
+                                <button
+                                  type="button"
+                                  className="rounded p-0.5 hover:bg-base-300"
+                                  title={`Zoom in on this column: every cohort + visit for ${c.label}`}
+                                  aria-label={`Zoom in on column ${c.label}`}
+                                  onClick={() => setZoom({ kind: 'column', cluster: c })}
+                                >
+                                  <ZoomIn size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded p-0.5 hover:bg-base-300"
+                                  title="Hide this column (it goes to Hidden items, top right)"
+                                  aria-label={`Hide column ${c.label}`}
+                                  onClick={e => hideColumn(c, e.currentTarget.closest('th'))}
+                                >
+                                  <X size={13} />
+                                </button>
+                              </div>
                               <div
                                 className="mx-auto overflow-hidden text-ellipsis whitespace-nowrap font-medium"
                                 style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', maxHeight: '9rem', minHeight: '9rem' }}
@@ -943,7 +1308,7 @@ export default function ConceptCoverageHeatmapPage() {
                       </thead>
                       <tbody>
                         {rows.map(row => (
-                          <tr key={`${row.cohortId}||${row.visitKey}`}>
+                          <tr key={`${row.cohortId}||${row.visitKey}`} className="group/row">
                             <td
                               className={`sticky left-0 z-20 bg-base-100 border-r border-base-300 px-2 py-1 font-semibold min-w-[10rem] max-w-[10rem] ${
                                 row.firstOfCohort ? 'border-t' : ''
@@ -963,100 +1328,53 @@ export default function ConceptCoverageHeatmapPage() {
                               style={{ left: '10rem' }}
                               title={row.visitLabel}
                             >
-                              {row.visitLabel}
+                              <div className="flex items-center gap-1">
+                                <span className="min-w-0 flex-1 truncate">{row.visitLabel}</span>
+                                <span className="flex flex-shrink-0 opacity-30 transition-opacity group-hover/row:opacity-100">
+                                  <button
+                                    type="button"
+                                    className="rounded p-0.5 hover:bg-base-300"
+                                    title={`Zoom in on this row: every concept for ${row.cohortId} · ${row.visitLabel}`}
+                                    aria-label={`Zoom in on row ${row.cohortId} ${row.visitLabel}`}
+                                    onClick={() => setZoom({ kind: 'row', row })}
+                                  >
+                                    <ZoomIn size={13} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded p-0.5 hover:bg-base-300"
+                                    title="Hide this row (it goes to Hidden items, top right)"
+                                    aria-label={`Hide row ${row.cohortId} ${row.visitLabel}`}
+                                    onClick={e => hideRow(row, e.currentTarget.closest('tr'))}
+                                  >
+                                    <X size={13} />
+                                  </button>
+                                </span>
+                              </div>
                             </td>
                             {visibleClusters.map(cluster => {
-                              const { n, source, entries } = cellValue(
-                                model.cells.get(`${row.cohortId}||${row.visitKey}||${cluster.key}`)
-                              );
-                              if (entries.length === 0) {
+                              const info = cellInfo(row, cluster);
+                              const border = row.firstOfCohort ? 'border-t border-t-base-300' : '';
+                              if (info.kind === 'empty') {
                                 return (
                                   <td
                                     key={cluster.key}
-                                    className={`border-r border-base-200 px-1 py-1 text-center text-base-content/20 ${
-                                      row.firstOfCohort ? 'border-t border-t-base-300' : ''
-                                    }`}
+                                    className={`border-r border-base-200 px-1 py-1 text-center text-base-content/20 ${border}`}
                                   >
                                     ·
                                   </td>
                                 );
                               }
-                              if (n === null && row.type === 'none') {
-                                // Non-profiled cohort AND no dictionary count:
-                                // the participant count stands in for the cell value.
-                                return (
-                                  <td
-                                    key={cluster.key}
-                                    className={`border-r border-base-200 px-1 py-1 text-center ${showVarNames ? 'min-w-[7rem] max-w-[11rem] align-top' : 'whitespace-nowrap'} ${
-                                      row.firstOfCohort ? 'border-t border-t-base-300' : ''
-                                    }`}
-                                    style={{ backgroundColor: 'rgba(148, 163, 184, 0.25)' }}
-                                    title={`No profiling and no dictionary count — overall participant count shown\n${entries
-                                      .map(e => `${e.varName} — ${e.varLabel}`)
-                                      .join('\n')}`}
-                                  >
-                                    <div className="font-mono font-semibold">{row.participants ?? '?'}</div>
-                                    <div className="text-[10px] text-base-content/60">participants</div>
-                                    {showVarNames && (
-                                      <div className="mt-0.5 text-[10px] leading-tight font-mono text-base-content/80 break-all">
-                                        {entries.map(e => e.varName).join(', ')}
-                                      </div>
-                                    )}
-                                  </td>
-                                );
-                              }
-                              const pct = cellPct(n, row, pctMode);
-                              // Wide format: by percentage (or count, per the toggle);
-                              // long format and no profiling: by count, on their own scales.
-                              const sharePct = row.type === 'wide' && shadeBy === 'pct' ? cellPct(n, row, pctBasis) : null;
-                              const shade =
-                                n === null
-                                  ? 0
-                                  : sharePct !== null
-                                    ? Math.min(sharePct, 1)
-                                    : countShade(n, maxByType[row.type]);
-                              const bg = n === null ? 'transparent' : SCALE_COLOR[row.type](shade);
-                              const sourceNote =
-                                source === 'dict' ? 'count from the metadata dictionary, not EDA profiling' : '';
-                              const tooltip =
-                                (sourceNote ? `${sourceNote}\n` : '') +
-                                entries
-                                  .map(
-                                    e =>
-                                      `${e.varName}: ${e.count === null ? 'count n/a' : e.count}${
-                                        e.source === 'dict' ? ' (dict)' : ''
-                                      } — ${e.varLabel}`
-                                  )
-                                  .join('\n');
                               return (
                                 <td
                                   key={cluster.key}
-                                  className={`border-r border-base-200 px-1 py-1 text-center ${showVarNames ? 'min-w-[7rem] max-w-[11rem] align-top' : 'whitespace-nowrap'} ${
-                                    row.firstOfCohort ? 'border-t border-t-base-300' : ''
-                                  }`}
-                                  style={{ backgroundColor: bg }}
-                                  title={tooltip}
+                                  className={`border-r border-base-200 px-1 py-1 text-center ${
+                                    showVarNames ? 'min-w-[7rem] max-w-[11rem] align-top' : 'whitespace-nowrap'
+                                  } ${border}`}
+                                  style={{ backgroundColor: info.bg }}
+                                  title={info.tooltip}
                                 >
-                                  <div className="font-mono font-semibold">
-                                    {n === null ? '?' : n}
-                                    {source === 'dict' && <span className="font-sans font-normal text-base-content/50">*</span>}
-                                  </div>
-                                  {(pct !== null || source === 'dict' || entries.length > 1) && (
-                                    <div className="text-[10px] text-base-content/70">
-                                      {[
-                                        pct !== null ? formatPct(pct) : '',
-                                        source === 'dict' ? 'dict' : '',
-                                        entries.length > 1 ? `${entries.length} vars` : '',
-                                      ]
-                                        .filter(Boolean)
-                                        .join(' · ')}
-                                    </div>
-                                  )}
-                                  {showVarNames && (
-                                    <div className="mt-0.5 text-[10px] leading-tight font-mono text-base-content/80 break-all">
-                                      {entries.map(e => e.varName).join(', ')}
-                                    </div>
-                                  )}
+                                  {cellBody(info, showVarNames)}
                                 </td>
                               );
                             })}
@@ -1079,6 +1397,110 @@ export default function ConceptCoverageHeatmapPage() {
           </>
         )}
       </div>
+
+      {/* Hidden items: only while something is hidden */}
+      {(hiddenRows.length > 0 || hiddenCols.length > 0) && (
+        <div
+          ref={hiddenBoxRef}
+          className="fixed right-4 top-20 z-40 w-72 rounded-lg border border-base-300 bg-base-100 shadow-lg"
+          aria-label="Hidden items"
+        >
+          <div className="flex items-center gap-2 border-b border-base-300 px-3 py-2">
+            <EyeOff size={14} className="text-base-content/60" />
+            <span className="flex-1 text-sm font-semibold">
+              Hidden items ({hiddenRows.length + hiddenCols.length})
+            </span>
+            <button
+              className="btn btn-xs btn-ghost font-normal"
+              onClick={() => {
+                setHiddenRows([]);
+                setHiddenCols([]);
+              }}
+              title="Bring every hidden row and column back into the matrix"
+            >
+              Restore all
+            </button>
+            <button
+              className="btn btn-xs btn-ghost px-1"
+              onClick={() => setHiddenBoxOpen(o => !o)}
+              aria-label={hiddenBoxOpen ? 'Collapse hidden items' : 'Expand hidden items'}
+              aria-expanded={hiddenBoxOpen}
+            >
+              {hiddenBoxOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+          </div>
+          {hiddenBoxOpen && (
+            <div className="max-h-72 space-y-3 overflow-y-auto px-3 py-2 text-sm">
+              {(
+                [
+                  ['Rows (cohort · visit)', hiddenRows, setHiddenRows],
+                  ['Columns (concept clusters)', hiddenCols, setHiddenCols],
+                ] as [string, HiddenItem[], React.Dispatch<React.SetStateAction<HiddenItem[]>>][]
+              )
+                .filter(([, items]) => items.length > 0)
+                .map(([heading, items, setItems]) => (
+                  <div key={heading}>
+                    <div className="mb-1 text-[11px] uppercase tracking-wide text-base-content/50">{heading}</div>
+                    <ul className="space-y-1">
+                      {items.map(item => (
+                        <li key={item.key} className="flex items-start gap-2">
+                          <span className="min-w-0 flex-1 break-words text-xs" title={item.label}>
+                            {item.label}
+                          </span>
+                          <button
+                            className="btn btn-xs btn-outline flex-shrink-0 font-normal"
+                            onClick={() => setItems(prev => prev.filter(h => h.key !== item.key))}
+                          >
+                            Restore
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+      {ghosts.map(g => (
+        <FlyingGhost
+          key={g.id}
+          ghost={g}
+          target={hiddenBoxRef.current}
+          onDone={() => setGhosts(prev => prev.filter(x => x.id !== g.id))}
+        />
+      ))}
+
+      {/* Zoom on one row or one column */}
+      {zoom?.kind === 'column' && (
+        <ZoomOverlay
+          direction="column"
+          title={zoom.cluster.label}
+          subtitle={`${zoom.cluster.identifiers.join(', ')} · ${zoom.cluster.cohortIds.size} cohorts · ${zoom.cluster.variableCount} variables`}
+          tiles={rows.map(row => ({
+            key: rowKey(row.cohortId, row.visitKey),
+            label: row.cohortId,
+            sublabel: `${row.visitLabel} · ${TYPE_LABELS[row.type]}`,
+            info: cellInfo(row, zoom.cluster),
+          }))}
+          renderBody={info => cellBody(info, true)}
+          onClose={() => setZoom(null)}
+        />
+      )}
+      {zoom?.kind === 'row' && (
+        <ZoomOverlay
+          direction="row"
+          title={`${zoom.row.cohortId} · ${zoom.row.visitLabel}`}
+          subtitle={`${TYPE_LABELS[zoom.row.type]} · ${visibleClusters.length} concept clusters`}
+          tiles={visibleClusters.map(cluster => ({
+            key: cluster.key,
+            label: cluster.label,
+            info: cellInfo(zoom.row, cluster),
+          }))}
+          renderBody={info => cellBody(info, true)}
+          onClose={() => setZoom(null)}
+        />
+      )}
 
       {/* Transient notice (e.g. filters reset by the threshold slider) */}
       {toast && (
