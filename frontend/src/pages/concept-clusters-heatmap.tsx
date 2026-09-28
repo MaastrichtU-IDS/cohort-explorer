@@ -432,13 +432,14 @@ interface ExportContents {
   names: boolean;
 }
 
-// The export's percentage basis depends on the cohort type: patient IDs
-// counted for wide format, declared participants for cohorts without
-// profiling, none for long format (several rows per subject).
+// The export's percentage basis: patient IDs counted for wide format,
+// falling back to the declared number of participants when the cohort has no
+// patient-id count; declared participants for cohorts without profiling; none
+// for long format (several rows per subject). No basis -> "NA".
 function exportPctBase(row: HeatRow): number | null {
-  if (row.type === 'wide') return row.idCount;
-  if (row.type === 'none') return row.participants;
-  return null;
+  if (row.type === 'long') return null;
+  if (row.type === 'wide' && row.idCount) return row.idCount;
+  return row.participants;
 }
 
 function buildCsv(
@@ -462,12 +463,8 @@ function buildCsv(
       if (contents.percentages) {
         const base = exportPctBase(row);
         const pctText =
-          row.type === 'long'
-            ? 'n/a'
-            : n !== null && base
-              ? `${Number(((n / base) * 100).toFixed(1))}%`
-              : '';
-        if (pctText) parts.push(parts.length ? `(${pctText})` : pctText);
+          row.type === 'long' ? 'n/a' : n !== null && base ? `${Number(((n / base) * 100).toFixed(1))}%` : 'NA';
+        parts.push(parts.length ? `(${pctText})` : pctText);
       }
       if (contents.names) {
         const names = entries.map(e => e.varName).join(', ');
@@ -496,7 +493,7 @@ function downloadCsv(csv: string, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-type ExportStep = 'options' | 'warn_mix' | 'warn_pct';
+type ExportStep = 'options' | 'warn_mix';
 
 export default function ConceptCoverageHeatmapPage() {
   const { cohortsData, isLoading, userEmail } = useCohorts();
@@ -674,14 +671,6 @@ export default function ConceptCoverageHeatmapPage() {
 
   const exportTypes = useMemo(() => new Set(exportRows.map(r => r.type)), [exportRows]);
   const exportHasMixedTypes = exportTypes.size > 1 && (exportTypes.has('long') || exportTypes.has('none'));
-  // Cohorts whose percentage basis is unknown: patient IDs for wide format,
-  // declared participants for no profiling (long format never gets one).
-  const missingBasis = (r: HeatRow) => r.type !== 'long' && exportPctBase(r) === null;
-  const exportMissingTotals = useMemo(
-    () => [...new Set(exportRows.filter(missingBasis).map(r => r.cohortId))],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [exportRows]
-  );
 
   const openExportDialog = () => {
     setExportContents({ numbers: true, percentages: false, names: false });
@@ -699,15 +688,8 @@ export default function ConceptCoverageHeatmapPage() {
 
   const advanceExport = (fromStep: ExportStep, excludeNonWide: boolean) => {
     setExportExcludeNonWide(excludeNonWide);
-    const missingTotals = excludeNonWide
-      ? [...new Set(rows.filter(r => r.type === 'wide' && missingBasis(r)).map(r => r.cohortId))]
-      : exportMissingTotals;
     if (fromStep === 'options' && !excludeNonWide && exportHasMixedTypes) {
       setExportStep('warn_mix');
-      return;
-    }
-    if (exportContents.percentages && missingTotals.length > 0 && fromStep !== 'warn_pct') {
-      setExportStep('warn_pct');
       return;
     }
     runExport(excludeNonWide);
@@ -1151,7 +1133,7 @@ export default function ConceptCoverageHeatmapPage() {
                   [
                     'percentages',
                     'Percentages',
-                    'Wide format: of patient IDs counted · long format: not applicable (n/a) · no profiling: of the declared number of participants',
+                    'Wide format: of patient IDs counted (else of declared participants) · long format: n/a · no profiling: of declared participants · NA when neither is known',
                   ],
                   ['names', 'Variable names', "The cohort's own variable name(s) behind the cell"],
                 ] as [keyof ExportContents, string, string][]
@@ -1237,34 +1219,6 @@ export default function ConceptCoverageHeatmapPage() {
         </div>
       )}
 
-      {exportStep === 'warn_pct' && (
-        <div className="modal modal-open">
-          <div className="modal-box">
-            <h3 className="font-bold text-lg text-warning">Unknown participant totals</h3>
-            <div className="py-3 text-sm space-y-2">
-              <p>
-                Percentages cannot be computed for the following cohorts because their patient ID count (wide
-                format) or declared number of participants (no profiling) is unknown; their cells will have no
-                percentage:
-              </p>
-              <p className="font-mono text-xs">
-                {(exportExcludeNonWide
-                  ? [...new Set(rows.filter(r => r.type === 'wide' && missingBasis(r)).map(r => r.cohortId))]
-                  : exportMissingTotals
-                ).join(', ')}
-              </p>
-            </div>
-            <div className="modal-action">
-              <button className="btn btn-sm" onClick={() => setExportStep(null)}>
-                Cancel
-              </button>
-              <button className="btn btn-sm btn-warning" onClick={() => runExport(exportExcludeNonWide)}>
-                Proceed
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
