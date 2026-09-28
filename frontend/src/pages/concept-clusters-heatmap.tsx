@@ -936,7 +936,7 @@ export default function ConceptCoverageHeatmapPage() {
   const hiddenBoxRef = useRef<HTMLDivElement>(null);
   const [ghosts, setGhosts] = useState<Ghost[]>([]);
   const ghostId = useRef(0);
-  const [hiddenBoxOpen, setHiddenBoxOpen] = useState(true);
+  const [hiddenBoxOpen, setHiddenBoxOpen] = useState(false); // collapsed: just the header with the count
 
   const flyToHiddenBox = (label: string, from: Element | null) => {
     if (!from || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -948,13 +948,11 @@ export default function ConceptCoverageHeatmapPage() {
   const hideRow = (row: HeatRow, from: Element | null) => {
     const label = `${row.cohortId} · ${row.visitLabel}`;
     flyToHiddenBox(label, from);
-    setHiddenBoxOpen(true);
     setHiddenRows(prev => [...prev, { key: rowKey(row.cohortId, row.visitKey), label }]);
   };
 
   const hideColumn = (cluster: HeatCluster, from: Element | null) => {
     flyToHiddenBox(cluster.label, from);
-    setHiddenBoxOpen(true);
     setHiddenCols(prev => [...prev, { key: cluster.key, label: cluster.label }]);
   };
 
@@ -1264,43 +1262,48 @@ export default function ConceptCoverageHeatmapPage() {
                     <table className="border-separate border-spacing-0 text-xs">
                       <thead>
                         <tr>
-                          <th className="sticky top-0 left-0 z-30 bg-base-200 border-b border-r border-base-300 px-2 py-1 text-left min-w-[10rem]">
+                          <th className="sticky top-0 left-0 z-30 bg-base-200 border-b border-r border-base-300 px-2 py-1 text-left min-w-[8.5rem]">
                             Cohort
                           </th>
-                          <th className="sticky top-0 z-20 bg-base-200 border-b border-r border-base-300 px-2 py-1 text-left min-w-[8rem]" style={{ left: '10rem' }}>
+                          <th className="sticky top-0 z-20 bg-base-200 border-b border-r border-base-300 px-2 py-1 text-left min-w-[10rem]" style={{ left: '8.5rem' }}>
                             Visit
                           </th>
                           {visibleClusters.map(c => (
                             <th
                               key={c.key}
                               className="group/col sticky top-0 z-10 bg-base-200 border-b border-r border-base-300 px-1 align-bottom"
-                              title={`${c.label} — ${c.identifiers.join(', ')}`}
                             >
-                              <div className="mb-1 flex justify-center gap-0.5 opacity-40 transition-opacity group-hover/col:opacity-100">
+                              <div className="flex items-end justify-center gap-0.5">
+                                {/* The name zooms in, like the magnifier. */}
                                 <button
                                   type="button"
-                                  className="rounded p-0.5 hover:bg-base-300"
-                                  title={`Zoom in on this column: every cohort + visit for ${c.label}`}
-                                  aria-label={`Zoom in on column ${c.label}`}
+                                  className="overflow-hidden text-ellipsis whitespace-nowrap font-medium hover:underline"
+                                  style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', maxHeight: '9rem', minHeight: '9rem' }}
+                                  title={`${c.label} — ${c.identifiers.join(', ')}\nClick to zoom in on this column`}
                                   onClick={() => setZoom({ kind: 'column', cluster: c })}
                                 >
-                                  <ZoomIn size={13} />
+                                  {c.label}
                                 </button>
-                                <button
-                                  type="button"
-                                  className="rounded p-0.5 hover:bg-base-300"
-                                  title="Hide this column (it goes to Hidden items, top right)"
-                                  aria-label={`Hide column ${c.label}`}
-                                  onClick={e => hideColumn(c, e.currentTarget.closest('th'))}
-                                >
-                                  <X size={13} />
-                                </button>
-                              </div>
-                              <div
-                                className="mx-auto overflow-hidden text-ellipsis whitespace-nowrap font-medium"
-                                style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', maxHeight: '9rem', minHeight: '9rem' }}
-                              >
-                                {c.label}
+                                <div className="flex flex-col gap-0.5 opacity-40 transition-opacity group-hover/col:opacity-100">
+                                  <button
+                                    type="button"
+                                    className="rounded p-0.5 hover:bg-base-300"
+                                    title="Hide this column (it goes to Hidden items, top right)"
+                                    aria-label={`Hide column ${c.label}`}
+                                    onClick={e => hideColumn(c, e.currentTarget.closest('th'))}
+                                  >
+                                    <X size={13} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded p-0.5 hover:bg-base-300"
+                                    title={`Zoom in on this column: every cohort + visit for ${c.label}`}
+                                    aria-label={`Zoom in on column ${c.label}`}
+                                    onClick={() => setZoom({ kind: 'column', cluster: c })}
+                                  >
+                                    <ZoomIn size={13} />
+                                  </button>
+                                </div>
                               </div>
                             </th>
                           ))}
@@ -1310,7 +1313,7 @@ export default function ConceptCoverageHeatmapPage() {
                         {rows.map(row => (
                           <tr key={`${row.cohortId}||${row.visitKey}`} className="group/row">
                             <td
-                              className={`sticky left-0 z-20 bg-base-100 border-r border-base-300 px-2 py-1 font-semibold min-w-[10rem] max-w-[10rem] ${
+                              className={`sticky left-0 z-20 bg-base-100 border-r border-base-300 px-2 py-1 font-semibold min-w-[8.5rem] max-w-[8.5rem] ${
                                 row.firstOfCohort ? 'border-t' : ''
                               }`}
                               title={`${row.cohortId} — ${TYPE_LABELS[row.type]}`}
@@ -1322,34 +1325,30 @@ export default function ConceptCoverageHeatmapPage() {
                               )}
                             </td>
                             <td
-                              className={`sticky z-10 bg-base-100 border-r border-base-300 px-2 py-1 min-w-[8rem] max-w-[8rem] truncate ${
+                              className={`sticky z-10 bg-base-100 border-r border-base-300 px-2 py-1 min-w-[10rem] max-w-[10rem] ${
                                 row.firstOfCohort ? 'border-t' : ''
                               }`}
-                              style={{ left: '10rem' }}
-                              title={row.visitLabel}
+                              style={{ left: '8.5rem' }}
                             >
                               <div className="flex items-center gap-1">
-                                <span className="min-w-0 flex-1 truncate">{row.visitLabel}</span>
-                                <span className="flex flex-shrink-0 opacity-30 transition-opacity group-hover/row:opacity-100">
-                                  <button
-                                    type="button"
-                                    className="rounded p-0.5 hover:bg-base-300"
-                                    title={`Zoom in on this row: every concept for ${row.cohortId} · ${row.visitLabel}`}
-                                    aria-label={`Zoom in on row ${row.cohortId} ${row.visitLabel}`}
-                                    onClick={() => setZoom({ kind: 'row', row })}
-                                  >
-                                    <ZoomIn size={13} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="rounded p-0.5 hover:bg-base-300"
-                                    title="Hide this row (it goes to Hidden items, top right)"
-                                    aria-label={`Hide row ${row.cohortId} ${row.visitLabel}`}
-                                    onClick={e => hideRow(row, e.currentTarget.closest('tr'))}
-                                  >
-                                    <X size={13} />
-                                  </button>
-                                </span>
+                                {/* The visit name zooms in on the row. */}
+                                <button
+                                  type="button"
+                                  className="min-w-0 flex-1 truncate text-left hover:underline"
+                                  title={`${row.visitLabel}\nClick to zoom in on this row: every concept for ${row.cohortId} · ${row.visitLabel}`}
+                                  onClick={() => setZoom({ kind: 'row', row })}
+                                >
+                                  {row.visitLabel}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="flex-shrink-0 rounded p-0.5 opacity-30 transition-opacity hover:bg-base-300 group-hover/row:opacity-100"
+                                  title="Hide this row (it goes to Hidden items, top right)"
+                                  aria-label={`Hide row ${row.cohortId} ${row.visitLabel}`}
+                                  onClick={e => hideRow(row, e.currentTarget.closest('tr'))}
+                                >
+                                  <X size={13} />
+                                </button>
                               </div>
                             </td>
                             {visibleClusters.map(cluster => {
@@ -1410,16 +1409,6 @@ export default function ConceptCoverageHeatmapPage() {
             <span className="flex-1 text-sm font-semibold">
               Hidden items ({hiddenRows.length + hiddenCols.length})
             </span>
-            <button
-              className="btn btn-xs btn-ghost font-normal"
-              onClick={() => {
-                setHiddenRows([]);
-                setHiddenCols([]);
-              }}
-              title="Bring every hidden row and column back into the matrix"
-            >
-              Restore all
-            </button>
             <button
               className="btn btn-xs btn-ghost px-1"
               onClick={() => setHiddenBoxOpen(o => !o)}
