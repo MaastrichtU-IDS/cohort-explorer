@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useCohorts } from '@/components/CohortsContext';
 import LoginPrompt from '@/components/LoginPrompt';
-import { apiUrl } from '@/utils';
+import { apiUrl, parseParticipantCount } from '@/utils';
 import { Cohort, Variable } from '@/types';
 import { Grid, ChevronLeft, ChevronRight, Search, Download } from 'react-feather';
 
@@ -22,13 +22,13 @@ function normalizeValue(v: string): string {
   return v.trim().toLowerCase();
 }
 
-function parseParticipants(raw: string | null | undefined): number | null {
-  if (!raw) return null;
-  const match = String(raw).replace(/[,\s]/g, '').match(/(\d+)/);
-  if (!match) return null;
-  const n = parseInt(match[1], 10);
-  return n > 0 ? n : null;
+// Standard variable names are matched lowercased; shown in title case
+// ("hemoglobin [mass/volume] in blood" -> "Hemoglobin [Mass/Volume] In Blood").
+function titleCase(s: string): string {
+  return s.replace(/(^|[\s([/\-"])([a-z])/g, (_m, sep: string, ch: string) => sep + ch.toUpperCase());
 }
+
+const parseParticipants = (raw: string | null | undefined): number | null => parseParticipantCount(raw);
 
 // --- Visit ordering, ported from the longitudinal analysis logic
 // (_visit_sort_key in backend/src/longitudinal_audit.py) ---
@@ -308,7 +308,7 @@ function buildHeatModel(cohortsData: Record<string, Cohort>, counts: EdaCounts |
 
     clusters.push({
       key,
-      label: majorityName || key.replace(/^(omop|code):/, ''),
+      label: majorityName ? titleCase(majorityName) : key.replace(/^(omop|code):/, ''),
       identifiers,
       cohortIds,
       variableCount: group.length,
@@ -377,11 +377,10 @@ function formatPct(pct: number): string {
 // single-hue scales that follow the counts only (never percentages).
 
 type ShadeBy = 'pct' | 'count';
-type PctMode = 'none' | 'declared' | 'ids';
+type PctMode = 'none' | 'ids';
 
 const PCT_MODE_LABELS: Record<PctMode, string> = {
   none: 'No percentages',
-  declared: '% of declared participants',
   ids: '% of patient IDs counted',
 };
 
@@ -406,8 +405,7 @@ const countShade = (n: number, max: number): number => (max > 1 && n > 0 ? Math.
 // cohorts, whose counts aggregate several rows per subject.
 function cellPct(n: number | null, row: HeatRow, mode: PctMode): number | null {
   if (n === null || mode === 'none' || row.type === 'long') return null;
-  const base = mode === 'ids' ? row.idCount : row.participants;
-  return base ? n / base : null;
+  return row.idCount ? n / row.idCount : null;
 }
 
 // --- CSV export ---
@@ -427,14 +425,27 @@ function csvField(value: string | number): string {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-type ExportFormat = 'raw' | 'pct' | 'both';
+// What each exported cell holds; any combination, at least one.
+interface ExportContents {
+  numbers: boolean;
+  percentages: boolean;
+  names: boolean;
+}
+
+// The export's percentage basis depends on the cohort type: patient IDs
+// counted for wide format, declared participants for cohorts without
+// profiling, none for long format (several rows per subject).
+function exportPctBase(row: HeatRow): number | null {
+  if (row.type === 'wide') return row.idCount;
+  if (row.type === 'none') return row.participants;
+  return null;
+}
 
 function buildCsv(
   rows: HeatRow[],
   clusters: HeatCluster[],
   cells: Map<string, CellEntry[]>,
-  numberFormat: ExportFormat,
-  pctBasis: Exclude<PctMode, 'none'>
+  contents: ExportContents
 ): { csv: string; cohortCount: number; conceptCount: number } {
   const lines: string[] = [];
   lines.push(['Cohort', 'Visit', ...clusters.map(c => c.label)].map(csvField).join(','));
@@ -443,16 +454,26 @@ function buildCsv(
     const values = clusters.map(cluster => {
       const { n, entries } = cellValue(cells.get(`${row.cohortId}||${row.visitKey}||${cluster.key}`));
       if (entries.length === 0) return '';
-      if (n === null) {
-        // No EDA and no dictionary count: non-profiled cohorts fall back to
-        // the overall participant count (raw exports only).
-        return numberFormat === 'raw' && row.type === 'none' ? (row.participants ?? '') : '';
+      const parts: string[] = [];
+      // No EDA and no dictionary count: non-profiled cohorts fall back to the
+      // overall participant count.
+      const number = n ?? (row.type === 'none' ? row.participants : null);
+      if (contents.numbers && number !== null) parts.push(String(number));
+      if (contents.percentages) {
+        const base = exportPctBase(row);
+        const pctText =
+          row.type === 'long'
+            ? 'n/a'
+            : n !== null && base
+              ? `${Number(((n / base) * 100).toFixed(1))}%`
+              : '';
+        if (pctText) parts.push(parts.length ? `(${pctText})` : pctText);
       }
-      if (numberFormat === 'raw') return n;
-      const pct = cellPct(n, row, pctBasis);
-      const pctText = pct === null ? '' : Number((pct * 100).toFixed(1));
-      if (numberFormat === 'pct') return pctText;
-      return pctText === '' ? n : `${n} (${pctText}%)`;
+      if (contents.names) {
+        const names = entries.map(e => e.varName).join(', ');
+        parts.push(parts.length ? `[${names}]` : names);
+      }
+      return parts.join(' ');
     });
     lines.push([cohortName, row.visitLabel, ...values].map(csvField).join(','));
   }
@@ -484,15 +505,21 @@ export default function ConceptCoverageHeatmapPage() {
   const [clusterFilter, setClusterFilter] = useState<Record<string, boolean>>({});
   const [clusterSearch, setClusterSearch] = useState('');
   const [threshold, setThreshold] = useState(2);
-  const [thresholdConfirm, setThresholdConfirm] = useState<{ cellCount: number } | null>(null);
+  const [thresholdConfirm, setThresholdConfirm] = useState<{ columns: number; rows: number } | null>(null);
   const [exportStep, setExportStep] = useState<ExportStep | null>(null);
-  const [exportFormat, setExportFormat] = useState<ExportFormat>('raw');
+  const [exportContents, setExportContents] = useState<ExportContents>({
+    numbers: true,
+    percentages: false,
+    names: false,
+  });
   // Wide-format cells shade by percentage or by count; percentages shown under
   // the counts (off by default), and relative to what.
   const [shadeBy, setShadeBy] = useState<ShadeBy>('pct');
   const [pctMode, setPctMode] = useState<PctMode>('none');
+  // Variable names inside the cells (the cells grow to fit them).
+  const [showVarNames, setShowVarNames] = useState(false);
   // Percentages need a basis even when none are shown (shading, export).
-  const pctBasis: Exclude<PctMode, 'none'> = pctMode === 'none' ? 'declared' : pctMode;
+  const pctBasis: Exclude<PctMode, 'none'> = 'ids';
   const [exportExcludeNonWide, setExportExcludeNonWide] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -597,7 +624,7 @@ export default function ConceptCoverageHeatmapPage() {
     () =>
       clusterSearchLower
         ? thresholdClusters.filter(
-            c => c.label.includes(clusterSearchLower) || c.identifiers.some(id => id.includes(clusterSearchLower))
+            c => c.label.toLowerCase().includes(clusterSearchLower) || c.identifiers.some(id => id.includes(clusterSearchLower))
           )
         : thresholdClusters,
     [thresholdClusters, clusterSearchLower]
@@ -632,7 +659,7 @@ export default function ConceptCoverageHeatmapPage() {
     if (value === 1) {
       // Warn before including single-cohort concepts: the matrix explodes.
       const totalRows = allCohortIds.reduce((sum, id) => sum + (model.visitsByCohort[id] || []).length, 0);
-      setThresholdConfirm({ cellCount: totalRows * model.clusters.length });
+      setThresholdConfirm({ columns: model.clusters.length, rows: totalRows });
       return;
     }
     applyThreshold(value);
@@ -647,23 +674,24 @@ export default function ConceptCoverageHeatmapPage() {
 
   const exportTypes = useMemo(() => new Set(exportRows.map(r => r.type)), [exportRows]);
   const exportHasMixedTypes = exportTypes.size > 1 && (exportTypes.has('long') || exportTypes.has('none'));
-  // Cohorts whose percentage basis is unknown (long format never gets one).
-  const missingBasis = (r: HeatRow) => r.type !== 'long' && (pctBasis === 'ids' ? r.idCount : r.participants) === null;
+  // Cohorts whose percentage basis is unknown: patient IDs for wide format,
+  // declared participants for no profiling (long format never gets one).
+  const missingBasis = (r: HeatRow) => r.type !== 'long' && exportPctBase(r) === null;
   const exportMissingTotals = useMemo(
     () => [...new Set(exportRows.filter(missingBasis).map(r => r.cohortId))],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [exportRows, pctBasis]
+    [exportRows]
   );
 
   const openExportDialog = () => {
-    setExportFormat('raw');
+    setExportContents({ numbers: true, percentages: false, names: false });
     setExportExcludeNonWide(false);
     setExportStep('options');
   };
 
   const runExport = (excludeNonWide: boolean) => {
     const finalRows = excludeNonWide ? rows.filter(r => r.type === 'wide') : rows;
-    const { csv, cohortCount, conceptCount } = buildCsv(finalRows, visibleClusters, model.cells, exportFormat, pctBasis);
+    const { csv, cohortCount, conceptCount } = buildCsv(finalRows, visibleClusters, model.cells, exportContents);
     downloadCsv(csv, `icare4cvd-concept-coverage-${cohortCount}cohorts-${conceptCount}concepts.csv`);
     setExportStep(null);
     setExportExcludeNonWide(false);
@@ -678,7 +706,7 @@ export default function ConceptCoverageHeatmapPage() {
       setExportStep('warn_mix');
       return;
     }
-    if (exportFormat !== 'raw' && missingTotals.length > 0 && fromStep !== 'warn_pct') {
+    if (exportContents.percentages && missingTotals.length > 0 && fromStep !== 'warn_pct') {
       setExportStep('warn_pct');
       return;
     }
@@ -753,7 +781,7 @@ export default function ConceptCoverageHeatmapPage() {
                       aria-pressed={shadeBy === v}
                       title={
                         v === 'pct'
-                          ? `Share of the cohort (${pctBasis === 'ids' ? 'patient IDs counted' : 'declared participants'})`
+                          ? 'Share of the cohort (of its patient IDs counted)'
                           : 'Number of non-null observations (log scale)'
                       }
                     >
@@ -778,9 +806,19 @@ export default function ConceptCoverageHeatmapPage() {
                 ))}
               </div>
               <div className="divider divider-horizontal mx-0"></div>
+              <label className="flex items-center gap-2 cursor-pointer text-sm" title="Show the names of the variables behind each cell (cells get wider)">
+                <input
+                  type="checkbox"
+                  className="toggle toggle-sm"
+                  checked={showVarNames}
+                  onChange={e => setShowVarNames(e.target.checked)}
+                />
+                <span className={showVarNames ? 'text-base-content' : 'text-base-content/60'}>Variable names in cells</span>
+              </label>
+              <div className="divider divider-horizontal mx-0"></div>
               {exportButton}
               <span className="text-sm text-base-content/50">
-                {visibleClusters.length} concept clusters · {rows.length} rows
+                {visibleClusters.length} columns (concept clusters) · {rows.length} rows
               </span>
             </div>
 
@@ -866,10 +904,10 @@ export default function ConceptCoverageHeatmapPage() {
                               onChange={e => setClusterFilter(prev => ({ ...prev, [c.key]: e.target.checked }))}
                             />
                             <span className="min-w-0">
-                              <span className="block truncate" title={c.label}>
+                              <span className="block whitespace-normal break-words" title={c.label}>
                                 {c.label}
                               </span>
-                              <span className="block truncate text-xs text-base-content/50" title={c.identifiers.join(', ')}>
+                              <span className="block whitespace-normal break-all text-xs text-base-content/50" title={c.identifiers.join(', ')}>
                                 {c.identifiers.join(', ')}
                               </span>
                               <span className="block text-xs text-base-content/40">
@@ -895,7 +933,7 @@ export default function ConceptCoverageHeatmapPage() {
                     Nothing to show. Select at least one cohort and one cluster, or lower the cohort threshold.
                   </div>
                 ) : (
-                  <div className="overflow-auto border border-base-300 rounded-lg" style={{ maxHeight: '75vh' }}>
+                  <div className="overflow-auto border border-base-300 rounded-lg" style={{ maxHeight: '97vh' }}>
                     <table className="border-separate border-spacing-0 text-xs">
                       <thead>
                         <tr>
@@ -967,7 +1005,7 @@ export default function ConceptCoverageHeatmapPage() {
                                 return (
                                   <td
                                     key={cluster.key}
-                                    className={`border-r border-base-200 px-1 py-1 text-center whitespace-nowrap ${
+                                    className={`border-r border-base-200 px-1 py-1 text-center ${showVarNames ? 'min-w-[7rem] max-w-[11rem] align-top' : 'whitespace-nowrap'} ${
                                       row.firstOfCohort ? 'border-t border-t-base-300' : ''
                                     }`}
                                     style={{ backgroundColor: 'rgba(148, 163, 184, 0.25)' }}
@@ -977,6 +1015,11 @@ export default function ConceptCoverageHeatmapPage() {
                                   >
                                     <div className="font-mono font-semibold">{row.participants ?? '?'}</div>
                                     <div className="text-[10px] text-base-content/60">participants</div>
+                                    {showVarNames && (
+                                      <div className="mt-0.5 text-[10px] leading-tight font-mono text-base-content/80 break-all">
+                                        {entries.map(e => e.varName).join(', ')}
+                                      </div>
+                                    )}
                                   </td>
                                 );
                               }
@@ -1006,7 +1049,7 @@ export default function ConceptCoverageHeatmapPage() {
                               return (
                                 <td
                                   key={cluster.key}
-                                  className={`border-r border-base-200 px-1 py-1 text-center whitespace-nowrap ${
+                                  className={`border-r border-base-200 px-1 py-1 text-center ${showVarNames ? 'min-w-[7rem] max-w-[11rem] align-top' : 'whitespace-nowrap'} ${
                                     row.firstOfCohort ? 'border-t border-t-base-300' : ''
                                   }`}
                                   style={{ backgroundColor: bg }}
@@ -1025,6 +1068,11 @@ export default function ConceptCoverageHeatmapPage() {
                                       ]
                                         .filter(Boolean)
                                         .join(' · ')}
+                                    </div>
+                                  )}
+                                  {showVarNames && (
+                                    <div className="mt-0.5 text-[10px] leading-tight font-mono text-base-content/80 break-all">
+                                      {entries.map(e => e.varName).join(', ')}
                                     </div>
                                   )}
                                 </td>
@@ -1065,8 +1113,9 @@ export default function ConceptCoverageHeatmapPage() {
             <p className="py-3 text-sm">
               Lowering the threshold to 1 includes every concept that appears in only one cohort. This will increase the
               matrix size to{' '}
-              <span className="font-semibold">{thresholdConfirm.cellCount.toLocaleString()} cells</span>, which can make
-              the page slow. All other filters will be reset.
+              <span className="font-semibold">{thresholdConfirm.columns.toLocaleString()} columns</span> (concept
+              clusters, over {thresholdConfirm.rows.toLocaleString()} rows), which can make the page slow. All other
+              filters will be reset.
             </p>
             <div className="modal-action">
               <button className="btn btn-sm" onClick={() => setThresholdConfirm(null)}>
@@ -1094,48 +1143,50 @@ export default function ConceptCoverageHeatmapPage() {
             <p className="py-2 text-sm text-base-content/60">
               Exports the matrix as currently shown ({rows.length} rows × {visibleClusters.length} concept clusters).
             </p>
-            <div className="space-y-2 py-2">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="export-format"
-                  className="radio radio-sm"
-                  checked={exportFormat === 'raw'}
-                  onChange={() => setExportFormat('raw')}
-                />
-                <span className="text-sm">Raw numbers (non-null observation counts)</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="export-format"
-                  className="radio radio-sm"
-                  checked={exportFormat === 'pct'}
-                  onChange={() => setExportFormat('pct')}
-                />
-                <span className="text-sm">
-                  Percentages ({pctBasis === 'ids' ? 'of patient IDs counted' : 'of declared participants'})
-                </span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="export-format"
-                  className="radio radio-sm"
-                  checked={exportFormat === 'both'}
-                  onChange={() => setExportFormat('both')}
-                />
-                <span className="text-sm">Numbers and percentages, e.g. &quot;437 (70.3%)&quot;</span>
-              </label>
+            <p className="text-sm font-semibold">Include in each cell:</p>
+            <div className="space-y-3 py-2">
+              {(
+                [
+                  ['numbers', 'Raw numbers', 'Non-null observation counts'],
+                  [
+                    'percentages',
+                    'Percentages',
+                    'Wide format: of patient IDs counted · long format: not applicable (n/a) · no profiling: of the declared number of participants',
+                  ],
+                  ['names', 'Variable names', "The cohort's own variable name(s) behind the cell"],
+                ] as [keyof ExportContents, string, string][]
+              ).map(([key, label, detail]) => (
+                <label key={key} className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="checkbox checkbox-sm mt-0.5"
+                    checked={exportContents[key]}
+                    onChange={e => setExportContents(prev => ({ ...prev, [key]: e.target.checked }))}
+                  />
+                  <span className="text-sm">
+                    {label}
+                    <span className="block text-xs text-base-content/50">{detail}</span>
+                  </span>
+                </label>
+              ))}
               <p className="text-xs text-base-content/50">
-                Long-format cohorts never get a percentage: their counts span several rows per subject.
+                Several parts share one cell, e.g. &quot;437 (70.3%) [Hb6, Hb12]&quot;.
               </p>
             </div>
             <div className="modal-action">
               <button className="btn btn-sm" onClick={() => setExportStep(null)}>
                 Cancel
               </button>
-              <button className="btn btn-sm btn-primary" onClick={() => advanceExport('options', false)}>
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => advanceExport('options', false)}
+                disabled={!exportContents.numbers && !exportContents.percentages && !exportContents.names}
+                title={
+                  !exportContents.numbers && !exportContents.percentages && !exportContents.names
+                    ? 'Tick at least one thing to include'
+                    : undefined
+                }
+              >
                 Export
               </button>
             </div>
@@ -1192,8 +1243,8 @@ export default function ConceptCoverageHeatmapPage() {
             <h3 className="font-bold text-lg text-warning">Unknown participant totals</h3>
             <div className="py-3 text-sm space-y-2">
               <p>
-                Percentages cannot be computed for the following cohorts because their{' '}
-                {pctBasis === 'ids' ? 'patient ID count' : 'participant count'} is unknown; their cells will have no
+                Percentages cannot be computed for the following cohorts because their patient ID count (wide
+                format) or declared number of participants (no profiling) is unknown; their cells will have no
                 percentage:
               </p>
               <p className="font-mono text-xs">
