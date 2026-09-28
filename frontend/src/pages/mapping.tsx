@@ -333,7 +333,7 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
 
 
 import { useCohorts } from '@/components/CohortsContext';
-import {apiUrl} from '@/utils';
+import {apiUrl, parseParticipantCount} from '@/utils';
 import LoginPrompt from '@/components/LoginPrompt';
 
 // ─── Graph View ────────────────────────────────────────────────────────────────
@@ -1099,9 +1099,7 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
 
   // Helper: parse participants number from string
   function parseParticipants(d: any): number | null {
-    if (!d?.study_participants) return null;
-    const match = String(d.study_participants).replace(/[,\s]/g, '').match(/(\d+)/);
-    return match ? parseInt(match[1], 10) : null;
+    return parseParticipantCount(d?.study_participants);
   }
 
   const baseRows: { label: string; render: (idx: number) => React.ReactNode }[] = [

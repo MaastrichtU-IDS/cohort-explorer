@@ -14,6 +14,38 @@ from src.models import Cohort, CohortVariable, VariableCategory
 from rdflib import Dataset, URIRef
 
 
+# "Number of participants" is always an integer, but the spreadsheet writes it
+# in several ways: 6450, "6.450" / "6,450" (thousands separators, the dot being
+# the European convention), or 6.45 when an English-locale Excel read "6.450"
+# as a decimal number and dropped the trailing zero. Free text ("73883 total
+# participants; ...") is kept as written.
+_GROUPED_INT = re.compile(r"^\d{1,3}(?:[.,\s]\d{3})+$")
+
+
+def normalize_participants(raw: Any) -> str:
+    """The participant count as a plain integer string when the cell holds only
+    a number; otherwise the cell text, trimmed ("" for empty / NaN)."""
+    if raw is None or (isinstance(raw, float) and raw != raw):
+        return ""
+    if isinstance(raw, bool):
+        return str(raw)
+    if isinstance(raw, int):
+        return str(raw)
+    if isinstance(raw, float):
+        if raw.is_integer():
+            return str(int(raw))
+        whole, _, frac = repr(raw).partition(".")
+        # 6.45 was "6.450": a dot followed by at most three digits was a
+        # thousands separator. Longer fractions are not a count; keep them.
+        if whole.isdigit() and frac.isdigit() and len(frac) <= 3:
+            return str(int(whole + frac.ljust(3, "0")))
+        return str(raw)
+    text = str(raw).strip()
+    if _GROUPED_INT.match(text):
+        return re.sub(r"[.,\s]", "", text)
+    return text
+
+
 def _extract_number(text: str) -> Optional[float]:
     """Extract the first number (including decimals) from a string without using regex."""
     num_str = ""
@@ -1424,7 +1456,7 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
                 institution=str(row.get("institute", "")).strip() if pd.notna(row.get("institute")) else "",
                 study_type=str(row.get("study type", "")).strip() if pd.notna(row.get("study type")) else "",
                 study_design=str(row.get("study design", "")).strip() if pd.notna(row.get("study design")) else "",
-                study_participants=str(row.get("number of participants", "")).strip() if pd.notna(row.get("number of participants")) else "",
+                study_participants=normalize_participants(row.get("number of participants")),
                 study_population=str(row.get("study population", "")).strip() if pd.notna(row.get("study population")) else "",
                 study_duration=str(row.get("study duration", "")).strip() if pd.notna(row.get("study duration")) else "",
                 study_ongoing=str(row.get("ongoing", "")).strip().lower() if pd.notna(row.get("ongoing")) else "",

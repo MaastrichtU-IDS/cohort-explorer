@@ -2,7 +2,7 @@
 
 import React, {createContext, useState, useEffect, useContext, useRef, useCallback, useMemo, MutableRefObject} from 'react';
 import {Cohort} from '@/types';
-import {apiUrl} from '@/utils';
+import {apiUrl, parseParticipantCount} from '@/utils';
 import {buildSemanticMatchIndex} from '@/utils/semanticMatches';
 
 // Define statistics interface
@@ -83,24 +83,8 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
     return { cohortCount, variableCount, categoryCount };
   };
 
-  // Helper function to parse participant count
-  const parseParticipants = (participants: string | number | undefined | null): number => {
-    if (participants === undefined || participants === null) return 0;
-    
-    // If it's already a number, return it directly
-    if (typeof participants === 'number') return participants;
-    
-    // Otherwise, parse the string
-    // Split on spaces and take the first part
-    const parts = participants.toString().split(' ');
-    // Get the first part which should be the number
-    const numericPart = parts[0];
-    // Remove any non-numeric characters except for commas
-    const cleanNumeric = numericPart.replace(/[^0-9,]/g, '');
-    // Remove commas and parse as integer
-    const parsedValue = parseInt(cleanNumeric.replace(/,/g, ''), 10);
-    return isNaN(parsedValue) ? 0 : parsedValue;
-  };
+  // Participant count of a cohort (0 when the field holds no number).
+  const parseParticipants = (participants: unknown): number => parseParticipantCount(participants) ?? 0;
 
   // Calculate statistics - extracted as a separate function to be called explicitly
   const calculateStatistics = useCallback(async () => {

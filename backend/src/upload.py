@@ -55,7 +55,7 @@ from src.utils import (
     retrieve_cohorts_metadata,
     run_query
 )
-from src.cohort_cache import add_cohort_to_cache, clear_cache, create_cohort_from_dict_file, create_cohort_from_metadata_graph
+from src.cohort_cache import add_cohort_to_cache, clear_cache, create_cohort_from_dict_file, create_cohort_from_metadata_graph, normalize_participants
 from src.decentriq import create_provision_dcr, metadatadict_cols_schema1
 from src.mapping_generation.retriever import map_csv_to_standard_codes
 from src.mapping_logger import log_main, log_detail, MappingRun, PROCESS_SCM
@@ -2180,7 +2180,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyStart, Literal(row["start date"]), metadata_graph))
             g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyEnd, Literal(row["end date"]), metadata_graph))
         if is_valid_value(row["number of participants"]):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyParticipants, Literal(row["number of participants"]), metadata_graph))
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyParticipants, Literal(normalize_participants(row["number of participants"])), metadata_graph))
         if is_valid_value(row["ongoing"]):
             g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyOngoing, Literal(row["ongoing"]), metadata_graph))
         #if is_valid_value(row["Patient population"]):
