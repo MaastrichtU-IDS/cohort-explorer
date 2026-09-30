@@ -24,8 +24,22 @@ BROAD_COHORT_FRACTION = 0.5
 BROAD_VARIABLE_LIMIT = 120
 
 # Caps for the injected retrieval section.
-MAX_RETRIEVED_VARS_TOTAL = 40
-MAX_RETRIEVED_VARS_PER_COHORT = 10
+MAX_RETRIEVED_VARS_TOTAL = 300
+MAX_RETRIEVED_VARS_PER_COHORT = 40
+
+# Catalog data is budgeted in characters; ~3 chars per token is conservative
+# for this catalog (codes, abbreviations, German labels tokenize densely).
+CHARS_PER_TOKEN = 3
+# Categories listed per variable before the list is cut ("+N more").
+MAX_CATEGORIES_LISTED = 40
+
+
+def budget_chars(share: float) -> int:
+    """Character budget for one part of the chat context: `share` of the
+    configured CHAT_CONTEXT_BUDGET_TOKENS."""
+    from src.config import settings
+
+    return int(settings.chat_context_budget_tokens * share * CHARS_PER_TOKEN)
 
 # Generic English words dropped before matching (domain-broad words like
 # "function" are handled by the breadth filter, not this list).
@@ -70,8 +84,27 @@ def _variable_blob(var: Any) -> str:
     return _normalize(" ".join(b for b in bits if b))
 
 
+def variable_values(var: Any) -> str:
+    """Compact category list ('1=Yes; 0=No') or numeric range ('range 20–95')."""
+    cats = getattr(var, "categories", None) or []
+    if cats:
+        shown = []
+        for cat in cats[:MAX_CATEGORIES_LISTED]:
+            value = _clean(getattr(cat, "value", ""))
+            label = _clean(getattr(cat, "label", "")) or _clean(getattr(cat, "mapped_label", ""))
+            shown.append(f"{value}={label}" if value and label and label != value else (value or label))
+        more = f"; +{len(cats) - MAX_CATEGORIES_LISTED} more" if len(cats) > MAX_CATEGORIES_LISTED else ""
+        return "; ".join(s for s in shown if s) + more
+    lo, hi = _clean(getattr(var, "min", "")), _clean(getattr(var, "max", ""))
+    if lo or hi:
+        return f"range {lo or '?'}–{hi or '?'}"
+    return ""
+
+
 def _variable_detail_line(var: Any) -> str:
-    """One rich line per retrieved variable: name, label, type/units, concept, context."""
+    """One rich line per variable: everything the catalog knows about it
+    (label, type/units, concept + code, domain, values or range, visits,
+    definition/formula, additional context)."""
     name = _clean(getattr(var, "var_name", "")) or "?"
     bits = []
     label = _clean(getattr(var, "var_label", ""))
@@ -81,13 +114,26 @@ def _variable_detail_line(var: Any) -> str:
     if meta:
         bits.append(f"[{', '.join(meta)}]")
     concept = _clean(getattr(var, "concept_name", "")) or _clean(getattr(var, "mapped_label", ""))
+    code = _clean(getattr(var, "concept_code", "")) or _clean(getattr(var, "omop_id", ""))
     domain = _clean(getattr(var, "omop_domain", ""))
-    if concept or domain:
-        bits.append(f"(concept: {concept or '?'}{f'; domain: {domain}' if domain else ''})")
-    extra = _clean(getattr(var, "additional_context", ""))
-    if extra:
-        bits.append(f"note: {extra[:120]}")
-    return f"{name} — {' '.join(bits)}" if bits else name
+    if concept or code or domain:
+        inner = "; ".join(x for x in (
+            f"concept: {concept}" if concept else "",
+            f"code: {code}" if code else "",
+            f"domain: {domain}" if domain else "",
+        ) if x)
+        bits.append(f"({inner})")
+    values = variable_values(var)
+    if values:
+        bits.append(f"values: {values}")
+    visits = _clean(getattr(var, "visits", ""))
+    if visits:
+        bits.append(f"visits: {visits}")
+    for field, tag in (("definition", "definition"), ("formula", "formula"), ("additional_context", "note")):
+        text = _clean(getattr(var, field, ""))
+        if text:
+            bits.append(f"{tag}: {text}")
+    return f"{name} — {' | '.join(bits)}" if bits else name
 
 
 # ---- Cached search index -----------------------------------------------------
@@ -201,7 +247,7 @@ def retrieve_for_question(
 
     parts = [f"Variables matching the question ({'; '.join(header_bits)}):"]
     for cohort_id, lines in by_cohort.items():
-        parts.append(f"### {cohort_id}:")
+        parts.append(f"#### {cohort_id}:")
         parts.extend(f"  - {line}" for line in lines)
     if truncated:
         parts.append(
@@ -218,16 +264,14 @@ def retrieve_for_question(
 # can render them in a dedicated search-results panel, and formatted for the
 # model with explicit totals (ALL matching cohorts; per-cohort counts).
 
-SEARCH_VARS_SHOWN_PER_COHORT = 10
-SEARCH_EQUIVALENTS_SHOWN = 6
-# Budget for the formatted search context. EVERY matching cohort is expanded
-# with variable details; when a result set is so large that the text would
-# exceed this budget, the per-cohort variable lists are pared down step by step
-# (10 -> 7 -> 5 -> 3 -> 2 -> 1) until it fits - cohorts are never dropped.
-# ~120k chars is roughly 30k tokens: well within the local model's ~100k-token
-# window while leaving ample room for the system prompt, the cohort context,
-# the conversation history and the answer itself.
-SEARCH_CONTEXT_CHAR_CAP = 120000
+SEARCH_VARS_SHOWN_PER_COHORT = 30
+SEARCH_EQUIVALENTS_SHOWN = 20
+# Share of CHAT_CONTEXT_BUDGET_TOKENS for the formatted search context. EVERY
+# matching cohort is expanded with variable details; when a result set is so
+# large that the text would exceed the budget, the per-cohort variable lists
+# are pared down step by step (30 -> 20 -> 10 -> 5 -> 3 -> 1) until it fits -
+# cohorts are never dropped.
+SEARCH_CONTEXT_BUDGET_SHARE = 0.3
 # Standard-code expansion: variables sharing a standard code with a text match
 # are pulled into the results too (that is how BB_3M or ALTROBB count as beta
 # blockers via ATC:C07A). Codes carried by more than this many variables are
@@ -247,6 +291,8 @@ def _var_public(var: Any) -> dict[str, Any]:
         "units": _clean(getattr(var, "units", "")),
         "visits": _clean(getattr(var, "visits", "")),
         "categorical": bool(getattr(var, "categories", None)),
+        "values": variable_values(var),
+        "definition": _clean(getattr(var, "definition", "")) or _clean(getattr(var, "additional_context", "")),
     }
 
 
@@ -441,7 +487,7 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
                 shown = (c.get("variables") or [])[:max_vars]
                 if not shown:
                     continue
-                out.append(f"{indent}### {c['cohort_id']} — showing {len(shown)} of {c['matches']} matching variables:")
+                out.append(f"{indent}#### {c['cohort_id']} — showing {len(shown)} of {c['matches']} matching variables:")
                 for v in shown:
                     bits = [v.get("var_name") or "?"]
                     if v.get("var_label") and (v.get("var_label") or "").lower() != (v.get("var_name") or "").lower():
@@ -452,6 +498,12 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
                         bits.append("[" + ", ".join(meta) + "]")
                     if v.get("concept_name"):
                         bits.append(f"(concept: {v['concept_name']})")
+                    if v.get("values"):
+                        bits.append(f"values: {v['values']}")
+                    if v.get("visits"):
+                        bits.append(f"visits: {v['visits']}")
+                    if v.get("definition"):
+                        bits.append(f"definition: {v['definition']}")
                     if v.get("equivalents"):
                         eq = ", ".join(f"{e['cohort_id']}::{e['var_name']}" for e in v["equivalents"])
                         bits.append(f"EQUIVALENT BY STANDARD CODE to: {eq}")
@@ -480,10 +532,10 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
             """The main presentation of one term: every matching cohort, expanded."""
             coh = run.get("cohorts") or []
             if not coh:
-                out.append(f'## Search "{run.get("term")}": no matching variables in any cohort.')
+                out.append(f'### Search "{run.get("term")}": no matching variables in any cohort.')
                 return
             out.append(
-                f'## Search "{run.get("term")}": {run.get("total_matches")} matching variables across '
+                f'### Search "{run.get("term")}": {run.get("total_matches")} matching variables across '
                 f"{len(coh)} cohort(s) — ALL matching cohorts with their counts: {_counts_line(coh)}"
             )
             if run.get("codes"):
@@ -537,7 +589,7 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
             c_terms = [t for t in c["terms"] if t in runs_by_term]
             if not c_terms:
                 continue
-            out.append(f"# CONCEPT: {c['name']}")
+            out.append(f"### CONCEPT: {c['name']}")
             seen: set = set()
             for i, t in enumerate(c_terms):
                 run = runs_by_term[t]
@@ -554,11 +606,12 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
 
     # Fit-to-budget: try the full per-cohort variable lists first; if the text
     # would blow the budget, pare the lists down step by step - never cohorts.
+    cap = budget_chars(SEARCH_CONTEXT_BUDGET_SHARE)
     header_len = len("\n".join(parts))
     rendered: list[str] = []
-    for max_vars in (SEARCH_VARS_SHOWN_PER_COHORT, 7, 5, 3, 2, 1):
+    for max_vars in (SEARCH_VARS_SHOWN_PER_COHORT, 20, 10, 5, 3, 1):
         rendered = _render_runs(max_vars)
-        if header_len + len("\n".join(rendered)) <= SEARCH_CONTEXT_CHAR_CAP:
+        if header_len + len("\n".join(rendered)) <= cap:
             if max_vars < SEARCH_VARS_SHOWN_PER_COHORT:
                 rendered.append(f"(the result set is large: variable lists were shortened to "
                                 f"{max_vars} per cohort to fit - every matching cohort is still "
@@ -566,51 +619,9 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
             break
     parts.extend(rendered)
     text_so_far = "\n".join(parts)
-    if len(text_so_far) > SEARCH_CONTEXT_CHAR_CAP:
-        parts = [text_so_far[:SEARCH_CONTEXT_CHAR_CAP],
+    if len(text_so_far) > cap:
+        parts = [text_so_far[:cap],
                  "(search results truncated for length — the cohort counts above are complete)"]
-    parts.append(
-        "HOW TO USE THESE RESULTS: base your answer on them, not on memory. When the user asks "
-        "which cohorts have something, name ALL the matching cohorts listed above with their "
-        "counts — never drop any. When you name cohorts, also say which of them have summary "
-        "statistics on record (stated per search above): for those cohorts the catalog holds "
-        "each variable's real distribution, so per-category patient counts can be given. Say "
-        "'summary statistics', never 'EDA'. DO NOT extract patient counts, build 'available "
-        "counts' tables, or tell the user to click markers / visit pages to find counts in "
-        "THIS answer: when the question asks for counts or values, a separate follow-up "
-        "answer grounded in the recorded summary statistics is generated automatically right "
-        "after this one whenever those statistics can answer it — at most add ONE line saying "
-        "the summary statistics are being checked and a follow-up with the concrete numbers "
-        "may appear below. When listing variables, name at most 10-15 per cohort and "
-        "ALWAYS state the full counts explicitly (e.g. \"TIME-CHF has 57 matching variables; "
-        "here are 12\"), so the user knows there are more. EVERY matching cohort is expanded, but the "
-        "per-cohort variable lists are CAPPED (a few variables each when the result set is "
-        "large) - NEVER conclude that a cohort lacks "
-        "something because a variable is not shown; the 'ALL matching cohorts' line of each "
-        "search, and the COHORTS MATCHING EVERY CONCEPT line, are the complete truth. NEVER "
-        "characterize the variables of a cohort whose details are not expanded (no 'type 2 "
-        "variables only', no 'generic flags' - such claims about unexpanded cohorts are "
-        "fabrication): for those you may cite the listed variable NAMES verbatim, and beyond "
-        "that say the details are not shown here and point to the search panel. For "
-        "multi-criteria questions, answer from the COHORTS MATCHING EVERY CONCEPT line exactly "
-        "as given. A concept's complete cohort set is its main term's ALL-cohorts line PLUS the "
-        "NEW cohorts of each of its expansion terms; when a cohort was found only through an "
-        "expansion, say so - e.g. 'GISSI-HF (found via the metoprolol expansion)'. The variables "
-        "listed are recorded COHORT-WIDE: for a 'patients with X' question, name the variable(s) "
-        "that identify X, say plainly that the other variables are not restricted to X patients, "
-        "and note (as a fact, not as a suggested next step) that the actual subsetting can only "
-        "happen inside a Data Clean Room. NEVER shorten an answer by dropping "
-        "cohorts: every cohort listed above must appear in your answer, even in the short/summary "
-        "style — describe a few in detail if space is tight, then end with one line naming ALL the "
-        "remaining matches and pointing at the search results for the details. Use the EQUIVALENT BY STANDARD CODE "
-        "links to point out which variables correspond across cohorts. Variables with a "
-        "CHART-MARKER have an EDA distribution graph: EVERY time you mention such a variable by "
-        "name, put its exact marker (the \U0001F4CA[cohort::variable] token, copied verbatim) right "
-        "after the name — it renders as a clickable chart icon that opens the graph. Never invent "
-        "a marker for a variable that has none. The search HAS ALREADY BEEN RUN: never tell the "
-        "user to run a search themselves or to \"confirm with a fresh search\" — answer from "
-        "these results."
-    )
     return "\n".join(parts)
 
 

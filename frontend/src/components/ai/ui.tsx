@@ -2,7 +2,15 @@
 
 // Small shared UI atoms for the experimental AI chat layouts.
 import React, {useEffect, useRef, useState} from 'react';
-import {ChatMessage, IntersectionRow, SearchCohort, SearchConcept, SearchRun, SearchVariable} from '@/components/ai/chatClient';
+import {
+  ChatMessage,
+  IntersectionRow,
+  ProgressStep,
+  SearchCohort,
+  SearchConcept,
+  SearchRun,
+  SearchVariable
+} from '@/components/ai/chatClient';
 import EdaOverlayHost, {openEda} from '@/components/ai/EdaOverlay';
 import {apiUrl} from '@/utils';
 
@@ -211,6 +219,55 @@ export function TypingDots() {
   );
 }
 
+// Live progress of a turn: one line per step (planning the search, reading the
+// catalog data, writing), with what each step found and a seconds counter.
+function ProgressPanel({steps}: {steps: ProgressStep[]}) {
+  const [now, setNow] = useState(Date.now());
+  const active = steps.some(s => s.state === 'active');
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  const seconds = (s: ProgressStep) =>
+    s.startedAt ? Math.max(0, Math.round(((s.endedAt || now) - s.startedAt) / 1000)) : null;
+  const first = steps.find(s => s.startedAt)?.startedAt;
+  const total = first ? Math.round((now - first) / 1000) : 0;
+  return (
+    <div className="mb-2 rounded-xl border border-base-300 bg-base-200/40 px-3 py-2 text-sm" aria-live="polite">
+      <div className="flex items-center text-[11px] uppercase tracking-wide font-semibold text-base-content/50 mb-1">
+        Working on your question
+        <span className="ml-auto normal-case tracking-normal font-normal tabular-nums">{total} s</span>
+      </div>
+      <ol className="space-y-1">
+        {steps.map(s => {
+          const secs = seconds(s);
+          return (
+            <li key={s.key} className={`flex gap-2 ${s.state === 'pending' ? 'opacity-40' : ''}`}>
+              <span className="w-4 shrink-0 text-center" aria-hidden>
+                {s.state === 'done' ? (
+                  <span className="text-emerald-600">✓</span>
+                ) : s.state === 'failed' ? (
+                  <span className="text-amber-600">!</span>
+                ) : s.state === 'active' ? (
+                  <span className="loading loading-spinner loading-xs text-primary" />
+                ) : (
+                  <span>○</span>
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className={s.state === 'active' ? 'font-medium' : ''}>{s.label}</span>
+                {s.detail && <span className="block text-xs text-base-content/60 break-words">{s.detail}</span>}
+              </span>
+              {secs !== null && <span className="text-xs text-base-content/50 tabular-nums shrink-0">{secs} s</span>}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 function VariantToggle({
   variant,
   onChange
@@ -252,7 +309,9 @@ function VariableLine({cohortId, v}: {cohortId: string; v: SearchVariable}) {
   return (
     <li className="text-xs leading-snug">
       <span className="font-mono font-semibold">{v.var_name}</span>
-      {v.var_label && v.var_label.toLowerCase() !== v.var_name.toLowerCase() && <span className="text-base-content/70"> — {v.var_label}</span>}
+      {v.var_label && v.var_label.toLowerCase() !== v.var_name.toLowerCase() && (
+        <span className="text-base-content/70"> — {v.var_label}</span>
+      )}
       {(v.units || v.omop_domain) && (
         <span className="text-base-content/50"> [{[v.units, v.omop_domain].filter(Boolean).join(', ')}]</span>
       )}
@@ -293,7 +352,10 @@ function CohortVariablesCard({cohort}: {cohort: SearchCohort}) {
           <VariableLine key={v.var_name} cohortId={cohort.cohort_id} v={v} />
         ))}
         {cohort.matches > shown.length && shown.length > 0 && (
-          <li className="text-xs text-base-content/50 italic">+{cohort.matches - shown.length} more matching variables in this cohort (see the explore page for the full list)</li>
+          <li className="text-xs text-base-content/50 italic">
+            +{cohort.matches - shown.length} more matching variables in this cohort (see the explore page for the full
+            list)
+          </li>
         )}
       </ul>
     </div>
@@ -336,11 +398,7 @@ function classifyExpansions(runs: SearchRun[], concepts?: SearchConcept[]): (Exp
 // button to review the full results.
 // For one cohort in the intersection: its matching variables grouped by
 // concept, gathered from every run of each concept's terms (deduped by name).
-function gatherConceptVariables(
-  runs: SearchRun[],
-  concept: SearchConcept,
-  cohortId: string
-): SearchVariable[] {
+function gatherConceptVariables(runs: SearchRun[], concept: SearchConcept, cohortId: string): SearchVariable[] {
   const terms = new Set((concept.terms || []).map(t => (t || '').trim().toLowerCase()));
   const seen = new Set<string>();
   const vars: SearchVariable[] = [];
@@ -397,7 +455,9 @@ function IntersectionBlock({
               >
                 <b>{row.cohort_id}</b>{' '}
                 <span className="text-xs text-base-content/60">
-                  {Object.entries(row.per_concept).map(([k, v]) => `${k} ${v}`).join(' · ')}
+                  {Object.entries(row.per_concept)
+                    .map(([k, v]) => `${k} ${v}`)
+                    .join(' · ')}
                 </span>
                 <span className="ml-0.5 text-xs opacity-50">{openCohorts[row.cohort_id] ? '▾' : '▸'}</span>
               </button>
@@ -416,7 +476,9 @@ function IntersectionBlock({
                         {labels[i]}{' '}
                         <span className="font-normal text-base-content/60">
                           — {total} matching variable{total === 1 ? '' : 's'}
-                          {total > vars.length && vars.length > 0 && <> · showing {Math.min(vars.length, INTERSECTION_VARS_SHOWN)}</>}
+                          {total > vars.length && vars.length > 0 && (
+                            <> · showing {Math.min(vars.length, INTERSECTION_VARS_SHOWN)}</>
+                          )}
                         </span>
                       </div>
                       {vars.length > 0 ? (
@@ -425,12 +487,15 @@ function IntersectionBlock({
                             <VariableLine key={v.var_name} cohortId={row.cohort_id} v={v} />
                           ))}
                           {vars.length > INTERSECTION_VARS_SHOWN && (
-                            <li className="text-xs text-base-content/50 italic">+{vars.length - INTERSECTION_VARS_SHOWN} more (see the explore page)</li>
+                            <li className="text-xs text-base-content/50 italic">
+                              +{vars.length - INTERSECTION_VARS_SHOWN} more (see the explore page)
+                            </li>
                           )}
                         </ul>
                       ) : (
                         <div className="text-xs text-base-content/50 italic">
-                          No variable details were stored for this cohort in this search (full lists on the explore page).
+                          No variable details were stored for this cohort in this search (full lists on the explore
+                          page).
                         </div>
                       )}
                     </div>
@@ -460,9 +525,14 @@ function SearchRunBlock({run, expansion}: {run: SearchRun; expansion: ExpansionI
   return (
     <div className="space-y-1.5">
       <div className="text-sm">
-        <span className="px-2 py-0.5 rounded-full bg-sky-100 border border-sky-300 text-sky-900 font-mono text-xs">{run.term}</span>
+        <span className="px-2 py-0.5 rounded-full bg-sky-100 border border-sky-300 text-sky-900 font-mono text-xs">
+          {run.term}
+        </span>
         {expansion && (
-          <span className="ml-1 px-1.5 py-0.5 rounded bg-violet-100 border border-violet-300 text-violet-800 text-[10px] uppercase tracking-wide align-middle" title={`An equivalent term of the concept "${expansion.concept}": only the cohorts it newly discovered are listed`}>
+          <span
+            className="ml-1 px-1.5 py-0.5 rounded bg-violet-100 border border-violet-300 text-violet-800 text-[10px] uppercase tracking-wide align-middle"
+            title={`An equivalent term of the concept "${expansion.concept}": only the cohorts it newly discovered are listed`}
+          >
             equivalent term
           </span>
         )}{' '}
@@ -471,18 +541,20 @@ function SearchRunBlock({run, expansion}: {run: SearchRun; expansion: ExpansionI
         ) : expansion ? (
           expansion.newCohorts.length > 0 ? (
             <span className="text-base-content/80">
-              matches <b>{run.cohorts.length}</b> cohort{run.cohorts.length === 1 ? '' : 's'} — {expansion.known} already matched
-              earlier terms of &ldquo;{expansion.concept}&rdquo;, <b>{expansion.newCohorts.length}</b> newly discovered:
+              matches <b>{run.cohorts.length}</b> cohort{run.cohorts.length === 1 ? '' : 's'} — {expansion.known}{' '}
+              already matched earlier terms of &ldquo;{expansion.concept}&rdquo;, <b>{expansion.newCohorts.length}</b>{' '}
+              newly discovered:
             </span>
           ) : (
             <span className="text-base-content/80">
-              matches <b>{run.cohorts.length}</b> cohort{run.cohorts.length === 1 ? '' : 's'}, all already matched by earlier terms of
-              &ldquo;{expansion.concept}&rdquo; — no new cohorts.
+              matches <b>{run.cohorts.length}</b> cohort{run.cohorts.length === 1 ? '' : 's'}, all already matched by
+              earlier terms of &ldquo;{expansion.concept}&rdquo; — no new cohorts.
             </span>
           )
         ) : (
           <span className="text-base-content/80">
-            <b>{run.total_matches}</b> matching variable{run.total_matches === 1 ? '' : 's'} across <b>{run.cohorts.length}</b> cohort
+            <b>{run.total_matches}</b> matching variable{run.total_matches === 1 ? '' : 's'} across{' '}
+            <b>{run.cohorts.length}</b> cohort
             {run.cohorts.length === 1 ? '' : 's'}:
           </span>
         )}
@@ -565,7 +637,10 @@ export function SearchResultsPanel({
         {hasIntersection && <IntersectionBlock concepts={concepts} intersection={intersection} runs={runs} />}
         <div className="flex flex-wrap gap-1.5 mt-2">
           {runs.map(r => (
-            <span key={r.term} className="px-2 py-0.5 rounded-full bg-sky-100 border border-sky-300 text-sky-900 font-mono text-xs">
+            <span
+              key={r.term}
+              className="px-2 py-0.5 rounded-full bg-sky-100 border border-sky-300 text-sky-900 font-mono text-xs"
+            >
               {r.term}
             </span>
           ))}
@@ -597,7 +672,8 @@ export function SearchResultsPanel({
       ))}
       <div className="flex items-center gap-3">
         <div className="text-[11px] text-base-content/50 flex-1">
-          Every matching cohort is listed — click a cohort to see its top matching variables (lists are capped per cohort; the counts show the full number). Equivalent terms list only the cohorts they newly discovered.
+          Every matching cohort is listed — click a cohort to see its top matching variables (lists are capped per
+          cohort; the counts show the full number). Equivalent terms list only the cohorts they newly discovered.
         </div>
         {!live && (
           <button className="btn btn-sm btn-ghost" onClick={() => setOpen(false)}>
@@ -639,9 +715,7 @@ export function MessageBubble({
   if (message.role === 'system') return null;
 
   const hasVariants = !isUser && (message.summary !== undefined || message.detailed !== undefined);
-  const shown = hasVariants
-    ? (variant === 'summary' ? message.summary : message.detailed) || ''
-    : message.content;
+  const shown = hasVariants ? (variant === 'summary' ? message.summary : message.detailed) || '' : message.content;
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -671,6 +745,7 @@ export function MessageBubble({
             {hasVariants && <VariantToggle variant={variant} onChange={pickVariant} />}
           </div>
         )}
+        {streaming && message.progress && message.progress.length > 0 && <ProgressPanel steps={message.progress} />}
         {shown ? (
           <div
             className="prose prose-sm max-w-none leading-relaxed break-words [&_*]:my-0"
@@ -681,14 +756,16 @@ export function MessageBubble({
                 openEda(t.getAttribute('data-eda-cohort') || '', t.getAttribute('data-eda-var') || '');
               }
             }}
-            dangerouslySetInnerHTML={{__html: renderRich(shown, validEda, message.role === 'user' ? undefined : cohortNames)}}
+            dangerouslySetInnerHTML={{
+              __html: renderRich(shown, validEda, message.role === 'user' ? undefined : cohortNames)
+            }}
           />
         ) : streaming ? (
           message.followup ? (
             <span className="text-sm text-base-content/60 italic inline-flex items-center gap-2">
               Checking the summary statistics for numbers that answer this… <TypingDots />
             </span>
-          ) : (
+          ) : message.progress && message.progress.length > 0 ? null : (
             <TypingDots />
           )
         ) : hasVariants ? (
@@ -703,6 +780,153 @@ export function MessageBubble({
             <VariantToggle variant={variant} onChange={pickVariant} />
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Answer text with the chat's rich rendering (tables, cohort highlights,
+// clickable chart markers).
+function RichAnswer({text, validEda, cohortNames}: {text: string; validEda?: Set<string>; cohortNames?: string[]}) {
+  return (
+    <div
+      className="prose prose-sm max-w-none leading-relaxed break-words [&_*]:my-0"
+      onClick={e => {
+        const t = (e.target as HTMLElement).closest?.('a.eda-open') as HTMLElement | null;
+        if (t) {
+          e.preventDefault();
+          openEda(t.getAttribute('data-eda-cohort') || '', t.getAttribute('data-eda-var') || '');
+        }
+      }}
+      dangerouslySetInnerHTML={{__html: renderRich(text, validEda, cohortNames)}}
+    />
+  );
+}
+
+type TurnTab = 'detailed' | 'summary' | 'search' | 'stats';
+
+// An assistant answer with detailed/summary variants: rendered as a TurnCard.
+const isTurn = (m?: ChatMessage) =>
+  !!m && m.role === 'assistant' && !m.followup && !m.clarify && (m.detailed !== undefined || m.summary !== undefined);
+
+// Tab colours follow the pieces they replace: blue answer variants, the sky
+// search panel, the teal statistics follow-up.
+const TURN_TAB_STYLE: Record<TurnTab, string> = {
+  detailed: 'bg-blue-100 text-blue-900 border-blue-300',
+  summary: 'bg-blue-100 text-blue-900 border-blue-300',
+  search: 'bg-sky-100 text-sky-900 border-sky-300',
+  stats: 'bg-teal-100 text-teal-900 border-teal-300'
+};
+
+// One assistant turn as a single card: the detailed answer, its summary, the
+// catalog search results and (when the question asked for numbers) the
+// follow-up grounded in the summary statistics, each on its own tab. The tab
+// bar sticks to the top of the chat pane while a long answer is scrolled.
+function TurnCard({
+  message,
+  followup,
+  streaming,
+  validEda,
+  cohortNames,
+  onSummaryViewed
+}: {
+  message: ChatMessage;
+  followup?: ChatMessage;
+  streaming: boolean;
+  validEda?: Set<string>;
+  cohortNames?: string[];
+  onSummaryViewed?: () => void;
+}) {
+  const initial: TurnTab = message.preferredVariant === 'summary' ? 'summary' : 'detailed';
+  const [tab, setTab] = useState<TurnTab>(initial);
+  const [seen, setSeen] = useState<Set<TurnTab>>(() => new Set([initial]));
+  const pick = (t: TurnTab) => {
+    setTab(t);
+    setSeen(prev => new Set(prev).add(t));
+    if (t === 'summary') onSummaryViewed?.();
+  };
+
+  const runs = message.searches || [];
+  const statsText = followup?.content || '';
+  const stepState = (key: string) => message.progress?.find(s => s.key === key)?.state;
+  const nCohorts = new Set(runs.flatMap(r => r.cohorts.map(c => c.cohort_id))).size;
+
+  const tabs: {key: TurnTab; label: string; busy: boolean}[] = [
+    {
+      key: 'detailed',
+      label: 'Detailed answer',
+      busy: streaming && (stepState('read') === 'active' || stepState('detailed') === 'active')
+    },
+    {key: 'summary', label: 'Summary', busy: streaming && stepState('summary') === 'active'},
+    ...(runs.length > 0
+      ? [{key: 'search' as const, label: `Search results · ${nCohorts} cohort${nCohorts === 1 ? '' : 's'}`, busy: false}]
+      : []),
+    ...(statsText
+      ? [{key: 'stats' as const, label: 'Summary statistics', busy: streaming && stepState('stats') === 'active'}]
+      : [])
+  ];
+  // A tab that disappeared (e.g. the statistics follow-up was dropped) falls
+  // back to the detailed answer.
+  const current: TurnTab = tabs.some(t => t.key === tab) ? tab : 'detailed';
+
+  const answer = current === 'summary' ? message.summary || '' : message.detailed || '';
+  const emptyNote =
+    current === 'summary'
+      ? streaming
+        ? 'The summary is written once the detailed answer is finished.'
+        : 'No summary was produced. See the detailed answer.'
+      : streaming
+        ? null
+        : 'No detailed answer was produced. See the summary.';
+
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[97%] grow min-w-0 bg-base-100 border border-base-300 rounded-2xl rounded-bl-sm shadow-sm">
+        <div
+          className="sticky top-0 z-10 flex flex-wrap items-center gap-1.5 px-4 pt-3 pb-2 bg-base-100 border-b border-base-200 rounded-t-2xl"
+          role="tablist"
+        >
+          <span className="text-[11px] uppercase tracking-wide opacity-50 font-semibold mr-1.5">Assistant</span>
+          {tabs.map(t => (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={current === t.key}
+              onClick={() => pick(t.key)}
+              className={`relative inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-sm font-semibold border transition-all ${
+                current === t.key
+                  ? TURN_TAB_STYLE[t.key]
+                  : 'bg-base-100 text-base-content/55 border-base-300 hover:border-blue-300'
+              }`}
+            >
+              {t.label}
+              {t.busy && <span className="loading loading-spinner loading-xs" />}
+              {t.key === 'stats' && !seen.has('stats') && current !== 'stats' && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-teal-500" title="New" />
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="px-4 py-3">
+          {streaming && message.progress && message.progress.length > 0 && <ProgressPanel steps={message.progress} />}
+          {current === 'search' ? (
+            <SearchResultsPanel runs={runs} concepts={message.searchConcepts} intersection={message.searchIntersection} live />
+          ) : current === 'stats' ? (
+            <>
+              <div className="text-xs text-teal-900/70 mb-2">
+                An extra answer grounded in the recorded summary statistics (variable distributions) relevant to the
+                question.
+              </div>
+              <RichAnswer text={statsText} validEda={validEda} cohortNames={cohortNames} />
+            </>
+          ) : answer ? (
+            <RichAnswer text={answer} validEda={validEda} cohortNames={cohortNames} />
+          ) : emptyNote ? (
+            <span className="text-sm text-base-content/40 italic">{emptyNote}</span>
+          ) : !message.progress?.length ? (
+            <TypingDots />
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -817,28 +1041,46 @@ export function MessageList({
   return (
     <div className="space-y-4">
       <EdaOverlayHost />
-      {messages.map((m, i) => (
-        <React.Fragment key={i}>
-          {m.role === 'assistant' && m.searches && m.searches.length > 0 && streaming && i === messages.length - 1 && (
-            <SearchResultsPanel runs={m.searches} concepts={m.searchConcepts} intersection={m.searchIntersection} live />
-          )}
-          {m.role === 'assistant' && m.searchError && (
-            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
-              The assistant&rsquo;s catalog search could not run ({m.searchError}); the answer relies on the basic context only.
-            </div>
-          )}
-          <MessageBubble
-            message={m}
-            streaming={streaming && i === messages.length - 1}
-            validEda={validEda}
-            cohortNames={highlightNames}
-            onSummaryViewed={onSummaryViewed ? () => onSummaryViewed(i) : undefined}
-          />
-          {m.role === 'assistant' && m.searches && m.searches.length > 0 && !(streaming && i === messages.length - 1) && (
-            <SearchResultsPanel runs={m.searches} concepts={m.searchConcepts} intersection={m.searchIntersection} />
-          )}
-        </React.Fragment>
-      ))}
+      {messages.map((m, i) => {
+        const isLast = i === messages.length - 1;
+        // A statistics follow-up is shown inside the turn it belongs to.
+        if (m.followup && isTurn(messages[i - 1])) return null;
+        if (isTurn(m)) {
+          const followup = messages[i + 1]?.followup ? messages[i + 1] : undefined;
+          return (
+            <React.Fragment key={i}>
+              {m.searchError && (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+                  The assistant&rsquo;s catalog search could not run ({m.searchError}); the answer relies on the basic
+                  context only.
+                </div>
+              )}
+              <TurnCard
+                message={m}
+                followup={followup}
+                streaming={streaming && (isLast || (!!followup && i + 1 === messages.length - 1))}
+                validEda={validEda}
+                cohortNames={highlightNames}
+                onSummaryViewed={onSummaryViewed ? () => onSummaryViewed(i) : undefined}
+              />
+            </React.Fragment>
+          );
+        }
+        return (
+          <React.Fragment key={i}>
+            {m.role === 'assistant' && m.searches && m.searches.length > 0 && (
+              <SearchResultsPanel runs={m.searches} concepts={m.searchConcepts} intersection={m.searchIntersection} />
+            )}
+            <MessageBubble
+              message={m}
+              streaming={streaming && isLast}
+              validEda={validEda}
+              cohortNames={highlightNames}
+              onSummaryViewed={onSummaryViewed ? () => onSummaryViewed(i) : undefined}
+            />
+          </React.Fragment>
+        );
+      })}
       {/* While an answer streams and the reader has scrolled up: one tap to
           go back to the end and follow again. */}
       {streaming && !following && (
@@ -884,7 +1126,9 @@ export function Composer({
     }
   };
   return (
-    <div className={`flex items-end gap-2 bg-base-100 border border-base-300 rounded-2xl shadow-sm ${large ? 'p-3' : 'p-2'}`}>
+    <div
+      className={`flex items-end gap-2 bg-base-100 border border-base-300 rounded-2xl shadow-sm ${large ? 'p-3' : 'p-2'}`}
+    >
       <textarea
         className={`textarea textarea-ghost flex-1 resize-none focus:outline-none ${
           large ? 'max-h-60 min-h-[6.25rem] text-lg' : 'max-h-40 min-h-[2.75rem] text-base'
@@ -946,9 +1190,7 @@ export function LoginNotice() {
 }
 
 export function ExperimentBadge() {
-  return (
-    <span className="badge badge-sm bg-purple-100 text-purple-800 border border-purple-200">experimental</span>
-  );
+  return <span className="badge badge-sm bg-purple-100 text-purple-800 border border-purple-200">experimental</span>;
 }
 
 // Privacy note shown wherever the model is referenced.

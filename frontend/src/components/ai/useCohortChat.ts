@@ -3,6 +3,8 @@ import {useCallback, useEffect, useRef, useState} from 'react';
 import {
   ArrivalPath,
   ChatMessage,
+  ContextInfo,
+  ProgressStep,
   SearchPayload,
   fetchChatConfig,
   fetchEdaFollowup,
@@ -22,6 +24,25 @@ export interface SendOverrides {
   arrivalPath?: ArrivalPath;
   // Extra context to store with the conversation (intent, topics, starter…).
   entryContext?: Record<string, any>;
+}
+
+// One-line summary of what the backend put into a request's context.
+export function describeContext(info: ContextInfo): string {
+  const bits: string[] = [];
+  if (info.cohorts) {
+    const detail =
+      info.detail === 'full' ? 'full detail' : info.detail === 'label' ? 'names, labels and types' : 'names only';
+    bits.push(`${info.cohorts} cohort${info.cohorts === 1 ? '' : 's'}`);
+    if (info.variables) bits.push(`${info.variables.toLocaleString()} variables (${detail})`);
+  }
+  if (info.search_cohorts)
+    bits.push(`search results for ${info.search_cohorts} cohort${info.search_cohorts === 1 ? '' : 's'}`);
+  if (info.mapping_files) bits.push(`${info.mapping_files} mapping file${info.mapping_files === 1 ? '' : 's'}`);
+  if (info.approx_tokens) {
+    const t = info.approx_tokens;
+    bits.push(`~${t >= 1000 ? `${Math.round(t / 1000)}k` : t} tokens`);
+  }
+  return bits.join(' · ');
 }
 
 // A stable per-conversation id, best-effort (crypto.randomUUID where available).
@@ -109,7 +130,7 @@ export function useCohortChat(): UseCohortChat {
             arrivalPath: arrivalPathRef.current,
             entryContext: entryContextRef.current,
             model,
-            messages: next
+            messages: next.map(({progress, ...m}) => m)
           });
         }
         return next;
@@ -152,9 +173,40 @@ export function useCohortChat(): UseCohortChat {
         m.role === 'assistant' ? {role: m.role, content: m.detailed || m.content} : {role: m.role, content: m.content}
       );
 
+      // Live progress of this turn, shown inside the assistant bubble while it
+      // is answered (the first words can take a while with a large context).
+      // Kept on the message at mainIdx and removed again when the turn ends.
+      const mainIdx = base.length + 1;
+      const step = (key: string, label: string): ProgressStep => ({key, label, state: 'pending'});
+      const initialProgress: ProgressStep[] = [
+        ...(overrides?.contextOverride ? [] : [step('search', 'Planning and running the catalog search')]),
+        step('read', 'Reading the catalog data'),
+        step('detailed', 'Writing the detailed answer'),
+        step('summary', 'Condensing it into a short summary')
+      ];
+      const updateProgress = (fn: (steps: ProgressStep[]) => ProgressStep[] | undefined) =>
+        setMessages(prev => {
+          const m = prev[mainIdx];
+          if (!m || m.role !== 'assistant' || !m.progress) return prev;
+          const next = [...prev];
+          next[mainIdx] = {...m, progress: fn(m.progress)};
+          return next;
+        });
+      const patchStep = (key: string, patch: Partial<ProgressStep>) =>
+        updateProgress(steps => steps.map(s => (s.key === key ? {...s, ...patch} : s)));
+      const startStep = (key: string, detail?: string) =>
+        patchStep(key, {state: 'active', startedAt: Date.now(), ...(detail !== undefined ? {detail} : {})});
+      const finishStep = (key: string, detail?: string, state: 'done' | 'failed' = 'done') =>
+        patchStep(key, {state, endedAt: Date.now(), ...(detail !== undefined ? {detail} : {})});
+      const clearProgress = () => updateProgress(() => undefined);
+
       // Add the user turn plus an empty assistant turn holding both variants,
       // each streamed by its own request.
-      setMessages([...base, {role: 'user', content}, {role: 'assistant', content: '', summary: '', detailed: ''}]);
+      setMessages([
+        ...base,
+        {role: 'user', content},
+        {role: 'assistant', content: '', summary: '', detailed: '', progress: initialProgress}
+      ]);
       setIsStreaming(true);
 
       const controller = new AbortController();
@@ -167,9 +219,16 @@ export function useCohortChat(): UseCohortChat {
       let searchTerms: string[] = [];
       let interpretations: string[] = [];
       if (!overrides?.contextOverride) {
+        startStep('search', 'Choosing search terms for your question…');
         try {
           const plan = await planSearchWithRetry(content, selected, base);
           if (plan.needed && plan.searches.length > 0) {
+            const matched = new Set(plan.searches.flatMap(r => r.cohorts.map(c => c.cohort_id)));
+            finishStep(
+              'search',
+              `${plan.terms.length} search term${plan.terms.length === 1 ? '' : 's'} (${plan.terms.join(', ')}) → ` +
+                `${matched.size} cohort${matched.size === 1 ? '' : 's'} matched`
+            );
             payload = {runs: plan.searches, concepts: plan.concepts, intersection: plan.intersection};
             searchTerms = plan.terms;
             interpretations = plan.interpretations || [];
@@ -183,12 +242,18 @@ export function useCohortChat(): UseCohortChat {
                   next[next.length - 1] = {...last, searches: plan.searches, searchTerms, searchConcepts: plan.concepts, searchIntersection: plan.intersection};
                 return next;
               });
+              // Search-based answers are followed by a check of the recorded
+              // summary statistics (see the EDA follow-up below).
+              updateProgress(steps => [...steps, step('stats', 'Checking the summary statistics for numbers')]);
             }
+          } else {
+            finishStep('search', 'No catalog search needed for this question');
           }
         } catch (e: any) {
           // Planning is best-effort (the answer falls back to single-round
           // retrieval), but the failure is shown, not swallowed.
           const searchError = e?.message || 'catalog search failed';
+          finishStep('search', 'The search could not run; answering from the catalog data only', 'failed');
           setMessages(prev => {
             const next = [...prev];
             const last = next[next.length - 1];
@@ -197,6 +262,7 @@ export function useCohortChat(): UseCohortChat {
           });
         }
         if (controller.signal.aborted) {
+          clearProgress();
           setIsStreaming(false);
           abortRef.current = null;
           return;
@@ -209,10 +275,23 @@ export function useCohortChat(): UseCohortChat {
       if (payload && interpretations.length >= 2) {
         setMessages(prev => {
           const next = [...prev];
-          if (next[next.length - 1]?.role === 'assistant') next[next.length - 1] = {role: 'assistant', content: '', clarify: true};
+          const last = next[next.length - 1];
+          if (last?.role === 'assistant')
+            next[next.length - 1] = {
+              role: 'assistant',
+              content: '',
+              clarify: true,
+              progress: [
+                ...(last.progress || []).filter(s => s.key === 'search'),
+                step('read', 'Reading the catalog data'),
+                step('clarify', 'Writing a clarifying question')
+              ]
+            };
           return next;
         });
         let clarifyText = '';
+        let clarifyStarted = false;
+        startStep('read', 'Waiting for the model to take in the catalog data…');
         try {
           await streamChat({
             messages: historyForModel,
@@ -221,7 +300,13 @@ export function useCohortChat(): UseCohortChat {
             signal: controller.signal,
             searchResults: payload,
             clarifyInterpretations: interpretations,
+            onContext: info => patchStep('read', {detail: describeContext(info)}),
             onChunk: delta => {
+              if (!clarifyStarted) {
+                clarifyStarted = true;
+                finishStep('read');
+                startStep('clarify');
+              }
               clarifyText += delta;
               setMessages(prev => {
                 const next = [...prev];
@@ -244,6 +329,7 @@ export function useCohortChat(): UseCohortChat {
         } catch (e: any) {
           if (e?.name !== 'AbortError') setError(e?.message || 'Something went wrong contacting the model.');
         }
+        clearProgress();
         setIsStreaming(false);
         abortRef.current = null;
         return;
@@ -253,31 +339,53 @@ export function useCohortChat(): UseCohortChat {
       // transcript without reading React state back out.
       const acc: {summary: string; detailed: string} = {summary: '', detailed: ''};
 
-      const streamVariant = (style: 'summary' | 'detailed', summarizeText?: string) =>
-        streamChat({
-          messages: historyForModel,
-          cohortIds: selected,
-          focus,
-          systemPrompt: overrides?.systemPrompt,
-          contextOverride: overrides?.contextOverride,
-          style,
-          // In summarize mode the summary condenses the detailed answer, so
-          // the search context would only be dead weight there.
-          searchResults: summarizeText ? undefined : payload,
-          summarizeText,
-          signal: controller.signal,
-          onChunk: delta => {
-            acc[style] += delta;
-            setMessages(prev => {
-              const next = [...prev];
-              const last = next[next.length - 1];
-              if (last && last.role === 'assistant') {
-                next[next.length - 1] = {...last, [style]: (last[style] || '') + delta};
+      const streamVariant = async (style: 'summary' | 'detailed', summarizeText?: string) => {
+        // The detailed request carries the big context: its wait before the
+        // first words is shown as "reading", then "writing".
+        let started = false;
+        if (style === 'detailed') startStep('read', 'Sending the catalog data to the model…');
+        else startStep('summary');
+        try {
+          await streamChat({
+            messages: historyForModel,
+            cohortIds: selected,
+            focus,
+            systemPrompt: overrides?.systemPrompt,
+            contextOverride: overrides?.contextOverride,
+            style,
+            // In summarize mode the server uses the search results only for the
+            // list of cohorts the summary must keep.
+            searchResults: payload,
+            summarizeText,
+            signal: controller.signal,
+            onContext: info => {
+              if (style === 'detailed') patchStep('read', {detail: describeContext(info)});
+            },
+            onChunk: delta => {
+              if (!started && style === 'detailed') {
+                finishStep('read');
+                startStep('detailed');
               }
-              return next;
-            });
-          }
-        });
+              started = true;
+              acc[style] += delta;
+              setMessages(prev => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                if (last && last.role === 'assistant') {
+                  next[next.length - 1] = {...last, [style]: (last[style] || '') + delta};
+                }
+                return next;
+              });
+            }
+          });
+          if (style === 'detailed' && !started) finishStep('read');
+          finishStep(style);
+        } catch (e) {
+          if (style === 'detailed' && !started) finishStep('read', undefined, 'failed');
+          finishStep(style, undefined, 'failed');
+          throw e;
+        }
+      };
 
       // Detailed first (it is the default view); the summary is then produced
       // BY SUMMARIZING the finished detailed answer, so the two variants can
@@ -336,11 +444,12 @@ export function useCohortChat(): UseCohortChat {
           });
         }
 
-        // EDA follow-up: when the matched variables' profiles can turn this
-        // answer into concrete numbers (per-category patient counts, numeric
+        // EDA follow-up: when the question asks for numbers the matched
+        // variables' profiles hold (per-category patient counts, numeric
         // summaries), the server selects the relevant profiles and ONE extra
-        // bubble is streamed, grounded in them. Best-effort: failures are
-        // silent and the main answer stands.
+        // answer is streamed, grounded in them; it shows as the turn's
+        // "Summary statistics" tab. Best-effort: failures only show in the
+        // progress panel and the main answer stands.
         const dropEmptyFollowup = () =>
           setMessages(prev => {
             const next = [...prev];
@@ -349,27 +458,17 @@ export function useCohortChat(): UseCohortChat {
             return next;
           });
         if (payload && !controller.signal.aborted) {
-          // The check itself is visible: the teal bubble appears right away in
-          // a "checking the variable profiles" state, and is removed again if
-          // the selection round decides the profiles add nothing.
+          // The check shows as a progress step; the follow-up message stays
+          // empty (no tab) unless the selection round finds numbers to add.
           setMessages(prev => [...prev, {role: 'assistant', content: '', followup: true}]);
+          startStep('stats', 'Deciding whether the recorded summary statistics answer the question…');
           try {
             const fu = await fetchEdaFollowup(content, payload, selected, controller.signal);
             if (fu.needed && fu.context && !controller.signal.aborted) {
-              // The concrete numbers land in the follow-up bubble, so the main
-              // answer collapses to its summary view (when one exists; the
-              // user can still switch back to Detailed).
-              if (acc.summary.trim()) {
-                setMessages(prev => {
-                  const next = [...prev];
-                  const mainIdx = next.length - 2;
-                  const main = next[mainIdx];
-                  if (main && main.role === 'assistant' && !main.followup) {
-                    next[mainIdx] = {...main, preferredVariant: 'summary'};
-                  }
-                  return next;
-                });
-              }
+              const nVars = fu.variables?.length || 0;
+              patchStep('stats', {
+                detail: `Writing a follow-up from the statistics of ${nVars} variable${nVars === 1 ? '' : 's'}…`
+              });
               let fuText = '';
               await streamChat({
                 messages: historyForModel,
@@ -400,22 +499,28 @@ export function useCohortChat(): UseCohortChat {
                   messages: [
                     ...base,
                     {role: 'user', content},
-                    acc.summary.trim() ? {...assistant, preferredVariant: 'summary' as const} : assistant,
+                    assistant,
                     {role: 'assistant', content: fuText, followup: true}
                   ]
                 });
-              } else if (!fuText) {
+              }
+              if (fuText) finishStep('stats', 'Numbers added: see the Summary statistics tab');
+              else {
+                finishStep('stats', 'No follow-up was produced');
                 dropEmptyFollowup();
               }
             } else {
-              // Profiles add nothing for this question: remove the checking bubble.
+              // The statistics add nothing for this question: no follow-up.
+              finishStep('stats', 'Not needed for this question');
               dropEmptyFollowup();
             }
           } catch {
+            finishStep('stats', 'Could not check the summary statistics', 'failed');
             dropEmptyFollowup();
           }
         }
       }
+      clearProgress();
       setIsStreaming(false);
       abortRef.current = null;
     },

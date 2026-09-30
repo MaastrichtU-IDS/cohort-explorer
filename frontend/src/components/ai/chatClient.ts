@@ -34,6 +34,32 @@ export interface ChatMessage {
   // in the follow-up, so the main bubble collapses to its summary); the user
   // can still toggle manually.
   preferredVariant?: 'summary' | 'detailed';
+  // Live progress of the turn while it is being answered (planning, reading
+  // the catalog data, writing). Display only - never saved with the history.
+  progress?: ProgressStep[];
+}
+
+export type ProgressState = 'pending' | 'active' | 'done' | 'failed';
+
+export interface ProgressStep {
+  key: string;
+  label: string;
+  state: ProgressState;
+  // One-line summary of what the step is doing or found.
+  detail?: string;
+  startedAt?: number;
+  endedAt?: number;
+}
+
+// What the backend put into one request's context (X-Chat-Context header).
+export interface ContextInfo {
+  mode?: string;
+  cohorts?: number;
+  variables?: number;
+  detail?: 'full' | 'label' | 'names';
+  search_cohorts?: number;
+  mapping_files?: number;
+  approx_tokens?: number;
 }
 
 // ---- Catalog search (the chat's search tool) --------------------------------
@@ -200,6 +226,8 @@ export interface SendOptions {
   // for a short clarifying reply instead of a full answer.
   clarifyInterpretations?: string[];
   onChunk: (delta: string) => void;
+  // Called once the response starts, with what the backend put into the context.
+  onContext?: (info: ContextInfo) => void;
   signal?: AbortSignal;
 }
 
@@ -244,6 +272,14 @@ export async function streamChat(opts: SendOptions): Promise<void> {
       /* body was not JSON */
     }
     throw new Error(detail);
+  }
+  if (opts.onContext) {
+    try {
+      const raw = res.headers.get('X-Chat-Context');
+      if (raw) opts.onContext(JSON.parse(raw));
+    } catch {
+      /* header missing or malformed: progress just shows less detail */
+    }
   }
   if (!res.body) {
     const text = await res.text();

@@ -40,6 +40,14 @@ class Settings:
     litellm_base_url: str = field(default_factory=lambda: os.getenv("LITELLM_BASE_URL", ""))
     litellm_api_key: str = field(default_factory=lambda: os.getenv("LITELLM_API_KEY", ""))
     litellm_model: str = field(default_factory=lambda: os.getenv("LITELLM_MODEL", "gpt-3.5-turbo"))
+    # Rough token budget for the catalog data put into one chat request (cohort
+    # block + search results + mapping files). Sized for a ~1M-token window,
+    # leaving room for history and the answer; lower it for smaller models and
+    # the context shrinks gracefully (fewer details per variable, never fewer
+    # cohorts).
+    chat_context_budget_tokens: int = field(
+        default_factory=lambda: int(os.getenv("CHAT_CONTEXT_BUDGET_TOKENS", "500000"))
+    )
 
     @property
     def chat_enabled(self) -> bool:

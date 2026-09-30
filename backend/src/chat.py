@@ -32,125 +32,129 @@ router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
-# Keep prompts bounded so a broad selection cannot blow up the context window.
-MAX_CONTEXT_COHORTS = 25
-MAX_VARS_PER_COHORT = 40
-MAX_CATALOG_COHORTS = 200
-# Variable names sampled per cohort in the CATALOG (no cohorts selected) view,
-# so catalog-wide questions about variables can be answered with real names.
-CATALOG_VARS_SAMPLE = 15
-# Caps for client-supplied overrides (Glass Box & friends).
-MAX_SYSTEM_PROMPT_CHARS = 8_000
-MAX_CONTEXT_CHARS = 120_000
+# Context sizing. Catalog data is budgeted from CHAT_CONTEXT_BUDGET_TOKENS (see
+# config.py and chat_retrieval.budget_chars); these shares split it between the
+# parts of one request. Each part degrades gracefully when it does not fit
+# (fewer details per variable, never fewer cohorts).
+COHORT_BLOCK_BUDGET_SHARE = 0.5
+MAPPING_BUDGET_SHARE = 0.1
+MAX_MAPPING_PAIRS = 15
+# Caps for client-supplied text (Glass Box overrides, follow-up blocks).
+MAX_SYSTEM_PROMPT_CHARS = 40_000
+MAX_CONTEXT_CHARS = 2_000_000
+MAX_SUMMARIZE_CHARS = 100_000
+MAX_EDA_CONTEXT_CHARS = 200_000
 
 # How the platform works — shared so the assistant can guide users through the
 # actual workflow, not just describe data.
 PLATFORM_OVERVIEW = (
-    "About the iCARE4CVD Cohort Explorer platform:\n"
     "- The Explorer's main (explore) page lets analysts discover cardiovascular studies/cohorts "
-    "of interest and each cohort's variables (its metadata / data dictionary in the catalog).\n"
-    "- The explore page has a proper SEARCH BOX. It offers exactly two settings: WHERE to search "
-    "(cohorts metadata, variables information, or all) and the MODE (OR search, AND search, or "
-    "exact phrase). It searches variable names, labels, concept names and codes. There are NO "
-    "other filters — no domain filter, no data-type filter, no visit filter — so never tell the "
-    "user to apply one. When users need to find variables, point them to this search box — NEVER "
-    "suggest browser tricks like Ctrl+F.\n"
-    "- To actually analyse data, an analyst creates an analysis DCR (Data Clean Room): a secure "
-    "computing enclave. The data owners (cohort admins) upload their real data into the DCR, and "
-    "the analyst writes a script that computes over that data WITHOUT ever seeing the raw records — "
-    "only permitted outputs leave the enclave.\n"
-    "- Cross-cohort variable mapping is done from the dedicated MAPPING PAGE: the analyst picks a "
+    "and each cohort's variables (its metadata / data dictionary in the catalog).\n"
+    "- The explore page has a SEARCH BOX with exactly two settings: WHERE to search (cohorts "
+    "metadata, variables information, or all) and the MODE (OR search, AND search, or exact "
+    "phrase). It searches variable names, labels, concept names and codes. There are NO other "
+    "filters (no domain, data-type or visit filter), so never tell the user to apply one. When "
+    "users need to find variables, point them to this search box, never to browser tricks like "
+    "Ctrl+F.\n"
+    "- To analyse data, an analyst creates an analysis DCR (Data Clean Room): a secure computing "
+    "enclave. The data owners (cohort admins) upload their real data into it, and the analyst's "
+    "script computes over that data WITHOUT ever seeing the raw records; only permitted outputs "
+    "leave the enclave.\n"
+    "- Cross-cohort variable mapping is done on the dedicated MAPPING PAGE: the analyst picks a "
     "source cohort and target cohort(s) and the platform generates a mapping file of likely "
-    "variable correspondences (suggested equivalences, not guarantees). This is the ONLY way to "
-    "map variables across cohorts; there is no per-variable mapping control anywhere else.\n"
-    "When relevant, explain how the user could act via these features (e.g. create a DCR to run an "
-    "analysis, or generate a mapping from the mapping page to align variables across cohorts), but "
-    "never claim to have run an analysis or seen raw data yourself."
+    "variable correspondences (suggestions, not guarantees). This is the ONLY way to map "
+    "variables across cohorts; there is no per-variable mapping control anywhere else."
 )
 
+# Standing rules: the first part of the single system message. The catalog
+# data and the task for this particular reply follow it (see _assemble_payload).
 SYSTEM_PROMPT = (
-    "You are the iCARE4CVD Cohort Explorer assistant. You help researchers "
-    "understand and compare cardiovascular research cohorts and their variables. "
-    f"\n\n{PLATFORM_OVERVIEW}\n\n"
-    "Answer using ONLY the cohort context provided in this conversation. "
-    "INTERPRETING THE QUESTION: first decide what is being asked - a specific variable, a list "
-    "of cohorts, an inventory of what is tracked (e.g. 'medications of X patients' = ALL "
+    "You are iCARE-AI, the assistant of the iCARE4CVD Cohort Explorer. You help researchers "
+    "understand and compare cardiovascular research cohorts and their variables.\n\n"
+    "This message has three parts: these standing RULES, then the CATALOG DATA for this "
+    "request, then YOUR TASK FOR THIS REPLY. Where the task asks for something more specific "
+    "than a rule (a length limit, a particular focus), the task wins.\n\n"
+    "# THE PLATFORM\n\n"
+    f"{PLATFORM_OVERVIEW}\n\n"
+    "# RULES\n\n"
+    "1. GROUNDING. Answer only from the catalog data below and the conversation. Never invent "
+    "cohorts, variables, values, codes or statistics. If the data does not contain the answer, "
+    "say so plainly. Never claim to have run an analysis or seen raw data.\n"
+    "2. COHORTS WITHOUT VARIABLE METADATA. Only cohorts whose variables are in the catalog can "
+    "be explored here: focus searches, comparisons and suggestions on them. Mention cohorts "
+    "without variable metadata only when the user asks about them directly.\n"
+    "3. INTERPRETING THE QUESTION. First decide what is being asked: a specific variable, a "
+    "list of cohorts, an inventory of what is tracked ('medications of X patients' means ALL "
     "medication variables, not one drug class), or data about a subgroup ('patients with X'). "
-    "If the question supports different readings, SAY SO - the users are analysts and value "
-    "having the ambiguity in their own question pinned down, even a subtle one. Asking for "
-    "disambiguation is ENCOURAGED here: a short clarifying question is a good outcome, not a "
-    "failure to answer. When one "
-    "reading contains the other (an inventory contains a single flag), answer the broader and "
-    "point out the narrower inside it. When the readings genuinely diverge, present each "
-    "interpretation, sketch in a line what the search results say under each, and END BY "
-    "ASKING which one is meant - never silently pick the narrower or more familiar reading, "
-    "and never narrow a condition to one drug class just because it is clinically typical. "
-    "Open with 'Interpreting this as ...' whenever you chose a reading. "
-    "SUBGROUPS AND COUNTS: the catalog holds variable metadata AND, for the cohorts marked as "
-    "having summary statistics on record, each variable's SUMMARY STATISTICS - real "
-    "distributions with per-category patient counts. So 'how many patients have X' CAN be "
-    "answered for those cohorts, from the matching category of an X-status variable (a "
-    "follow-up grounded in the summary statistics does exactly this) - NEVER claim patient "
-    "counts cannot be read from the catalog when summary statistics are on record; instead "
-    "give the counts or name the cohorts that have them, and note how many cohorts have "
-    "summary statistics when the question spans the whole catalog. What the catalog canNOT do "
-    "is patient-level filtering ACROSS variables ('patients with X below age 50', 'X patients "
-    "who also take Y'): cross-variable subgroups need a Data Clean Room. "
-    "TERMINOLOGY: call these 'summary statistics' in your answers, never 'EDA'. "
-    "COHORT NAMES: if the user's message contains a word matching a cohort's name or the first "
-    "part of one (e.g. 'biostat' for BIOSTAT-CHF, 'aachen' for Aachen-HF, 'time' for TIME-CHF, "
-    "'check' for CHECK-HF), ASSUME they are referring to that cohort: answer about the cohort, in "
-    "the context of the conversation so far. If the match was only partial, end with ONE short "
-    "question confirming the reading (e.g. 'I read \"biostat\" as the BIOSTAT-CHF cohort — did "
-    "you mean something else?'). Never instead interpret such a word as a general topic (e.g. "
-    "'biostat' is not biostatistics here). "
-    "SEARCH RESULTS: when the conversation includes CATALOG SEARCH RESULTS (produced by the "
-    "platform's built-in search tool, shown to the user in a search panel), any question about "
-    "which cohorts or variables meet certain criteria MUST be answered from those results: "
-    "name ALL the matching cohorts with their counts, list at most 10-15 variables per cohort, "
-    "always state the full match counts so it is clear there are more, and use the "
-    "equivalent-by-standard-code links to point out cross-cohort correspondences. "
-    "IMPORTANT: focus your search, comparisons and suggestions on cohorts whose "
-    "variable metadata is in the catalog — these are the only cohorts whose data "
-    "can actually be explored here. Cohorts with no variable metadata should not "
-    "be suggested as places to find data; mention them only if the user asks "
-    "about them directly. If the context does not contain the answer, say so "
-    "plainly and suggest cohorts that do have variable metadata instead. "
-    "TERMINOLOGY: never call variables 'uploaded' (no 'uploaded variables', no "
-    "'uploaded-variable cohorts') — a cohort either has its metadata in the "
-    "catalog or it does not; say 'variables' or 'variables in the catalog'. "
-    "NEXT STEPS: do not close answers with suggested next steps or offers "
-    "(creating a DCR, generating mappings, contacting data owners, 'let me "
-    "know if you need help setting this up') unless the user asked how to "
-    "proceed. Stating a factual availability boundary is different and fine "
-    "where relevant - e.g. that data without summary statistics can only be "
-    "examined inside a Data Clean Room after the data owners upload it there. "
-    "Be concise, use short paragraphs and "
-    "bullet points, reference cohorts and variables by name, and never invent "
-    "variables, values, or statistics that are not present in the context."
+    "When one reading contains the other (an inventory contains a single flag), answer the "
+    "broader one and point out the narrower inside it. When the readings genuinely diverge, "
+    "present each, sketch in a line what the data says under each, and end by asking which one "
+    "is meant. Never silently pick the narrower or more familiar reading, and never narrow a "
+    "condition to one drug class because it is clinically typical. Open with 'Interpreting "
+    "this as ...' whenever you chose a reading. The users are analysts: a short clarifying "
+    "question is a good outcome, not a failure to answer.\n"
+    "4. COHORT NAMES. A word matching a cohort's name or the first part of it ('biostat' -> "
+    "BIOSTAT-CHF, 'aachen' -> Aachen-HF, 'time' -> TIME-CHF, 'check' -> CHECK-HF) refers to "
+    "that cohort, never to a general topic ('biostat' is not biostatistics). Answer about the "
+    "cohort in the context of the conversation; if the match was only partial, end with one "
+    "short question confirming the reading.\n"
+    "5. PATIENT COUNTS AND SUBGROUPS. For cohorts marked 'summary statistics on record' the "
+    "catalog holds each variable's real distribution, with per-category patient counts, so "
+    "'how many patients have X' can be answered from the matching category of an X-status "
+    "variable. Never claim counts cannot come from the catalog for those cohorts. What the "
+    "catalog canNOT do is patient-level filtering ACROSS variables ('X patients below age "
+    "50', 'X patients who also take Y'): that needs a Data Clean Room. Variables are recorded "
+    "cohort-wide: for a 'patients with X' question, name the variable(s) that identify X and "
+    "say that the other variables are not restricted to X patients.\n"
+    "6. TERMINOLOGY. Say 'summary statistics', never 'EDA'. Never call variables 'uploaded': a "
+    "cohort's variables are either in the catalog or not.\n"
+    "7. NO UNASKED NEXT STEPS. Do not end with suggested next steps or offers (creating a DCR, "
+    "generating mappings, contacting data owners, 'let me know if you need help') unless the "
+    "user asked how to proceed. Stating a factual boundary is fine, e.g. that data without "
+    "summary statistics can only be examined in a Data Clean Room after the data owners "
+    "upload it there.\n"
+    "8. FORMAT. Be concise: short paragraphs and bullet points. Refer to cohorts and variables "
+    "by their exact names."
 )
 
-# Every question is asked twice — once per style — and the chat bubble lets the
-# user toggle between the two answers.
+# Rules for reading the catalog search results; sent with the results in every
+# reply that receives them.
+SEARCH_RESULTS_RULES = (
+    "How to read these search results:\n"
+    "- The search HAS ALREADY BEEN RUN. Answer from these results, not from memory, and never "
+    "tell the user to run a search themselves or to confirm with a fresh search.\n"
+    "- Each search's 'ALL matching cohorts' line, and the COHORTS MATCHING EVERY CONCEPT line, "
+    "are complete. The variable lists under each cohort are CAPPED: never conclude that a "
+    "cohort lacks something because a variable is not listed, and never characterize "
+    "variables that are not shown (you may cite listed names verbatim).\n"
+    "- For a question with several criteria, answer from the COHORTS MATCHING EVERY CONCEPT "
+    "line exactly as given - the platform computed it.\n"
+    "- A concept's complete cohort set is its main term's ALL-cohorts line PLUS the NEW "
+    "cohorts of each of its expansion terms. When a cohort was found only through an "
+    "expansion, say so, e.g. 'GISSI-HF (found via the metoprolol expansion)'.\n"
+    "- EQUIVALENT BY STANDARD CODE links show which variables correspond across cohorts; use "
+    "them to point out cross-cohort correspondences.\n"
+    "- CHART-MARKER: every time you mention a variable that has one, put its exact marker (the "
+    "\U0001F4CA[cohort::variable] token, copied verbatim) right after the name; it renders as "
+    "a clickable chart. Never invent a marker for a variable that has none."
+)
+
+# Answer style of a regular reply. Every question is answered as a detailed
+# variant first; the short variant is then condensed from it (SUMMARIZE task),
+# and "summary" here is only the fallback when the detailed answer failed.
 STYLE_INSTRUCTIONS = {
     "summary": (
-        "Answer style: SHORT SUMMARY. Give only the essential answer, in at most 4 "
-        "sentences or up to 5 short bullet points. No preamble, no closing offer, "
-        "and NO tables - if the material is tabular, compress it into a line or "
-        "two of prose instead. "
-        "COMPLETENESS STILL APPLIES: when the question asks which cohorts have "
-        "something, being brief means saying MORE about fewer cohorts — never "
-        "listing fewer cohorts. Detail the most relevant two or three, then close "
-        "with one line naming EVERY remaining match, e.g. 'Also with beta-blocker "
-        "variables: TIM-HF, GISSI-HF, GISSI-Prevenzione, CHECK-HF, ... — see the "
-        "search results for the variables in each.' A question that pins down an "
-        "ambiguous request ('did you mean A or B?') is part of the essential "
-        "answer - brevity never drops it."
+        "Style: SHORT SUMMARY. Only the essential answer, in at most 4 sentences or 5 short "
+        "bullet points. No preamble, no closing offer, and NO tables (compress tabular material "
+        "into a line or two). Brevity never drops cohorts: when the question asks which cohorts "
+        "have something, detail the most relevant two or three, then close with one line naming "
+        "EVERY remaining match, e.g. 'Also with beta-blocker variables: TIM-HF, GISSI-HF, "
+        "CHECK-HF, ... - see the search results for the variables in each.' A question that "
+        "pins down an ambiguous request ('did you mean A or B?') is part of the essential answer."
     ),
     "detailed": (
-        "Answer style: DETAILED. Give a thorough, well-structured answer with "
-        "specifics — cohort names, variable names, caveats — where the context "
-        "supports them."
+        "Style: DETAILED. A thorough, well-structured answer with specifics (cohort names, "
+        "variable names, values, caveats) where the data supports them."
     ),
 }
 
@@ -183,7 +187,7 @@ def _clean(value: Any) -> str:
 
 
 def _summarize_variable(var: Any) -> str:
-    """One compact line describing a single variable."""
+    """One compact line describing a single variable (name, label, type/units)."""
     name = _clean(getattr(var, "var_name", "")) or "?"
     label = _clean(getattr(var, "var_label", ""))
     vtype = _clean(getattr(var, "var_type", ""))
@@ -212,94 +216,157 @@ def _has_eda_profile(cohort_id: str) -> bool:
         return False
 
 
-def _summarize_cohort(cohort: Any, include_variables: bool = True) -> str:
-    """Multi-line summary of one cohort with an optional sample of its variables."""
-    lines = [f"### Cohort: {cohort.cohort_id}"]
-    fields = [
-        ("Institution", getattr(cohort, "institution", "")),
-        ("Study type", getattr(cohort, "study_type", "")),
-        ("Study design", getattr(cohort, "study_design", "")),
-        ("Participants", getattr(cohort, "study_participants", "")),
-        ("Population", getattr(cohort, "study_population", "")),
-        ("Objective", getattr(cohort, "study_objective", "")),
-        ("Primary outcome", getattr(cohort, "primary_outcome_spec", "")),
-        ("Morbidity", getattr(cohort, "morbidity", "")),
-        ("Location", getattr(cohort, "population_location", "")),
-    ]
-    for label, value in fields:
-        cleaned = _clean(value)
-        if cleaned:
-            lines.append(f"- {label}: {cleaned}")
+# Descriptive cohort metadata shown to the model (contact details left out).
+_COHORT_FIELDS = [
+    ("Institution", "institution"),
+    ("Study type", "study_type"),
+    ("Study design", "study_design"),
+    ("Part of study", "part_of_study"),
+    ("Participants", "study_participants"),
+    ("Population", "study_population"),
+    ("Objective", "study_objective"),
+    ("Primary outcome", "primary_outcome_spec"),
+    ("Secondary outcome", "secondary_outcome_spec"),
+    ("Morbidity", "morbidity"),
+    ("Interventions", "interventions"),
+    ("Comparator", "comparator"),
+    ("Location", "population_location"),
+    ("Language", "language"),
+    ("Start", "study_start"),
+    ("End", "study_end"),
+    ("Duration", "study_duration"),
+    ("Ongoing", "study_ongoing"),
+    ("Data collection frequency", "data_collection_frequency"),
+    ("Enrolled with diabetes", "enrolled_with_diabetes"),
+    ("Enrolled with CVD", "enrolled_with_cvd"),
+    ("Race/ethnicity", "race_ethnicity"),
+    ("Coding system", "coding_system"),
+    ("Dataset format", "dataset_format"),
+]
+_INCLUSION_FIELDS = [
+    ("sex", "sex_inclusion"),
+    ("health status", "health_status_inclusion"),
+    ("clinically relevant exposure", "clinically_relevant_exposure_inclusion"),
+    ("age group", "age_group_inclusion"),
+    ("BMI range", "bmi_range_inclusion"),
+    ("ethnicity", "ethnicity_inclusion"),
+    ("family status", "family_status_inclusion"),
+    ("hospital patient", "hospital_patient_inclusion"),
+    ("use of medication", "use_of_medication_inclusion"),
+]
+_EXCLUSION_FIELDS = [
+    ("health status", "health_status_exclusion"),
+    ("BMI range", "bmi_range_exclusion"),
+    ("limited life expectancy", "limited_life_expectancy_exclusion"),
+    ("need for surgery", "need_for_surgery_exclusion"),
+    ("surgical procedure history", "surgical_procedure_history_exclusion"),
+    ("clinically relevant exposure", "clinically_relevant_exposure_exclusion"),
+]
 
+# Per-variable detail levels, richest first. build_context uses the richest one
+# whose text fits the cohort-block budget.
+_VARIABLE_DETAIL_LEVELS = ("full", "label", "names")
+
+
+def _cohort_header(cohort: Any) -> list[str]:
+    """The cohort's descriptive metadata as bullet lines."""
+    lines = [f"### Cohort: {cohort.cohort_id}"]
+    for label, attr in _COHORT_FIELDS:
+        value = _clean(getattr(cohort, attr, ""))
+        if value:
+            lines.append(f"- {label}: {value}")
+    male, female = getattr(cohort, "male_percentage", None), getattr(cohort, "female_percentage", None)
+    if male is not None or female is not None:
+        lines.append(f"- Sex: {male if male is not None else '?'}% male, {female if female is not None else '?'}% female")
+    ages = getattr(cohort, "age_distribution", None) or {}
+    if ages:
+        lines.append("- Age distribution: " + ", ".join(f"{k}: {v}%" for k, v in ages.items()))
+    for title, fields in (("Inclusion criteria", _INCLUSION_FIELDS), ("Exclusion criteria", _EXCLUSION_FIELDS)):
+        crit = [f"{label}: {_clean(getattr(cohort, attr, ''))}" for label, attr in fields if _clean(getattr(cohort, attr, ""))]
+        if crit:
+            lines.append(f"- {title}: " + "; ".join(crit))
     variables = getattr(cohort, "variables", {}) or {}
     lines.append(f"- Variable count: {len(variables)}")
-    lines.append("- Summary statistics: "
-                 + ("on record (variable distributions available)"
-                    if _has_eda_profile(cohort.cohort_id) else "not available"))
-    if include_variables and variables:
-        sample = list(variables.values())[:MAX_VARS_PER_COHORT]
-        lines.append("- Variables (sample):")
-        for var in sample:
-            lines.append(f"    - {_summarize_variable(var)}")
-        if len(variables) > MAX_VARS_PER_COHORT:
-            lines.append(f"    - …and {len(variables) - MAX_VARS_PER_COHORT} more variables")
-    return "\n".join(lines)
+    stats = "on record (variable distributions available)" if _has_eda_profile(cohort.cohort_id) else "not available"
+    if getattr(cohort, "has_longitudinal", False):
+        stats += "; longitudinal (per-visit) statistics also on record"
+    lines.append(f"- Summary statistics: {stats}")
+    return lines
 
 
-def build_context(cohort_ids: list[str], focus: Optional[str] = None) -> str:
-    """Assemble the cohort context string injected as a system message.
+def _variable_lines(cohort: Any, level: str) -> list[str]:
+    """All of the cohort's variables at the given detail level."""
+    from src.chat_retrieval import _variable_detail_line
 
-    - With cohort_ids: deep per-cohort summaries (metadata + variable sample).
-    - Without: a compact catalog of all cohorts (id + variable counts) so the
-      model can still help the user pick relevant cohorts.
+    variables = list((getattr(cohort, "variables", {}) or {}).values())
+    if not variables:
+        return []
+    if level == "names":
+        names = [_clean(getattr(v, "var_name", "")) for v in variables]
+        return ["- Variables (names only): " + ", ".join(n for n in names if n)]
+    render = _variable_detail_line if level == "full" else _summarize_variable
+    return ["- Variables:"] + [f"    - {render(v)}" for v in variables]
+
+
+def _summarize_cohort(cohort: Any, level: str = "full") -> str:
+    """Multi-line summary of one cohort: metadata plus every variable."""
+    return "\n".join(_cohort_header(cohort) + _variable_lines(cohort, level))
+
+
+def build_context(cohort_ids: list[str], focus: Optional[str] = None, info: Optional[dict] = None) -> str:
+    """Assemble the cohort block of the chat context.
+
+    - With cohort_ids: the selected cohorts, each with its metadata and ALL its
+      variables.
+    - Without: the whole catalog, every cohort with its metadata and variables.
+    Variables are rendered at the richest detail level that fits the budget
+    (full detail -> name/label/type -> names only); cohorts are never dropped.
+    When `info` is given it receives what was included (for the progress UI).
     """
+    from src.chat_retrieval import budget_chars
     from src.cohort_cache import get_cohorts_from_cache
 
     all_cohorts = get_cohorts_from_cache("")
-    parts: list[str] = []
-
-    selected = [cid for cid in cohort_ids if cid in all_cohorts][:MAX_CONTEXT_COHORTS]
+    selected = [cid for cid in cohort_ids if cid in all_cohorts]
     if selected:
-        parts.append(
+        intro = (
             f"The user is focusing on {len(selected)} cohort(s): {', '.join(selected)}. "
             "Base your answer MAINLY on these cohorts and their variables; mention other "
             "cohorts only when directly relevant to the question."
         )
-        for cid in selected:
-            parts.append(_summarize_cohort(all_cohorts[cid], include_variables=True))
+        cohorts = [all_cohorts[cid] for cid in selected]
     else:
         with_vars = [c for c in all_cohorts.values() if getattr(c, "variables", None)]
         n_profiled = sum(1 for c in all_cohorts.values() if _has_eda_profile(c.cohort_id))
-        parts.append(
-            f"No specific cohort is selected. Catalog of {len(all_cohorts)} cohorts "
-            f"({len(with_vars)} with variable metadata; summary statistics on record "
-            f"for {n_profiled} cohorts):"
+        intro = (
+            f"No specific cohort is selected. The catalog holds {len(all_cohorts)} cohorts "
+            f"({len(with_vars)} with variable metadata; summary statistics on record for "
+            f"{n_profiled}). All of them follow."
         )
-        catalog = []
-        for cohort in list(all_cohorts.values())[:MAX_CATALOG_COHORTS]:
-            variables = getattr(cohort, "variables", {}) or {}
-            stype = _clean(getattr(cohort, "study_type", ""))
-            descr = f" ({stype})" if stype else ""
-            eda_tag = ", summary statistics on record" if _has_eda_profile(cohort.cohort_id) else ""
-            catalog.append(f"- {cohort.cohort_id}{descr}: {len(variables)} variables{eda_tag}")
-            # A sample of actual variable names so catalog-wide questions
-            # ("which cohorts measure X?") can be answered without selecting
-            # cohorts first. Deep dives still require selecting cohorts.
-            if variables:
-                names = [
-                    _clean(getattr(v, "var_name", ""))[:40]
-                    for v in list(variables.values())[:CATALOG_VARS_SAMPLE]
-                ]
-                names = [n for n in names if n]
-                if names:
-                    suffix = ", …" if len(variables) > CATALOG_VARS_SAMPLE else ""
-                    catalog.append(f"    variables include: {', '.join(names)}{suffix}")
-        parts.append("\n".join(catalog))
-
+        # Cohorts with variables first: they are the ones that can be explored.
+        cohorts = sorted(all_cohorts.values(), key=lambda c: not getattr(c, "variables", None))
     if _clean(focus):
-        parts.append(f"The user is particularly interested in: {_clean(focus)}")
+        intro += f"\nThe user is particularly interested in: {_clean(focus)}"
 
-    return "\n\n".join(parts)
+    budget = budget_chars(COHORT_BLOCK_BUDGET_SHARE)
+    headers = ["\n".join(_cohort_header(c)) for c in cohorts]
+    body = ""
+    for level in _VARIABLE_DETAIL_LEVELS:
+        blocks = [h + ("\n" + "\n".join(v) if v else "")
+                  for h, v in zip(headers, (_variable_lines(c, level) for c in cohorts))]
+        body = "\n\n".join(blocks)
+        if len(body) <= budget:
+            if level != "full":
+                intro += (f"\n(Variables are shown at reduced detail ({level}) to fit the context; "
+                          "the catalog search results carry full details for matching variables.)")
+            break
+    else:
+        body = body[:budget] + "\n(cohort list truncated for length)"
+    if info is not None:
+        info["cohorts"] = len(cohorts)
+        info["variables"] = sum(len(getattr(c, "variables", {}) or {}) for c in cohorts)
+        info["detail"] = level
+    return f"## Cohorts\n\n{intro}\n\n{body}"
 
 
 # ---- Cross-cohort mapping files in chat context ------------------------------
@@ -318,9 +385,6 @@ _MAPPING_CONTEXT_COLS = [
     "source", "slabel", "target", "tlabel", "category", "mapping type",
     "source_unit", "target_unit", "harmonization_status",
 ]
-MAX_MAPPING_ROWS_PER_PAIR = 120
-MAX_MAPPING_PAIRS = 6
-
 MAPPING_USAGE_INSTRUCTIONS = (
     "CROSS-COHORT MAPPING FILES: cached mapping file(s) generated by the platform's mapping "
     "pipeline are included in the context below, each labelled with its exact filename.\n"
@@ -395,8 +459,8 @@ def mapping_pair_status(cohort_ids: list[str]) -> list[dict[str, Any]]:
     return pairs
 
 
-def _mapping_file_block(source: str, target: str, path: str) -> str:
-    """Render one cached mapping CSV as a compact, capped context block."""
+def _mapping_file_block(source: str, target: str, path: str, max_chars: int) -> str:
+    """Render one cached mapping CSV as a compact block of at most max_chars."""
     import csv as _csv
 
     filename = os.path.basename(path)
@@ -417,25 +481,37 @@ def _mapping_file_block(source: str, target: str, path: str) -> str:
         f"{len(rows)} candidate mappings, over-generated — apply judgment)."
     ]
     lines.append(" | ".join(cols))
-    for row in rows[:MAX_MAPPING_ROWS_PER_PAIR]:
-        lines.append(" | ".join(_clean(row.get(c, "")) for c in cols))
-    if len(rows) > MAX_MAPPING_ROWS_PER_PAIR:
-        lines.append(f"…and {len(rows) - MAX_MAPPING_ROWS_PER_PAIR} more rows not shown.")
+    size = sum(len(line) + 1 for line in lines)
+    shown = 0
+    for row in rows:
+        line = " | ".join(_clean(row.get(c, "")) for c in cols)
+        if size + len(line) + 1 > max_chars:
+            break
+        lines.append(line)
+        size += len(line) + 1
+        shown += 1
+    if shown < len(rows):
+        lines.append(f"…and {len(rows) - shown} more rows not shown (context budget).")
     return "\n".join(lines)
 
 
 def build_mapping_context(cohort_ids: list[str]) -> tuple[str, list[str]]:
     """(context block for cached pairs, human-readable list of uncached pairs)."""
+    from src.chat_retrieval import budget_chars
+
     cached_blocks: list[str] = []
     uncached: list[str] = []
     try:
         output_dir = _linker_output_dir()
     except Exception:
         return "", []
-    for pair in mapping_pair_status(cohort_ids)[:MAX_MAPPING_PAIRS]:
+    pairs = mapping_pair_status(cohort_ids)[:MAX_MAPPING_PAIRS]
+    n_cached = sum(1 for p in pairs if p["cached"])
+    per_file = budget_chars(MAPPING_BUDGET_SHARE) // max(n_cached, 1)
+    for pair in pairs:
         if pair["cached"]:
             path = os.path.join(output_dir, pair["filename"])
-            block = _mapping_file_block(pair["source"], pair["target"], path)
+            block = _mapping_file_block(pair["source"], pair["target"], path, per_file)
             if block:
                 cached_blocks.append(block)
         else:
@@ -462,19 +538,154 @@ def _normalize_messages(raw: Any) -> list[dict[str, str]]:
     return messages
 
 
-def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, float]:
-    """Turn the request body into (messages, model, temperature).
+# ---- Task of one reply --------------------------------------------------------
+#
+# Every request carries exactly one task, chosen from the request body: the
+# regular answer (detailed, or the summary fallback), the summary condensed
+# from the detailed answer, the clarifying reply for an ambiguous question, or
+# the summary-statistics follow-up.
+
+ANSWER_WITH_SEARCH_TASK = (
+    "- Give each named cohort's match count, and say which of the cohorts have summary "
+    "statistics on record.\n"
+    "- Name at most 10-15 variables per cohort and ALWAYS state the full count (e.g. "
+    "\"TIME-CHF has 57 matching variables; here are 12\"), so the user knows there are more.\n"
+    "- Patient counts are NOT part of this reply. When the question asks for counts or values, "
+    "a separate follow-up grounded in the summary statistics is generated right after this "
+    "answer whenever those statistics can answer it. At most add ONE line saying the summary "
+    "statistics are being checked and a follow-up with the concrete numbers may appear below. "
+    "Do not build count tables, and do not send the user to charts or visit pages for counts."
+)
+
+SUMMARIZE_TASK = (
+    "Write the SHORT SUMMARY variant of the detailed answer in the catalog data above. The "
+    "user can already see that detailed answer; condense IT - do not answer afresh.\n"
+    "- HARD LIMITS: at most 4 sentences or 5 short bullet points, roughly a QUARTER of the "
+    "detailed answer's length or less; a summary nearly as long as the original is a failure.\n"
+    "- NO tables (turn a table into a line or a couple of bullets), no headings, no preamble, "
+    "no closing offer.\n"
+    "- Stay perfectly consistent with the detailed answer: every cohort it names must still "
+    "appear (one closing line naming the rest is enough); keep the same numbers, key caveats "
+    "and \U0001F4CA chart markers for whatever you keep; end with the same clarifying question "
+    "if the detailed answer ends with one.\n"
+    "- Add NO claims that are not in the detailed answer."
+)
+
+EDA_FOLLOWUP_TASK = (
+    "Add ONE short follow-up to the answer already given, grounded ONLY in the variable summary "
+    "statistics in the catalog data above. Do NOT repeat the main answer and do NOT re-list "
+    "cohorts.\n"
+    "- Read each variable's 'values:' line and take the category that answers the question: "
+    "for 'how many patients with X', the number is the count of the matching category (the "
+    "'yes' / '1' / 'type 1' value), NOT n. n only counts records with any value (including "
+    "'no'); presenting n as a patient count is WRONG. Spell the extraction out, e.g. "
+    "\"CHECK-HF, Comorbiditeit_DM1: 'yes' 812 of 10,802 recorded (7.5%)\".\n"
+    "- Give BOTH the count and the percentage for every category you report, even when only "
+    "one was asked for.\n"
+    "- Keep the '~' on approximate counts. When any reported count carries '~', add a single "
+    "line saying those counts are approximate because they are calculated from the stored "
+    "percentage statistics. That is the only standing note.\n"
+    "- A variable whose statistics say per-category counts are NOT available cannot give a "
+    "patient count: say so for that cohort rather than substituting n.\n"
+    "- Name the variable and cohort for every number, and copy the variable's \U0001F4CA chart "
+    "marker verbatim.\n"
+    "- Where several readings are possible (e.g. a diabetes-type variable vs a cause-of-death "
+    "variable), give the number under each and say which variable answers which reading.\n"
+    "- No boilerplate: do not explain what percentages mean, do not say the numbers are per "
+    "cohort / not pooled, and mention missing data only when the missing share could change "
+    "the reading (above about 10%).\n"
+    "- End with a short COVERAGE line using the figures at the top of the statistics block: "
+    "this answer draws on the K cohorts with summary statistics on record, of which <however "
+    "many appear above> had a relevant variable. For the cohorts without summary statistics, "
+    "examining their data requires a Data Clean Room into which the data owners upload their "
+    "data (a fact of availability, not advice or an offer).\n"
+    "- If the statistics do not settle the question, say which variable comes closest and "
+    "what is missing."
+)
+
+
+def _matching_cohorts(runs: Any) -> list[str]:
+    """Every cohort the searches matched, most matches first."""
+    best: dict[str, int] = {}
+    for run in runs if isinstance(runs, list) else []:
+        for c in (run.get("cohorts") or []) if isinstance(run, dict) else []:
+            cid = str(c.get("cohort_id") or "")
+            if cid:
+                best[cid] = max(best.get(cid, 0), int(c.get("matches") or 0))
+    return sorted(best, key=lambda cid: -best[cid])
+
+
+def _completeness_block(cohorts: list[str], intersection: Any) -> str:
+    """The must-name list for an answer based on search results. Models tend
+    to drop cohorts from long lists; spelling the names out, with a check at
+    the end, works far better than a general 'name every cohort' rule."""
+    lines = [
+        f"COMPLETENESS - THE MOST IMPORTANT REQUIREMENT OF THIS REPLY. The search matched these "
+        f"{len(cohorts)} cohorts: {', '.join(cohorts)}.",
+        f"Your answer MUST name every one of these {len(cohorts)} cohorts by its exact name. None "
+        "may be dropped, and none may be folded into 'and others', 'etc.' or 'several more'. "
+        "Describe the most relevant ones in detail if you like, then name ALL the rest in one "
+        "closing line (e.g. 'Also matching: A (4), B (2), C (1)').",
+    ]
+    if isinstance(intersection, list):
+        both = [str(r.get("cohort_id")) for r in intersection if isinstance(r, dict) and r.get("cohort_id")]
+        if both:
+            lines.append(f"Of these, the cohorts matching EVERY concept are: {', '.join(both)}. For a "
+                         "question asking for all criteria at once, lead with them - but still name "
+                         "the others, saying which criteria each one covers.")
+        else:
+            lines.append("No cohort matches every concept at once: say so, then name the cohorts "
+                         "matching each concept.")
+    lines.append(f"Before you finish, go through the list of {len(cohorts)} names above and check "
+                 "that each one appears in your answer; add any that are missing.")
+    return "\n".join(lines)
+
+
+def _clarify_task(readings: list[str]) -> str:
+    return (
+        "The question is ambiguous between these readings: " + "; ".join(readings) + ".\n"
+        "Do NOT give a full answer and do NOT enumerate whole result lists. For each reading, "
+        "give one or two lines of preliminary findings from the search results (roughly how "
+        "many cohorts / variables match, the two or three key cohorts), then end with ONE "
+        "short question asking which reading is meant. Nothing else."
+    )
+
+
+def _answer_task(style: Any, has_search: bool, completeness: str) -> str:
+    parts = ["Answer the user's latest message."]
+    if completeness:
+        parts.append(completeness)
+    if has_search:
+        parts.append(ANSWER_WITH_SEARCH_TASK)
+    if isinstance(style, str) and style in STYLE_INSTRUCTIONS:
+        parts.append(STYLE_INSTRUCTIONS[style])
+    return "\n\n".join(parts)
+
+
+def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, float, dict[str, Any]]:
+    """Turn the request body into (messages, model, temperature, info); `info`
+    summarizes what went into the context, for the chat's progress display.
+
+    The model receives ONE system message (several chat templates, Qwen's among
+    them, reject any system message that is not the first) in three parts:
+      1. RULES - SYSTEM_PROMPT, or the client's system_prompt override;
+      2. CATALOG DATA - what this reply needs: cohorts, search results, mapping
+         files, and for the follow-up turns the detailed answer or the summary
+         statistics;
+      3. YOUR TASK FOR THIS REPLY - exactly one task (see above).
+    followed by the conversation's user/assistant turns.
 
     Optional overrides (used by the Glass Box / Atlas layouts, which construct
     their payloads client-side for full transparency):
       - system_prompt: replaces the default SYSTEM_PROMPT.
-      - context: replaces the server-built cohort context entirely, so what the
+      - context: replaces the server-built catalog data entirely, so what the
         user previews in the UI is exactly what the model receives.
     """
     messages = _normalize_messages(body.get("messages"))
     cohort_ids = body.get("cohort_ids") or []
     if not isinstance(cohort_ids, list):
         cohort_ids = []
+    cohort_ids = [str(c) for c in cohort_ids]
     focus = body.get("focus")
     model = _clean(body.get("model")) or settings.litellm_model
     try:
@@ -488,40 +699,67 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
     else:
         system_prompt = SYSTEM_PROMPT
 
+    # Which task this reply carries.
+    summarize_text = body.get("summarize_text")
+    summarize_text = summarize_text.strip() if isinstance(summarize_text, str) else ""
+    eda_ctx = body.get("eda_context")
+    eda_ctx = eda_ctx.strip() if isinstance(eda_ctx, str) else ""
+    clarify = body.get("clarify_interpretations")
+    if summarize_text:
+        mode = "summarize"
+    elif eda_ctx:
+        mode = "eda"
+    elif isinstance(clarify, list) and len(clarify) >= 2:
+        mode = "clarify"
+    else:
+        mode = "answer"
+
+    last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+    data: list[str] = []
+    has_search = False
+    info: dict[str, Any] = {"mode": mode}
+    # Search results from the planning round (see /api/chat/plan-search): the
+    # client runs the plan once per user turn and passes the structured results
+    # into every reply of the turn, so the model and the user's search panel see
+    # exactly the same thing. The summary reply gets them only for the list of
+    # cohorts it must keep.
+    search_results = body.get("search_results")
+    runs_in, concepts_in, intersection_in = None, None, None
+    if isinstance(search_results, dict):
+        runs_in = search_results.get("runs")
+        concepts_in = search_results.get("concepts")
+        intersection_in = search_results.get("intersection")
+    elif isinstance(search_results, list):
+        runs_in = search_results
+    matching = _matching_cohorts(runs_in)
+    if matching:
+        info["search_cohorts"] = len(matching)
     context_override = body.get("context")
     if isinstance(context_override, str) and context_override.strip():
-        context = context_override.strip()[:MAX_CONTEXT_CHARS]
-    else:
-        context = build_context([str(c) for c in cohort_ids], focus)
+        data.append(context_override.strip()[:MAX_CONTEXT_CHARS])
+    elif mode != "summarize":
+        # The summary condenses the detailed answer and the statistics
+        # follow-up reads only the statistics block, so neither needs the
+        # (large) cohort block or the mapping files.
+        if mode != "eda":
+            data.append(build_context(cohort_ids, focus, info))
         try:
-            last_user_msg = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-            note = cohort_name_note(last_user_msg) if last_user_msg else ""
+            note = cohort_name_note(last_user) if last_user else ""
             if note:
-                context = f"{context}\n\n{note}"
+                data.append(f"## Cohort name match\n\n{note}")
         except Exception as exc:
             logger.warning("Cohort-name note failed: %s", exc)
-        # Search results from the planning round (see /api/chat/plan-search):
-        # the client runs the plan once per user turn and passes the structured
-        # results into both style variants, so the model and the user's search
-        # panel see exactly the same thing.
-        search_results = body.get("search_results")
-        runs_in, concepts_in, intersection_in = None, None, None
-        if isinstance(search_results, dict):
-            runs_in = search_results.get("runs")
-            concepts_in = search_results.get("concepts")
-            intersection_in = search_results.get("intersection")
-        elif isinstance(search_results, list):
-            runs_in = search_results
         if isinstance(runs_in, list) and runs_in:
             try:
                 from src.chat_retrieval import format_search_context
 
                 section = format_search_context(runs_in, concepts=concepts_in, intersection=intersection_in)
                 if section:
-                    context = f"{context}\n\n{section}"
+                    data.append(f"## Catalog search results\n\n{section}\n\n{SEARCH_RESULTS_RULES}")
+                    has_search = True
             except Exception as exc:
                 logger.warning("Search-results formatting failed: %s", exc)
-        else:
+        elif mode == "answer" and last_user:
             # Fallback single-round retrieval: mirror the cohorts-page search
             # (OR mode) over the user's question and inject matching variable
             # details, excluding terms that are too broad. See chat_retrieval.py.
@@ -529,117 +767,67 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
                 from src.chat_retrieval import retrieve_for_question
                 from src.cohort_cache import get_cohorts_from_cache
 
-                last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-                if last_user:
-                    section = retrieve_for_question(
-                        last_user,
-                        get_cohorts_from_cache(""),
-                        restrict_to=[str(c) for c in cohort_ids],
-                    )
-                    if section:
-                        context = f"{context}\n\n{section}"
+                section = retrieve_for_question(last_user, get_cohorts_from_cache(""), restrict_to=cohort_ids)
+                if section:
+                    data.append(f"## Variables matching the question\n\n{section}")
             except Exception as exc:
                 logger.warning("Question-based variable retrieval failed: %s", exc)
 
         # Cross-cohort mapping files: inject cached mappings for the selected
         # pairs, and tell the model plainly which pairs have none yet.
-        if len(cohort_ids) >= 2:
+        if mode != "eda" and len(cohort_ids) >= 2:
             try:
-                mapping_block, uncached_pairs = build_mapping_context([str(c) for c in cohort_ids])
+                mapping_block, uncached_pairs = build_mapping_context(cohort_ids)
+                mapping_parts = []
                 if mapping_block:
-                    context = f"{context}\n\n{MAPPING_USAGE_INSTRUCTIONS}\n\n{mapping_block}"
+                    mapping_parts += [MAPPING_USAGE_INSTRUCTIONS, mapping_block]
                 if uncached_pairs:
-                    context = (
-                        f"{context}\n\nNO CACHED MAPPING exists yet for: {'; '.join(uncached_pairs)}. "
-                        "If the user asks how variables correspond across these cohorts, say the "
-                        "mapping has not been generated yet and that they can generate it with the "
-                        "button shown in this chat (or from the mapping page) — do NOT guess "
-                        "variable correspondences yourself."
+                    mapping_parts.append(
+                        f"NO CACHED MAPPING exists yet for: {'; '.join(uncached_pairs)}. If the user "
+                        "asks how variables correspond across these cohorts, say the mapping has not "
+                        "been generated yet and that they can generate it with the button shown in "
+                        "this chat (or from the mapping page); do NOT guess variable correspondences."
                     )
+                if mapping_parts:
+                    data.append("## Cross-cohort mapping files\n\n" + "\n\n".join(mapping_parts))
+                info["mapping_files"] = mapping_block.count("CACHED MAPPING FILE:")
             except Exception as exc:
                 logger.warning("Mapping context injection failed: %s", exc)
 
-    full_messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "system", "content": f"Cohort context:\n\n{context}"},
-    ]
-    summarize_text = body.get("summarize_text")
-    summarize_mode = isinstance(summarize_text, str) and summarize_text.strip()
-    style = body.get("style")
-    if isinstance(style, str) and style in STYLE_INSTRUCTIONS and not summarize_mode:
-        full_messages.append({"role": "system", "content": STYLE_INSTRUCTIONS[style]})
-    # Summary variant: condensed FROM the detailed answer (which the user can
-    # already see), so the two variants never diverge.
-    if summarize_mode:
-        full_messages.append({"role": "system", "content": (
-            "SUMMARY VARIANT MODE - the user already has the DETAILED answer below; write the "
-            "short Summary variant OF THAT ANSWER, not a fresh answer from the context. "
-            "HARD LIMITS: at most 4 sentences or 5 short bullet points, roughly a QUARTER of "
-            "the detailed answer's length or less - a summary that reads nearly as long as "
-            "the original is a failure. NO tables (turn any table into one line or a couple "
-            "of bullets), no headings, no preamble, no closing offer. "
-            "Stay perfectly consistent with the detailed answer: every cohort it names must "
-            "still appear (one closing line naming the rest is enough), keep the same "
-            "numbers, key caveats and \U0001F4CA chart markers for whatever you keep, and "
-            "end with the same clarifying question if the detailed answer ends with one. "
-            "Add NO claims that are not in the detailed answer."
-            "\n\nDETAILED ANSWER TO SUMMARIZE:\n" + summarize_text.strip()[:24000]
-        )})
-    # Disambiguation turn (the planner flagged the question as ambiguous): a
-    # short clarifying reply instead of a full answer.
-    clarify = body.get("clarify_interpretations")
-    if isinstance(clarify, list) and len(clarify) >= 2:
-        readings = "; ".join(str(c)[:120] for c in clarify[:4])
-        full_messages.append({"role": "system", "content": (
-            "CLARIFICATION MODE - the question is ambiguous between these readings: "
-            f"{readings}. Do NOT give a full answer and do NOT enumerate whole result lists. "
-            "For each reading give one or two lines of preliminary findings from the search "
-            "results (roughly how many cohorts/variables match, the two or three key cohorts), "
-            "then end with ONE short question asking which reading is meant. Nothing else."
-        )})
-    # EDA follow-up turn: a second, short answer bubble grounded in the actual
-    # variable profiles (per-category patient counts, numeric summaries) that
-    # the /api/chat/eda-followup round selected for this question.
-    eda_ctx = body.get("eda_context")
-    if isinstance(eda_ctx, str) and eda_ctx.strip():
-        full_messages.append({"role": "system", "content": (
-            "SUMMARY-STATISTICS FOLLOW-UP MODE - the main answer was already given; you now add "
-            "ONE short follow-up grounded ONLY in the variable summary statistics below (call "
-            "them 'summary statistics' in your reply, never 'EDA'). READ each variable's "
-            "'values:' line and extract the category that answers the question: for 'how many "
-            "patients with X', the number is the count of the matching category (the "
-            "'yes'/'1'/'type 1' value), NOT n - n is merely how many records have any value "
-            "(including 'no'), and presenting n as a patient count is WRONG. Spell the "
-            "extraction out, e.g. \"CHECK-HF, Comorbiditeit_DM1: 'yes' 812 of 10,802 recorded "
-            "(7.5%)\". ALWAYS give BOTH the count and the percentage for every category you "
-            "report, even when the user asked for only one of them. Keep the '~' on "
-            "approximate counts, and whenever any reported count carries '~', say explicitly "
-            "that those counts are approximate because they are calculated from the stored "
-            "percentage statistics. A variable whose statistics say "
-            "per-category counts are NOT available cannot give a patient count - say so for "
-            "that cohort rather than substituting n. "
-            "Name the variable and cohort for every number and copy the variable's \U0001F4CA "
-            "chart marker verbatim where one is shown. Where several readings are possible "
-            "(e.g. a diabetes-type variable vs a cause-of-death variable), give the number "
-            "under each and say which variable answers which reading. "
-            "NO boilerplate notes: do not explain what the percentages mean, do not say the "
-            "numbers are per-cohort / not pooled, and do not mention missing data unless the "
-            "missing share is large enough to change the reading (say, above 10%). The ONE "
-            "standing note, only when some reported count carries '~': a single line that "
-            "those counts are approximate because they are calculated from the stored "
-            "percentage statistics. "
-            "End with a short COVERAGE line framed on the profiled cohorts, using the figures "
-            "at the top of the block: this answer draws on the K cohorts that have summary "
-            "statistics on record, of which <however many appear above> had a relevant "
-            "variable for this question; for the cohorts without summary statistics, examining "
-            "their data requires creating a Data Clean Room into which the data owners upload "
-            "their data (state this as a fact of availability, not as advice or an offer to "
-            "help). If the statistics do not settle the question, say which "
-            "variable comes closest and what is missing. Do NOT repeat the main answer and do "
-            "NOT re-list cohorts.\n\n" + eda_ctx.strip()[:20000]
-        )})
-    full_messages.extend(messages)
-    return full_messages, model, temperature
+    if mode == "summarize":
+        data.append("## Detailed answer to condense\n\n" + summarize_text[:MAX_SUMMARIZE_CHARS])
+        task = SUMMARIZE_TASK
+        if matching:
+            task += (f"\n\nCOMPLETENESS - MOST IMPORTANT: the search behind the detailed answer "
+                     f"matched these {len(matching)} cohorts: {', '.join(matching)}. Every one of them "
+                     "that the detailed answer names MUST appear in your summary by its exact name; "
+                     "a closing line 'Also matching: ...' naming the rest is enough. Never write "
+                     "'and others' or 'etc.' instead of names. Check the list before you finish.")
+    elif mode == "eda":
+        data.append("## Variable summary statistics\n\n" + eda_ctx[:MAX_EDA_CONTEXT_CHARS])
+        task = EDA_FOLLOWUP_TASK
+    elif mode == "clarify":
+        task = _clarify_task([str(c)[:200] for c in clarify[:4]])
+    else:
+        completeness = _completeness_block(matching, intersection_in) if has_search and matching else ""
+        task = _answer_task(body.get("style"), has_search, completeness)
+
+    # System messages sent by the client (none from the main chat today) become
+    # part of the task rather than separate messages.
+    extra = [m["content"] for m in messages if m["role"] == "system"]
+    if extra:
+        task += "\n\nAdditional instructions:\n" + "\n\n".join(extra)
+
+    system = "\n\n".join([
+        system_prompt,
+        "# CATALOG DATA\n\n" + ("\n\n".join(data) if data else "(none for this reply)"),
+        "# YOUR TASK FOR THIS REPLY\n\n" + task,
+    ])
+    full_messages = [{"role": "system", "content": system}] + [m for m in messages if m["role"] != "system"]
+    from src.chat_retrieval import CHARS_PER_TOKEN
+
+    info["approx_tokens"] = sum(len(m["content"]) for m in full_messages) // CHARS_PER_TOKEN
+    return full_messages, model, temperature, info
 
 
 @router.get("/api/chat/config")
@@ -655,7 +843,7 @@ def chat_config(user: Any = Depends(get_current_user)) -> dict[str, Any]:
 def chat(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Non-streaming chat completion grounded in the selected cohort context."""
     client = _get_openai_client()
-    full_messages, model, temperature = _assemble_payload(body)
+    full_messages, model, temperature, _info = _assemble_payload(body)
     try:
         response = client.chat.completions.create(
             model=model,
@@ -787,10 +975,10 @@ def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
     # treats an empty list as an error (it guards the chat endpoints), so it
     # must not run here on empty input.
     try:
-        history = _normalize_messages(body.get("history"))[-6:] if body.get("history") else []
+        history = _normalize_messages(body.get("history"))[-12:] if body.get("history") else []
     except HTTPException:
         history = []
-    convo = "\n".join(f"{m['role']}: {m['content'][:400]}" for m in history)
+    convo = "\n".join(f"{m['role']}: {m['content'][:4000]}" for m in history)
     try:
         from src.cohort_cache import get_cohorts_from_cache
 
@@ -901,8 +1089,13 @@ EDA_FOLLOWUP_SELECTION_PROMPT = (
     "patient count per value (what a 'how many patients with X' question needs); '[no per-value "
     "breakdown in profile]' means only n and summary statistics exist. For count questions "
     "STRONGLY prefer the candidates with per-category counts. "
-    "If no profile would add concrete, question-relevant numbers (the question is not about "
-    "counts, values or distributions), return needed=false.\n"
+    "DEFAULT TO needed=false. Return needed=true ONLY when the user's question itself asks for "
+    "numbers the profiles hold: how many patients / what share have X, what values or range a "
+    "measurement takes, how something is distributed, or a comparison of such numbers across "
+    "cohorts. Questions about WHICH cohorts or variables exist or measure something ('which "
+    "cohorts have beta-blocker variables', 'what kidney-function variables does TIME-CHF "
+    "have', 'can I study X') are answered by the search results alone: needed=false, even "
+    "when profiles exist for the matches. Numbers the user did not ask for are not needed.\n"
     'Return STRICT JSON only: {"needed": true|false, '
     '"focus": "<one short line: what to extract from the profiles>", '
     '"selections": [{"cohort_id": "<exact id>", "var_name": "<exact name>"}, ...]}'
@@ -922,7 +1115,7 @@ def _format_eda_profiles(rows: list[dict]) -> str:
     ]
     for r in rows:
         s = r.get("stats") or {}
-        head = f"## {r['cohort_id']} :: {r['var_name']}"
+        head = f"### {r['cohort_id']} :: {r['var_name']}"
         if r.get("var_label"):
             head += f" — {r['var_label']}"
         bits = []
@@ -983,7 +1176,7 @@ def eda_followup(body: dict[str, Any], user: Any = Depends(get_current_user)) ->
                                    "var_name": str(v.get("var_name")),
                                    "var_label": _clean(v.get("var_label") or ""),
                                    "term": str(r.get("term") or "")})
-                if len(candidates) >= 60:
+                if len(candidates) >= 200:
                     break
     if not question or not candidates:
         return {"needed": False}
@@ -1530,7 +1723,7 @@ def admin_context_diagnostics(body: dict[str, Any], user: Any = Depends(get_curr
         try:
             client = _get_openai_client()
             filler_word = " token"  # ~1 token per repetition
-            for target in (4_000, 8_000, 16_000, 32_000, 64_000, 100_000, 128_000):
+            for target in (4_000, 16_000, 64_000, 128_000, 256_000, 512_000, 1_000_000):
                 prompt = "Reply with the single word OK." + filler_word * target
                 try:
                     client.chat.completions.create(
@@ -1583,7 +1776,7 @@ def admin_delete_starters(body: dict[str, Any], user: Any = Depends(get_current_
 def chat_stream(body: dict[str, Any], user: Any = Depends(get_current_user)) -> StreamingResponse:
     """Stream a chat completion as plain-text chunks for a live typing effect."""
     client = _get_openai_client()
-    full_messages, model, temperature = _assemble_payload(body)
+    full_messages, model, temperature, info = _assemble_payload(body)
 
     def _generate() -> Any:
         try:
@@ -1604,7 +1797,10 @@ def chat_stream(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
             logger.warning("Chat stream failed: %s", exc)
             yield f"\n\n[Error contacting the model: {exc}]"
 
-    return StreamingResponse(_generate(), media_type="text/plain; charset=utf-8")
+    # What went into the context, for the chat's progress display (read before
+    # the first token arrives, which can take a while with a large context).
+    return StreamingResponse(_generate(), media_type="text/plain; charset=utf-8",
+                             headers={"X-Chat-Context": json.dumps(info)})
 
 
 @router.get("/api/chat/mapping-status")
