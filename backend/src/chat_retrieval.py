@@ -1,16 +1,20 @@
 """Server-side variable retrieval for iCARE-AI.
 
-Mirrors the cohorts-page search (substring matching in permissive "OR" mode over
-the same variable fields) to inject question-relevant variable details into the
-model's context in a SINGLE round: the user's question is tokenized, terms that
-are too broad (matching too many cohorts/variables across the catalog) are
-automatically excluded, and the remaining terms retrieve full variable details
-(label, type, units, concept, additional context).
+- The chat's catalog search: the planner's terms are run with the same
+  matching as the cohorts-page search, results structured for the search
+  panel and formatted for the model (every matching cohort, with counts).
+- Related variables: every variable is scored by the words it shares with the
+  question (IDF-weighted), so relevant labels the exact search missed still
+  reach the model within the context budget.
+- Equivalent variables: for the standard codes of the variables found, every
+  catalog variable mapped to the same concept / OMOP id, per cohort.
 
 Also provides catalog size estimates (thin catalog / concept index / full
 detail) for the admin context diagnostics.
 """
+import bisect
 import logging
+import math
 import re
 import threading
 import time
@@ -18,20 +22,11 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# A term is "too broad" when it matches at least this fraction of cohorts...
-BROAD_COHORT_FRACTION = 0.5
-# ...or at least this many variables across the catalog.
-BROAD_VARIABLE_LIMIT = 120
-
-# Caps for the injected retrieval section.
-MAX_RETRIEVED_VARS_TOTAL = 300
-MAX_RETRIEVED_VARS_PER_COHORT = 40
-
 # Catalog data is budgeted in characters; ~3 chars per token is conservative
 # for this catalog (codes, abbreviations, German labels tokenize densely).
 CHARS_PER_TOKEN = 3
 # Categories listed per variable before the list is cut ("+N more").
-MAX_CATEGORIES_LISTED = 40
+MAX_CATEGORIES_LISTED = 15
 
 
 def budget_chars(share: float) -> int:
@@ -175,86 +170,150 @@ def extract_query_terms(question: str) -> list[str]:
     return seen[:12]
 
 
-def retrieve_for_question(
+# ---- Related variables (relevance-ranked labels) -----------------------------
+# The catalog search (below) finds variables containing the planner's exact
+# terms. Labels that describe the same thing in other words are missed, and
+# listing every variable's label is far beyond the context budget. So each
+# question also scores EVERY variable by the words it shares with the question
+# and the search terms - rare words weigh more than common ones (IDF) - and
+# the best-scoring variables not already in the search results are added as
+# compact "name — label (concept)" lines, as many as the budget allows.
+
+# A word matching more than this share of all variables says nothing.
+RELATED_MAX_WORD_SHARE = 0.2
+# Keep only variables scoring at least this fraction of the best score (low
+# enough that a variable matching just one of several concepts still counts).
+RELATED_MIN_RELATIVE_SCORE = 0.3
+RELATED_MAX_VARIABLES = 200
+RELATED_BUDGET_SHARE = 0.12
+
+_word_index_lock = threading.Lock()
+_word_index_cache: dict[str, Any] = {"key": None, "postings": {}, "vocab": []}
+
+
+def _get_word_index(all_cohorts: dict[str, Any]) -> tuple[list[tuple[str, str, Any]], dict[str, list[int]], list[str]]:
+    """(entries, word -> entry indexes, sorted vocabulary), rebuilt with the search index."""
+    entries = _get_index(all_cohorts)
+    key = (_index_cache["key"], id(entries))
+    with _word_index_lock:
+        if _word_index_cache["key"] == key:
+            return entries, _word_index_cache["postings"], _word_index_cache["vocab"]
+    postings: dict[str, list[int]] = {}
+    for i, (_cid, blob, _var) in enumerate(entries):
+        for w in set(re.split(r"[^a-z0-9]+", blob)):
+            if len(w) >= 2:
+                postings.setdefault(w, []).append(i)
+    vocab = sorted(postings)
+    with _word_index_lock:
+        _word_index_cache.update({"key": key, "postings": postings, "vocab": vocab})
+    return entries, postings, vocab
+
+
+def _stems(token: str) -> set:
+    stems = {token}
+    for suf in ("es", "s", "ing", "ed", "ers", "er"):
+        if token.endswith(suf) and len(token) - len(suf) >= 4:
+            stems.add(token[: len(token) - len(suf)])
+    return stems
+
+
+def _matching_words(token: str, vocab: list[str]) -> list[str]:
+    """Vocabulary words for a query token: exact, or sharing its (lightly
+    stemmed) prefix of 4+ letters ('blockers' -> 'blocker', 'blocking')."""
+    stems = _stems(token)
+    found = {token} if token in vocab else set()
+    for stem in stems:
+        if len(stem) < 4:
+            continue
+        i = bisect.bisect_left(vocab, stem)
+        while i < len(vocab) and vocab[i].startswith(stem):
+            found.add(vocab[i])
+            i += 1
+    return list(found)
+
+
+def related_variables_section(
     question: str,
+    terms: list[str],
     all_cohorts: dict[str, Any],
     restrict_to: Optional[list[str]] = None,
-) -> Optional[str]:
-    """Build the context section with variable details matching the question.
-
-    Matching mirrors the cohorts-page search in OR mode; terms matching too many
-    cohorts/variables are excluded (and the exclusion is stated in the section so
-    the model can tell the user). Returns None when there is nothing to inject.
-    """
-    terms = extract_query_terms(question)
-    if not terms or not all_cohorts:
-        return None
-    entries = _get_index(all_cohorts)
-    if not entries:
-        return None
-    n_cohorts = len(all_cohorts)
-
-    # Per-term breadth statistics over the whole catalog.
-    included: list[str] = []
-    excluded: list[dict[str, Any]] = []
-    term_matches: dict[str, list[int]] = {}
-    for term in terms:
-        idxs = [i for i, (_, blob, _v) in enumerate(entries) if term in blob]
-        if not idxs:
+    exclude: Optional[set] = None,
+) -> tuple[str, list[tuple[str, str]]]:
+    """(context section, [(cohort_id, lowercased var_name)] included) of the variables whose names,
+    labels, concepts and categories best match the question's words. `exclude`
+    holds (cohort_id, lowercased var_name) pairs already in the search results."""
+    tokens: list[str] = []
+    for text in [question] + list(terms or []):
+        for w in re.split(r"[^a-z0-9]+", _normalize(str(text))):
+            if len(w) >= 3 and not w.isdigit() and w not in QUERY_STOPWORDS and w not in tokens:
+                tokens.append(w)
+    if not tokens or not all_cohorts:
+        return "", []
+    entries, postings, vocab = _get_word_index(all_cohorts)
+    n = len(entries)
+    if not n:
+        return "", []
+    scores: dict[int, float] = {}
+    used: list[str] = []
+    seen_stems: set = set()
+    for token in tokens[:20]:
+        # One weight per word, whatever its form ('blocker' / 'blockers').
+        stem = min(_stems(token), key=len)
+        if stem in seen_stems:
             continue
-        cohorts_hit = {entries[i][0] for i in idxs}
-        if len(cohorts_hit) >= BROAD_COHORT_FRACTION * n_cohorts or len(idxs) >= BROAD_VARIABLE_LIMIT:
-            excluded.append({"term": term, "cohorts": len(cohorts_hit), "variables": len(idxs)})
-        else:
-            included.append(term)
-            term_matches[term] = idxs
+        seen_stems.add(stem)
+        hit: set = set()
+        for w in _matching_words(token, vocab):
+            hit.update(postings.get(w, ()))
+        if not hit or len(hit) > RELATED_MAX_WORD_SHARE * n:
+            continue
+        used.append(token)
+        idf = math.log(n / len(hit))
+        for i in hit:
+            scores[i] = scores.get(i, 0.0) + idf
+    if not scores:
+        return "", []
+    exclude = exclude or set()
+    restrict = {str(c) for c in (restrict_to or [])}
+    ranked = [i for i in sorted(scores, key=lambda i: -scores[i])
+              if (entries[i][0], _clean(getattr(entries[i][2], "var_name", "")).lower()) not in exclude]
+    if restrict and any(entries[i][0] in restrict for i in ranked):
+        ranked = [i for i in ranked if entries[i][0] in restrict]
+    if not ranked:
+        return "", []
+    floor = scores[ranked[0]] * RELATED_MIN_RELATIVE_SCORE
+    ranked = [i for i in ranked if scores[i] >= floor][:RELATED_MAX_VARIABLES]
 
-    matched_idxs: list[int] = sorted({i for idxs in term_matches.values() for i in idxs})
-    restrict = set(restrict_to or [])
-    if restrict:
-        in_focus = [i for i in matched_idxs if entries[i][0] in restrict]
-        # Prefer matches inside the focused cohorts; fall back to the catalog.
-        if in_focus:
-            matched_idxs = in_focus
-
-    header_bits = []
-    if included:
-        header_bits.append(f"searched the catalog for: {', '.join(included)}")
-    for e in excluded:
-        header_bits.append(
-            f"excluded '{e['term']}' as too broad (matches {e['variables']} variables across {e['cohorts']} cohorts)"
-        )
-    if not matched_idxs:
-        if excluded:
-            return "Variable search note: " + "; ".join(header_bits) + ". No specific variables matched the remaining terms."
-        return None
-
-    # Group by cohort with per-cohort and total caps.
+    cap = budget_chars(RELATED_BUDGET_SHARE)
     by_cohort: dict[str, list[str]] = {}
-    total = 0
-    truncated = False
-    for i in matched_idxs:
+    included: list[tuple[str, str]] = []
+    size = 0
+    for i in ranked:
         cohort_id, _blob, var = entries[i]
-        lines = by_cohort.setdefault(cohort_id, [])
-        if len(lines) >= MAX_RETRIEVED_VARS_PER_COHORT:
-            truncated = True
-            continue
-        if total >= MAX_RETRIEVED_VARS_TOTAL:
-            truncated = True
+        name = _clean(getattr(var, "var_name", "")) or "?"
+        label = (_clean(getattr(var, "var_label", "")) or _clean(getattr(var, "definition", ""))
+                 or _clean(getattr(var, "additional_context", "")))[:150]
+        concept = _clean(getattr(var, "concept_name", "")) or _clean(getattr(var, "mapped_label", ""))
+        line = name + (f" — {label}" if label and label.lower() != name.lower() else "")
+        if concept and concept.lower() not in (label.lower(), name.lower()):
+            line += f" (concept: {concept})"
+        if size + len(line) > cap:
             break
-        lines.append(_variable_detail_line(var))
-        total += 1
-
-    parts = [f"Variables matching the question ({'; '.join(header_bits)}):"]
+        by_cohort.setdefault(cohort_id, []).append(line)
+        size += len(line) + 6
+        included.append((cohort_id, name.lower()))
+    if not included:
+        return "", []
+    parts = [
+        f"Variables whose names, labels or concepts share words with the question ({', '.join(used)}), "
+        "best matches first. They are NOT exact search matches and not a complete list: use them to "
+        "spot relevant variables the search terms missed, cite them by name, but do not count them "
+        "when stating how many cohorts or variables match a search."
+    ]
     for cohort_id, lines in by_cohort.items():
-        parts.append(f"#### {cohort_id}:")
+        parts.append(f"#### {cohort_id}")
         parts.extend(f"  - {line}" for line in lines)
-    if truncated:
-        parts.append(
-            f"  (list capped at {MAX_RETRIEVED_VARS_TOTAL} variables / {MAX_RETRIEVED_VARS_PER_COHORT} per cohort — "
-            "suggest the user narrows the question or selects cohorts for the full picture)"
-        )
-    return "\n".join(parts)
+    return "\n".join(parts), included
 
 
 # ---- Model-driven catalog search (the chat's "search tool") ------------------
@@ -271,7 +330,7 @@ SEARCH_EQUIVALENTS_SHOWN = 20
 # large that the text would exceed the budget, the per-cohort variable lists
 # are pared down step by step (30 -> 20 -> 10 -> 5 -> 3 -> 1) until it fits -
 # cohorts are never dropped.
-SEARCH_CONTEXT_BUDGET_SHARE = 0.3
+SEARCH_CONTEXT_BUDGET_SHARE = 0.25
 # Standard-code expansion: variables sharing a standard code with a text match
 # are pulled into the results too (that is how BB_3M or ALTROBB count as beta
 # blockers via ATC:C07A). Codes carried by more than this many variables are
@@ -292,7 +351,7 @@ def _var_public(var: Any) -> dict[str, Any]:
         "visits": _clean(getattr(var, "visits", "")),
         "categorical": bool(getattr(var, "categories", None)),
         "values": variable_values(var),
-        "definition": _clean(getattr(var, "definition", "")) or _clean(getattr(var, "additional_context", "")),
+        "definition": (_clean(getattr(var, "definition", "")) or _clean(getattr(var, "additional_context", "")))[:200],
     }
 
 
@@ -504,9 +563,6 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
                         bits.append(f"visits: {v['visits']}")
                     if v.get("definition"):
                         bits.append(f"definition: {v['definition']}")
-                    if v.get("equivalents"):
-                        eq = ", ".join(f"{e['cohort_id']}::{e['var_name']}" for e in v["equivalents"])
-                        bits.append(f"EQUIVALENT BY STANDARD CODE to: {eq}")
                     if v.get("via_code"):
                         bits.append(f"MATCHED VIA STANDARD CODE {v.get('matched_code')}")
                     if v.get("has_eda"):
@@ -623,6 +679,107 @@ def format_search_context(runs: list[dict[str, Any]], concepts: Optional[list] =
         parts = [text_so_far[:cap],
                  "(search results truncated for length — the cohort counts above are complete)"]
     return "\n".join(parts)
+
+
+# ---- Equivalent variables across cohorts -------------------------------------
+# Variables mapped to the same standard concept code or OMOP id capture the
+# same thing. For every such code carried by a variable found for the question
+# (search matches and related variables), one line names ALL the catalog's
+# variables sharing it, per cohort: the basis for cross-cohort comparisons.
+
+EQUIVALENTS_BUDGET_SHARE = 0.08
+# Variable names listed per cohort in one cluster before "+N more".
+EQUIVALENT_NAMES_PER_COHORT = 4
+
+_eq_lock = threading.Lock()
+_eq_cache: dict[str, Any] = {"key": None, "map": {}}
+
+
+def _get_equivalents_map(all_cohorts: dict[str, Any]) -> dict[str, list[tuple[str, str, Any]]]:
+    """code -> [(cohort_id, var_name, var)], rebuilt with the search index."""
+    entries = _get_index(all_cohorts)
+    key = (_index_cache["key"], id(entries))
+    with _eq_lock:
+        if _eq_cache["key"] == key:
+            return _eq_cache["map"]
+    eq_map = _equivalents_map(entries)
+    with _eq_lock:
+        _eq_cache.update({"key": key, "map": eq_map})
+    return eq_map
+
+
+def equivalents_section(pairs: list[tuple[str, str]], all_cohorts: dict[str, Any]) -> tuple[str, int]:
+    """(context section, number of clusters) for the standard codes carried by
+    the given (cohort_id, lowercased var_name) variables; only codes shared by
+    two or more cohorts, the most widely shared first."""
+    if not pairs or not all_cohorts:
+        return "", 0
+    eq_map = _get_equivalents_map(all_cohorts)
+    wanted = {(c, n) for c, n in pairs}
+    # Codes of the wanted variables, in the order the variables were found.
+    codes: list[tuple[str, str]] = []  # (normalized code, display)
+    seen_codes: set = set()
+    by_pair: dict[tuple[str, str], Any] = {}
+    for cohort_id, cohort in all_cohorts.items():
+        for var in (getattr(cohort, "variables", {}) or {}).values():
+            key = (cohort_id, _clean(getattr(var, "var_name", "")).lower())
+            if key in wanted:
+                by_pair[key] = var
+    for pair in pairs:
+        var = by_pair.get(tuple(pair))
+        if var is None:
+            continue
+        for raw in (getattr(var, "concept_code", None), getattr(var, "omop_id", None)):
+            code = _norm_code(raw)
+            if code and code not in seen_codes:
+                seen_codes.add(code)
+                name = _clean(getattr(var, "concept_name", "")) or _clean(getattr(var, "mapped_label", ""))
+                codes.append((code, _clean(raw) + (f" ({name})" if name else "")))
+
+    clusters = []
+    seen_members: set = set()
+    for code, display in codes:
+        members = eq_map.get(code, [])
+        per_cohort: dict[str, list[str]] = {}
+        for cohort_id, var_name, _var in members:
+            if var_name and var_name not in per_cohort.setdefault(cohort_id, []):
+                per_cohort[cohort_id].append(var_name)
+        if len(per_cohort) < 2:
+            continue
+        # A concept code and an OMOP id often describe the same set: list it once.
+        signature = frozenset((c, n) for c, names in per_cohort.items() for n in names)
+        if signature in seen_members:
+            continue
+        seen_members.add(signature)
+        clusters.append((display, per_cohort))
+    if not clusters:
+        return "", 0
+    clusters.sort(key=lambda cl: -len(cl[1]))
+
+    cap = budget_chars(EQUIVALENTS_BUDGET_SHARE)
+    parts = [
+        "Variables mapped to the same standard concept or OMOP id capture the same thing. Each line "
+        "is one concept found among the variables above, with EVERY catalog variable mapped to it, "
+        "per cohort (complete, not just search matches). Use these lines to compare cohorts and to "
+        "name each cohort's variable for a concept."
+    ]
+    size = len(parts[0])
+    shown = 0
+    for display, per_cohort in clusters:
+        cohorts_txt = " · ".join(
+            f"{cid}: {', '.join(names[:EQUIVALENT_NAMES_PER_COHORT])}"
+            + (f" +{len(names) - EQUIVALENT_NAMES_PER_COHORT} more" if len(names) > EQUIVALENT_NAMES_PER_COHORT else "")
+            for cid, names in sorted(per_cohort.items())
+        )
+        line = f"- {display} — {len(per_cohort)} cohorts: {cohorts_txt}"
+        if size + len(line) > cap:
+            break
+        parts.append(line)
+        size += len(line) + 1
+        shown += 1
+    if shown < len(clusters):
+        parts.append(f"(+{len(clusters) - shown} more shared concepts not listed for length)")
+    return ("\n".join(parts), shown) if shown else ("", 0)
 
 
 # ---- Catalog size estimates (admin diagnostics) ------------------------------

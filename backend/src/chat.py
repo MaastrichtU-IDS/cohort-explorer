@@ -36,14 +36,12 @@ logger = logging.getLogger(__name__)
 # config.py and chat_retrieval.budget_chars); these shares split it between the
 # parts of one request. Each part degrades gracefully when it does not fit
 # (fewer details per variable, never fewer cohorts).
-COHORT_BLOCK_BUDGET_SHARE = 0.5
-MAPPING_BUDGET_SHARE = 0.1
-MAX_MAPPING_PAIRS = 15
+COHORT_BLOCK_BUDGET_SHARE = 0.55
 # Caps for client-supplied text (Glass Box overrides, follow-up blocks).
-MAX_SYSTEM_PROMPT_CHARS = 40_000
-MAX_CONTEXT_CHARS = 2_000_000
-MAX_SUMMARIZE_CHARS = 100_000
-MAX_EDA_CONTEXT_CHARS = 200_000
+MAX_SYSTEM_PROMPT_CHARS = 16_000
+MAX_CONTEXT_CHARS = 60_000
+MAX_SUMMARIZE_CHARS = 24_000
+MAX_EDA_CONTEXT_CHARS = 24_000
 
 # How the platform works — shared so the assistant can guide users through the
 # actual workflow, not just describe data.
@@ -132,8 +130,9 @@ SEARCH_RESULTS_RULES = (
     "- A concept's complete cohort set is its main term's ALL-cohorts line PLUS the NEW "
     "cohorts of each of its expansion terms. When a cohort was found only through an "
     "expansion, say so, e.g. 'GISSI-HF (found via the metoprolol expansion)'.\n"
-    "- EQUIVALENT BY STANDARD CODE links show which variables correspond across cohorts; use "
-    "them to point out cross-cohort correspondences.\n"
+    "- The EQUIVALENT VARIABLES section groups variables mapped to the same standard concept "
+    "or OMOP id across cohorts: they capture the same thing. Use it to compare cohorts and to "
+    "name each cohort's variable for a concept.\n"
     "- CHART-MARKER: every time you mention a variable that has one, put its exact marker (the "
     "\U0001F4CA[cohort::variable] token, copied verbatim) right after the name; it renders as "
     "a clickable chart. Never invent a marker for a variable that has none."
@@ -186,26 +185,6 @@ def _clean(value: Any) -> str:
     return text
 
 
-def _summarize_variable(var: Any) -> str:
-    """One compact line describing a single variable (name, label, type/units)."""
-    name = _clean(getattr(var, "var_name", "")) or "?"
-    label = _clean(getattr(var, "var_label", ""))
-    vtype = _clean(getattr(var, "var_type", ""))
-    units = _clean(getattr(var, "units", ""))
-    bits = []
-    if label and label.lower() != name.lower():
-        bits.append(label)
-    meta = []
-    if vtype:
-        meta.append(vtype)
-    if units:
-        meta.append(units)
-    if meta:
-        bits.append(f"[{', '.join(meta)}]")
-    suffix = f" — {' '.join(bits)}" if bits else ""
-    return f"{name}{suffix}"
-
-
 def _has_eda_profile(cohort_id: str) -> bool:
     """Whether EDA / variable profiling output exists for this cohort (mtime-cached)."""
     try:
@@ -216,32 +195,22 @@ def _has_eda_profile(cohort_id: str) -> bool:
         return False
 
 
-# Descriptive cohort metadata shown to the model (contact details left out).
-_COHORT_FIELDS = [
-    ("Institution", "institution"),
+# Cohort metadata shown to the model. The long free-text fields (objective,
+# outcomes, criteria) are always kept; when the block does not fit the budget
+# they are shortened step by step (see build_context), never dropped.
+_COHORT_SHORT_FIELDS = [
     ("Study type", "study_type"),
     ("Study design", "study_design"),
-    ("Part of study", "part_of_study"),
     ("Participants", "study_participants"),
     ("Population", "study_population"),
+    ("Morbidity", "morbidity"),
+    ("Location", "population_location"),
+]
+_COHORT_LONG_FIELDS = [
     ("Objective", "study_objective"),
     ("Primary outcome", "primary_outcome_spec"),
     ("Secondary outcome", "secondary_outcome_spec"),
-    ("Morbidity", "morbidity"),
     ("Interventions", "interventions"),
-    ("Comparator", "comparator"),
-    ("Location", "population_location"),
-    ("Language", "language"),
-    ("Start", "study_start"),
-    ("End", "study_end"),
-    ("Duration", "study_duration"),
-    ("Ongoing", "study_ongoing"),
-    ("Data collection frequency", "data_collection_frequency"),
-    ("Enrolled with diabetes", "enrolled_with_diabetes"),
-    ("Enrolled with CVD", "enrolled_with_cvd"),
-    ("Race/ethnicity", "race_ethnicity"),
-    ("Coding system", "coding_system"),
-    ("Dataset format", "dataset_format"),
 ]
 _INCLUSION_FIELDS = [
     ("sex", "sex_inclusion"),
@@ -262,30 +231,47 @@ _EXCLUSION_FIELDS = [
     ("surgical procedure history", "surgical_procedure_history_exclusion"),
     ("clinically relevant exposure", "clinically_relevant_exposure_exclusion"),
 ]
+# Length caps tried for the long fields, loosest first (None = full text).
+_LONG_FIELD_CAPS = (None, 600, 300, 150, 80)
+# Variable listings for SELECTED cohorts, richest first; used only as far as
+# the budget left after the metadata allows. Without a selection no variables
+# are listed: the search results bring in the ones matching the question.
+_VARIABLE_DETAIL_LEVELS = ("labels", "names")
 
-# Per-variable detail levels, richest first. build_context uses the richest one
-# whose text fits the cohort-block budget.
-_VARIABLE_DETAIL_LEVELS = ("full", "label", "names")
+
+def _cut(text: str, cap: Optional[int]) -> str:
+    return text if cap is None or len(text) <= cap else text[:cap].rstrip() + "…"
 
 
-def _cohort_header(cohort: Any) -> list[str]:
-    """The cohort's descriptive metadata as bullet lines."""
+def _cohort_header(cohort: Any, cap: Optional[int] = None) -> list[str]:
+    """The cohort's metadata as bullet lines; long fields cut at `cap` chars."""
+    variables = getattr(cohort, "variables", {}) or {}
+    if not variables:
+        # Cohorts without variable metadata cannot be explored here: one line.
+        bits = [b for b in (_clean(getattr(cohort, "study_type", "")),
+                            _cut(_clean(getattr(cohort, "study_population", "")), 120)) if b]
+        return [f"- {cohort.cohort_id}" + (f" ({'; '.join(bits)})" if bits else "")
+                + " — no variable metadata in the catalog"]
     lines = [f"### Cohort: {cohort.cohort_id}"]
-    for label, attr in _COHORT_FIELDS:
+    for label, attr in _COHORT_SHORT_FIELDS:
         value = _clean(getattr(cohort, attr, ""))
         if value:
-            lines.append(f"- {label}: {value}")
+            lines.append(f"- {label}: {_cut(value, 150)}")
+    for label, attr in _COHORT_LONG_FIELDS:
+        value = _clean(getattr(cohort, attr, ""))
+        if value:
+            lines.append(f"- {label}: {_cut(value, cap)}")
+    for title, fields in (("Inclusion criteria", _INCLUSION_FIELDS), ("Exclusion criteria", _EXCLUSION_FIELDS)):
+        crit = [f"{label}: {_cut(_clean(getattr(cohort, attr, '')), cap)}"
+                for label, attr in fields if _clean(getattr(cohort, attr, ""))]
+        if crit:
+            lines.append(f"- {title}: " + "; ".join(crit))
     male, female = getattr(cohort, "male_percentage", None), getattr(cohort, "female_percentage", None)
     if male is not None or female is not None:
         lines.append(f"- Sex: {male if male is not None else '?'}% male, {female if female is not None else '?'}% female")
     ages = getattr(cohort, "age_distribution", None) or {}
     if ages:
         lines.append("- Age distribution: " + ", ".join(f"{k}: {v}%" for k, v in ages.items()))
-    for title, fields in (("Inclusion criteria", _INCLUSION_FIELDS), ("Exclusion criteria", _EXCLUSION_FIELDS)):
-        crit = [f"{label}: {_clean(getattr(cohort, attr, ''))}" for label, attr in fields if _clean(getattr(cohort, attr, ""))]
-        if crit:
-            lines.append(f"- {title}: " + "; ".join(crit))
-    variables = getattr(cohort, "variables", {}) or {}
     lines.append(f"- Variable count: {len(variables)}")
     stats = "on record (variable distributions available)" if _has_eda_profile(cohort.cohort_id) else "not available"
     if getattr(cohort, "has_longitudinal", False):
@@ -295,32 +281,31 @@ def _cohort_header(cohort: Any) -> list[str]:
 
 
 def _variable_lines(cohort: Any, level: str) -> list[str]:
-    """All of the cohort's variables at the given detail level."""
-    from src.chat_retrieval import _variable_detail_line
-
+    """The cohort's variables: 'name — label' or names only."""
     variables = list((getattr(cohort, "variables", {}) or {}).values())
     if not variables:
         return []
     if level == "names":
         names = [_clean(getattr(v, "var_name", "")) for v in variables]
-        return ["- Variables (names only): " + ", ".join(n for n in names if n)]
-    render = _variable_detail_line if level == "full" else _summarize_variable
-    return ["- Variables:"] + [f"    - {render(v)}" for v in variables]
-
-
-def _summarize_cohort(cohort: Any, level: str = "full") -> str:
-    """Multi-line summary of one cohort: metadata plus every variable."""
-    return "\n".join(_cohort_header(cohort) + _variable_lines(cohort, level))
+        return ["- Variable names: " + ", ".join(n for n in names if n)]
+    items = []
+    for v in variables:
+        name = _clean(getattr(v, "var_name", "")) or "?"
+        label = _clean(getattr(v, "var_label", "")) or _clean(getattr(v, "concept_name", ""))
+        items.append(f"{name} — {label[:100]}" if label and label.lower() != name.lower() else name)
+    return ["- Variables (name — label): " + "; ".join(items)]
 
 
 def build_context(cohort_ids: list[str], focus: Optional[str] = None, info: Optional[dict] = None) -> str:
     """Assemble the cohort block of the chat context.
 
-    - With cohort_ids: the selected cohorts, each with its metadata and ALL its
-      variables.
-    - Without: the whole catalog, every cohort with its metadata and variables.
-    Variables are rendered at the richest detail level that fits the budget
-    (full detail -> name/label/type -> names only); cohorts are never dropped.
+    Every cohort (the selected ones, or the whole catalog) gets its metadata:
+    objective, outcomes, inclusion/exclusion criteria and a few short facts,
+    plus its variable count. Long fields are shortened step by step until the
+    block fits the budget; cohorts are never dropped. Selected cohorts
+    additionally list their variables (name + label, or names only) when the
+    remaining budget allows. Otherwise variables come in through the catalog
+    search results and the related variables, both chosen by the question.
     When `info` is given it receives what was included (for the progress UI).
     """
     from src.chat_retrieval import budget_chars
@@ -341,7 +326,8 @@ def build_context(cohort_ids: list[str], focus: Optional[str] = None, info: Opti
         intro = (
             f"No specific cohort is selected. The catalog holds {len(all_cohorts)} cohorts "
             f"({len(with_vars)} with variable metadata; summary statistics on record for "
-            f"{n_profiled}). All of them follow."
+            f"{n_profiled}). All of them follow; variables are not listed here - the catalog "
+            "search results and the related variables bring in the ones matching the question."
         )
         # Cohorts with variables first: they are the ones that can be explored.
         cohorts = sorted(all_cohorts.values(), key=lambda c: not getattr(c, "variables", None))
@@ -349,19 +335,27 @@ def build_context(cohort_ids: list[str], focus: Optional[str] = None, info: Opti
         intro += f"\nThe user is particularly interested in: {_clean(focus)}"
 
     budget = budget_chars(COHORT_BLOCK_BUDGET_SHARE)
-    headers = ["\n".join(_cohort_header(c)) for c in cohorts]
-    body = ""
-    for level in _VARIABLE_DETAIL_LEVELS:
-        blocks = [h + ("\n" + "\n".join(v) if v else "")
-                  for h, v in zip(headers, (_variable_lines(c, level) for c in cohorts))]
-        body = "\n\n".join(blocks)
-        if len(body) <= budget:
-            if level != "full":
-                intro += (f"\n(Variables are shown at reduced detail ({level}) to fit the context; "
-                          "the catalog search results carry full details for matching variables.)")
+    # 1. Metadata of every cohort, long fields shortened until it fits.
+    headers: list[str] = []
+    for cap in _LONG_FIELD_CAPS:
+        headers = ["\n".join(_cohort_header(c, cap)) for c in cohorts]
+        if len("\n\n".join(headers)) <= budget:
             break
-    else:
-        body = body[:budget] + "\n(cohort list truncated for length)"
+    body = "\n\n".join(headers)
+    # 2. Selected cohorts: their variables at the richest level that still fits.
+    level = "none"
+    if selected:
+        for candidate in _VARIABLE_DETAIL_LEVELS:
+            blocks = [h + ("\n" + "\n".join(v) if v else "")
+                      for h, v in zip(headers, (_variable_lines(c, candidate) for c in cohorts))]
+            if len("\n\n".join(blocks)) <= budget:
+                body, level = "\n\n".join(blocks), candidate
+                break
+        if level == "none":
+            intro += ("\n(The selected cohorts' variables are too many to list here; the catalog "
+                      "search results and the related variables bring in the ones matching the question.)")
+    if len(body) > budget:
+        body = body[:budget] + "\n(cohort metadata truncated for length)"
     if info is not None:
         info["cohorts"] = len(cohorts)
         info["variables"] = sum(len(getattr(c, "variables", {}) or {}) for c in cohorts)
@@ -369,35 +363,13 @@ def build_context(cohort_ids: list[str], focus: Optional[str] = None, info: Opti
     return f"## Cohorts\n\n{intro}\n\n{body}"
 
 
-# ---- Cross-cohort mapping files in chat context ------------------------------
+# ---- Cross-cohort mapping files ----------------------------------------------
 #
-# When the user has 2+ cohorts selected, the assistant should ground
-# cross-cohort variable questions in the mapping files generated from the
-# mapping page (CohortVarLinker), when such files exist in the cache. The
-# transcript must make it unmistakable that a cached file was used and which
-# one. When no mapping exists for a pair, the UI offers a "generate" button
-# (see /api/chat/mapping-status) and the model is told the mapping is missing.
-
-# Columns injected into context, in order, when present in the CSV. The full
-# files carry ~19 columns; these are the ones useful for reasoning about
-# variable equivalence without blowing up the context.
-_MAPPING_CONTEXT_COLS = [
-    "source", "slabel", "target", "tlabel", "category", "mapping type",
-    "source_unit", "target_unit", "harmonization_status",
-]
-MAPPING_USAGE_INSTRUCTIONS = (
-    "CROSS-COHORT MAPPING FILES: cached mapping file(s) generated by the platform's mapping "
-    "pipeline are included in the context below, each labelled with its exact filename.\n"
-    "- Whenever your answer draws on a mapping file, make it VERY clear — state prominently "
-    "(at the start of the relevant part of your answer) that you are using a cached mapping "
-    "file and give its filename.\n"
-    "- IMPORTANT: these files are OVER-GENERATED — they intentionally include many candidate "
-    "correspondences, and not all are good. Exercise judgment: prefer rows whose labels, "
-    "categories and units genuinely align (e.g. 'exact match' over loose semantic matches), "
-    "and say so when a suggested mapping looks questionable.\n"
-    "- These are suggested equivalences, not guarantees; recommend the user verify on the "
-    "mapping page."
-)
+# Cache status of the mapping files generated from the mapping page
+# (CohortVarLinker), used by /api/chat/mapping-status and the no-code tools.
+# Mapping files are not part of the chat context for now: cross-cohort
+# correspondences come from the variables sharing a standard concept (see
+# chat_retrieval.equivalents_section).
 
 
 def _linker_output_dir() -> str:
@@ -457,66 +429,6 @@ def mapping_pair_status(cohort_ids: list[str]) -> list[dict[str, Any]]:
             else:
                 pairs.append({"source": a, "target": b, "cached": False, "filename": None})
     return pairs
-
-
-def _mapping_file_block(source: str, target: str, path: str, max_chars: int) -> str:
-    """Render one cached mapping CSV as a compact block of at most max_chars."""
-    import csv as _csv
-
-    filename = os.path.basename(path)
-    try:
-        with open(path, newline="", encoding="utf-8") as fh:
-            reader = _csv.DictReader(fh)
-            rows = list(reader)
-    except Exception as exc:
-        logger.warning("Could not read mapping file %s: %s", filename, exc)
-        return ""
-
-    cols = [c for c in _MAPPING_CONTEXT_COLS if rows and c in rows[0]]
-    if not cols:
-        cols = list(rows[0].keys())[:6] if rows else []
-
-    lines = [
-        f"CACHED MAPPING FILE: {filename} (maps variables of '{source}' to '{target}'; "
-        f"{len(rows)} candidate mappings, over-generated — apply judgment)."
-    ]
-    lines.append(" | ".join(cols))
-    size = sum(len(line) + 1 for line in lines)
-    shown = 0
-    for row in rows:
-        line = " | ".join(_clean(row.get(c, "")) for c in cols)
-        if size + len(line) + 1 > max_chars:
-            break
-        lines.append(line)
-        size += len(line) + 1
-        shown += 1
-    if shown < len(rows):
-        lines.append(f"…and {len(rows) - shown} more rows not shown (context budget).")
-    return "\n".join(lines)
-
-
-def build_mapping_context(cohort_ids: list[str]) -> tuple[str, list[str]]:
-    """(context block for cached pairs, human-readable list of uncached pairs)."""
-    from src.chat_retrieval import budget_chars
-
-    cached_blocks: list[str] = []
-    uncached: list[str] = []
-    try:
-        output_dir = _linker_output_dir()
-    except Exception:
-        return "", []
-    pairs = mapping_pair_status(cohort_ids)[:MAX_MAPPING_PAIRS]
-    n_cached = sum(1 for p in pairs if p["cached"])
-    per_file = budget_chars(MAPPING_BUDGET_SHARE) // max(n_cached, 1)
-    for pair in pairs:
-        if pair["cached"]:
-            path = os.path.join(output_dir, pair["filename"])
-            block = _mapping_file_block(pair["source"], pair["target"], path, per_file)
-            if block:
-                cached_blocks.append(block)
-        else:
-            uncached.append(f"{pair['source']} ↔ {pair['target']}")
-    return "\n\n".join(cached_blocks), uncached
 
 
 def _normalize_messages(raw: Any) -> list[dict[str, str]]:
@@ -669,9 +581,9 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
     The model receives ONE system message (several chat templates, Qwen's among
     them, reject any system message that is not the first) in three parts:
       1. RULES - SYSTEM_PROMPT, or the client's system_prompt override;
-      2. CATALOG DATA - what this reply needs: cohorts, search results, mapping
-         files, and for the follow-up turns the detailed answer or the summary
-         statistics;
+      2. CATALOG DATA - what this reply needs: cohorts, search results,
+         related variables, cross-cohort equivalents, and for the follow-up
+         turns the detailed answer or the summary statistics;
       3. YOUR TASK FOR THIS REPLY - exactly one task (see above).
     followed by the conversation's user/assistant turns.
 
@@ -740,7 +652,7 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
     elif mode != "summarize":
         # The summary condenses the detailed answer and the statistics
         # follow-up reads only the statistics block, so neither needs the
-        # (large) cohort block or the mapping files.
+        # (large) cohort block.
         if mode != "eda":
             data.append(build_context(cohort_ids, focus, info))
         try:
@@ -759,40 +671,33 @@ def _assemble_payload(body: dict[str, Any]) -> tuple[list[dict[str, str]], str, 
                     has_search = True
             except Exception as exc:
                 logger.warning("Search-results formatting failed: %s", exc)
-        elif mode == "answer" and last_user:
-            # Fallback single-round retrieval: mirror the cohorts-page search
-            # (OR mode) over the user's question and inject matching variable
-            # details, excluding terms that are too broad. See chat_retrieval.py.
+        # Related variables: labels of the variables best matching the
+        # question's words (and the search terms), beyond the exact matches
+        # already in the search results. See chat_retrieval.py.
+        if mode in ("answer", "clarify") and last_user:
             try:
-                from src.chat_retrieval import retrieve_for_question
+                from src.chat_retrieval import related_variables_section
                 from src.cohort_cache import get_cohorts_from_cache
 
-                section = retrieve_for_question(last_user, get_cohorts_from_cache(""), restrict_to=cohort_ids)
+                terms = [str(r.get("term") or "") for r in runs_in or [] if isinstance(r, dict)]
+                shown = {(str(c.get("cohort_id")), str(v.get("var_name") or "").strip().lower())
+                         for r in runs_in or [] if isinstance(r, dict)
+                         for c in r.get("cohorts") or [] for v in c.get("variables") or []}
+                all_cohorts = get_cohorts_from_cache("")
+                section, related_pairs = related_variables_section(
+                    last_user, terms, all_cohorts, restrict_to=cohort_ids, exclude=shown)
                 if section:
-                    data.append(f"## Variables matching the question\n\n{section}")
-            except Exception as exc:
-                logger.warning("Question-based variable retrieval failed: %s", exc)
+                    data.append(f"## Related variables\n\n{section}")
+                    info["related_variables"] = len(related_pairs)
+                # Cross-cohort equivalents of everything found above.
+                from src.chat_retrieval import equivalents_section
 
-        # Cross-cohort mapping files: inject cached mappings for the selected
-        # pairs, and tell the model plainly which pairs have none yet.
-        if mode != "eda" and len(cohort_ids) >= 2:
-            try:
-                mapping_block, uncached_pairs = build_mapping_context(cohort_ids)
-                mapping_parts = []
-                if mapping_block:
-                    mapping_parts += [MAPPING_USAGE_INSTRUCTIONS, mapping_block]
-                if uncached_pairs:
-                    mapping_parts.append(
-                        f"NO CACHED MAPPING exists yet for: {'; '.join(uncached_pairs)}. If the user "
-                        "asks how variables correspond across these cohorts, say the mapping has not "
-                        "been generated yet and that they can generate it with the button shown in "
-                        "this chat (or from the mapping page); do NOT guess variable correspondences."
-                    )
-                if mapping_parts:
-                    data.append("## Cross-cohort mapping files\n\n" + "\n\n".join(mapping_parts))
-                info["mapping_files"] = mapping_block.count("CACHED MAPPING FILE:")
+                eq_section, n_clusters = equivalents_section(list(shown) + related_pairs, all_cohorts)
+                if eq_section:
+                    data.append(f"## Equivalent variables across cohorts\n\n{eq_section}")
+                    info["equivalent_clusters"] = n_clusters
             except Exception as exc:
-                logger.warning("Mapping context injection failed: %s", exc)
+                logger.warning("Related-variable retrieval failed: %s", exc)
 
     if mode == "summarize":
         data.append("## Detailed answer to condense\n\n" + summarize_text[:MAX_SUMMARIZE_CHARS])
@@ -975,10 +880,10 @@ def plan_search(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
     # treats an empty list as an error (it guards the chat endpoints), so it
     # must not run here on empty input.
     try:
-        history = _normalize_messages(body.get("history"))[-12:] if body.get("history") else []
+        history = _normalize_messages(body.get("history"))[-8:] if body.get("history") else []
     except HTTPException:
         history = []
-    convo = "\n".join(f"{m['role']}: {m['content'][:4000]}" for m in history)
+    convo = "\n".join(f"{m['role']}: {m['content'][:1500]}" for m in history)
     try:
         from src.cohort_cache import get_cohorts_from_cache
 
@@ -1176,7 +1081,7 @@ def eda_followup(body: dict[str, Any], user: Any = Depends(get_current_user)) ->
                                    "var_name": str(v.get("var_name")),
                                    "var_label": _clean(v.get("var_label") or ""),
                                    "term": str(r.get("term") or "")})
-                if len(candidates) >= 200:
+                if len(candidates) >= 80:
                     break
     if not question or not candidates:
         return {"needed": False}

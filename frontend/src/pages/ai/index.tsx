@@ -162,6 +162,9 @@ function CohortFocus({
 // file is available to the assistant, and offer to generate missing ones via
 // the same pipeline as the mapping page. Generation is slow (minutes), so the
 // button turns into a progress state while it runs.
+// Not rendered for now: mapping files are left out of the chat context (the
+// assistant uses variables sharing a standard concept instead), so offering
+// to "let the assistant use" a mapping would mislead. Kept for when they return.
 function MappingAvailability({selected}: {selected: string[]}) {
   const [pairs, setPairs] = useState<MappingPairStatus[]>([]);
   const [generating, setGenerating] = useState<string | null>(null); // "src|tgt"
@@ -638,7 +641,6 @@ function ICareAI() {
               <LocalModelNote />
             </p>
             <div className="flex justify-center">
-              <MappingAvailability selected={chat.selected} />
             </div>
             {starters.length > 0 && (
               <p className="text-center text-xs text-base-content/50 mb-2">
@@ -714,7 +716,6 @@ function ICareAI() {
                     ))}
                   </div>
                 )}
-                <MappingAvailability selected={chat.selected} />
                 <Composer
                   value={chat.input}
                   onChange={chat.setInput}

@@ -56,9 +56,10 @@ export interface ContextInfo {
   mode?: string;
   cohorts?: number;
   variables?: number;
-  detail?: 'full' | 'label' | 'names';
+  detail?: 'labels' | 'names' | 'none';
   search_cohorts?: number;
-  mapping_files?: number;
+  related_variables?: number;
+  equivalent_clusters?: number;
   approx_tokens?: number;
 }
 

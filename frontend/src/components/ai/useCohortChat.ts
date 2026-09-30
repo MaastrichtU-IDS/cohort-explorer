@@ -31,13 +31,15 @@ export function describeContext(info: ContextInfo): string {
   const bits: string[] = [];
   if (info.cohorts) {
     const detail =
-      info.detail === 'full' ? 'full detail' : info.detail === 'label' ? 'names, labels and types' : 'names only';
-    bits.push(`${info.cohorts} cohort${info.cohorts === 1 ? '' : 's'}`);
+      info.detail === 'labels' ? 'listed with labels' : info.detail === 'names' ? 'listed by name' : 'not listed';
+    bits.push(`${info.cohorts} cohort${info.cohorts === 1 ? '' : 's'} (metadata)`);
     if (info.variables) bits.push(`${info.variables.toLocaleString()} variables (${detail})`);
   }
   if (info.search_cohorts)
     bits.push(`search results for ${info.search_cohorts} cohort${info.search_cohorts === 1 ? '' : 's'}`);
-  if (info.mapping_files) bits.push(`${info.mapping_files} mapping file${info.mapping_files === 1 ? '' : 's'}`);
+  if (info.related_variables) bits.push(`${info.related_variables} related variables`);
+  if (info.equivalent_clusters)
+    bits.push(`${info.equivalent_clusters} cross-cohort concept${info.equivalent_clusters === 1 ? '' : 's'}`);
   if (info.approx_tokens) {
     const t = info.approx_tokens;
     bits.push(`~${t >= 1000 ? `${Math.round(t / 1000)}k` : t} tokens`);
