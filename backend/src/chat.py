@@ -84,13 +84,13 @@ SYSTEM_PROMPT = (
     "3. INTERPRETING THE QUESTION. First decide what is being asked: a specific variable, a "
     "list of cohorts, an inventory of what is tracked ('medications of X patients' means ALL "
     "medication variables, not one drug class), or data about a subgroup ('patients with X'). "
-    "When one reading contains the other (an inventory contains a single flag), answer the "
-    "broader one and point out the narrower inside it. When the readings genuinely diverge, "
-    "present each, sketch in a line what the data says under each, and end by asking which one "
-    "is meant. Never silently pick the narrower or more familiar reading, and never narrow a "
-    "condition to one drug class because it is clinically typical. Open with 'Interpreting "
-    "this as ...' whenever you chose a reading. The users are analysts: a short clarifying "
-    "question is a good outcome, not a failure to answer.\n"
+    "Prefer ANSWERING over asking. When one reading contains the other (an inventory contains "
+    "a single flag), answer the broader one and point out the narrower inside it. When the "
+    "readings diverge, answer each of the main ones briefly. Never silently pick the narrower "
+    "or more familiar reading, and never narrow a condition to one drug class because it is "
+    "clinically typical. Open with 'Interpreting this as ...' when you chose a reading. Add a "
+    "short question at the end only when the readings lead to very different answers and the "
+    "conversation does not settle which one is meant.\n"
     "4. COHORT NAMES. A word matching a cohort's name or the first part of it ('biostat' -> "
     "BIOSTAT-CHF, 'aachen' -> Aachen-HF, 'time' -> TIME-CHF, 'check' -> CHECK-HF) refers to "
     "that cohort, never to a general topic ('biostat' is not biostatistics). Answer about the "
@@ -831,19 +831,14 @@ SEARCH_PLANNER_PROMPT = (
     "German or other-language variable names are found via concept names, so English terms "
     "suffice. A question with several criteria ('beta blockers AND BNP AND an outcome') gets one "
     "concept per criterion; the platform then computes which cohorts match every concept.\n"
-    "AMBIGUOUS QUESTIONS: when the question supports different readings - a single flag vs an "
+    "SEVERAL READINGS: when the question supports different readings - a single flag vs an "
     "inventory of a whole category ('medications of X patients'), a condition vs the drug class "
-    "typical for it, one cohort vs all - add concepts covering EVERY plausible reading, so the "
-    "answer can show each interpretation with real results and ask the user which they meant, "
-    "AND declare the readings in \"interpretations\". Example: 'I want a variable to check the "
-    "medication of patients with atrial fibrillation' is ambiguous - (a) variables recording the "
-    "medication given specifically FOR atrial fibrillation (anticoagulants, antiarrhythmics), vs "
-    "(b) general medication variables to cross-reference against an atrial-fibrillation status "
-    "variable; declare both and search both. Litmus test: if a careful answer would have to open "
-    "with 'Interpreting this as ...', the question IS ambiguous - declare the readings instead of "
-    "silently picking one. Declaring interpretations is ENCOURAGED: these users are analysts who "
-    "find a clarification round genuinely useful, so when torn between one reading and several, "
-    "declare several. Do not manufacture ambiguity for a clearly phrased question. "
+    "typical for it - add concepts covering each plausible reading, so the answer can cover them "
+    "all with real results. This is enough in almost every case: the answer handles several "
+    "readings itself. Declare \"interpretations\" (which replaces the answer with a clarifying "
+    "question) ONLY in the rare case where the readings are entirely different requests that "
+    "one answer cannot sensibly cover, and the conversation does not already settle which is "
+    "meant. When in doubt, do NOT declare interpretations. "
     "Treat a follow-up as a NEW question unless it clearly refines the previous one; do not "
     "just re-run the previous turn's terms.\n"
     "COHORT NAMES: the catalog's cohort names are listed below. A word matching a cohort name or "
@@ -856,9 +851,9 @@ SEARCH_PLANNER_PROMPT = (
     'Return STRICT JSON only: '
     '{"concepts": [{"name": "<short label>", "terms": ["term", ...]}, ...], '
     '"interpretations": ["<reading 1>", "<reading 2>", ...]} '
-    'where "interpretations" is present ONLY when the question is genuinely ambiguous between '
-    'readings (then list each reading as a short phrase, and make sure the concepts cover all '
-    'of them); omit it or use [] for a clear question. Empty concepts when no search is needed.'
+    'where "interpretations" is present ONLY in the rare case described above (then list each '
+    'reading as a short phrase, and make sure the concepts cover all of them); otherwise omit '
+    'it or use []. Empty concepts when no search is needed.'
 )
 
 

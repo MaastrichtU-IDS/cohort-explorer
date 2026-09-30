@@ -8,6 +8,7 @@
 import React, {ComponentType, useEffect, useState} from 'react';
 import {AlertTriangle, Shield} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
+import {ServiceNotice} from '@/components/ai/ServiceNotice';
 import {apiUrl} from '@/utils';
 
 export function AiAccessGuard({
@@ -85,7 +86,12 @@ export function AiAccessGuard({
     }
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      <ServiceNotice />
+      {children}
+    </>
+  );
 }
 
 export function withAiAccess<P extends object>(
