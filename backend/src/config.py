@@ -45,6 +45,13 @@ class Settings:
     # the rest is left for the rules, a short conversation (4-5 user turns) and
     # the answer. Raise it for larger windows; the context shrinks gracefully
     # (shorter fields, fewer variables per cohort, never fewer cohorts).
+    # Qwen3 models "think" (write a long hidden reasoning passage) before
+    # answering unless told not to; that can add minutes per answer. When true,
+    # every model call carries Qwen's /no_think switch. Set to false for models
+    # where the switch means nothing or thinking is wanted.
+    chat_disable_thinking: bool = field(
+        default_factory=lambda: os.getenv("CHAT_DISABLE_THINKING", "true").lower() == "true"
+    )
     chat_context_budget_tokens: int = field(
         default_factory=lambda: int(os.getenv("CHAT_CONTEXT_BUDGET_TOKENS", "20000"))
     )

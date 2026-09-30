@@ -17,6 +17,7 @@ import os
 import random
 import re
 import threading
+import time
 from datetime import datetime
 from typing import Any, Optional
 
@@ -169,10 +170,59 @@ def _get_openai_client() -> Any:
         import openai
     except ImportError:
         raise HTTPException(status_code=500, detail="The 'openai' package is not installed on the server.")
-    return openai.OpenAI(
+    return _ModelClient(openai.OpenAI(
         api_key=settings.litellm_api_key or "sk-no-key",
         base_url=settings.litellm_base_url,
-    )
+    ))
+
+
+# Qwen3's soft switch: at the end of the latest user message it turns the
+# model's hidden "thinking" off for that reply. See settings.chat_disable_thinking.
+_NO_THINK = "/no_think"
+_THINK_BLOCK_RE = re.compile(r"^\s*<think>.*?</think>\s*", re.S)
+
+
+def _with_no_think(messages: list[dict]) -> list[dict]:
+    """The messages with /no_think appended to the latest user message (or to
+    the system message when there is no user message)."""
+    out = [dict(m) for m in messages]
+    for m in reversed(out):
+        if m.get("role") == "user":
+            m["content"] = f"{m.get('content') or ''}\n\n{_NO_THINK}"
+            return out
+    for m in out:
+        if m.get("role") == "system":
+            m["content"] = f"{m.get('content') or ''}\n\n{_NO_THINK}"
+            break
+    return out
+
+
+def strip_think(text: str) -> str:
+    """Drop a leading <think>...</think> block (Qwen writes an empty one even
+    with thinking off, when the server does not separate reasoning out)."""
+    return _THINK_BLOCK_RE.sub("", text or "", count=1)
+
+
+class _ModelClient:
+    """The OpenAI client with the thinking switch applied to every chat
+    completion; everything else is passed through unchanged."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+        self.models = client.models
+        self.chat = self
+        self.completions = self
+
+    def create(self, **kwargs: Any) -> Any:
+        if settings.chat_disable_thinking and isinstance(kwargs.get("messages"), list):
+            kwargs["messages"] = _with_no_think(kwargs["messages"])
+        resp = self._client.chat.completions.create(**kwargs)
+        if not kwargs.get("stream"):
+            for choice in getattr(resp, "choices", None) or []:
+                msg = getattr(choice, "message", None)
+                if msg is not None and isinstance(getattr(msg, "content", None), str):
+                    msg.content = strip_think(msg.content)
+        return resp
 
 
 def _clean(value: Any) -> str:
@@ -1282,10 +1332,10 @@ def generate_conversation_starters(direction: Optional[str] = None) -> dict[str,
     try:
         import openai
 
-        client = openai.OpenAI(
+        client = _ModelClient(openai.OpenAI(
             api_key=settings.litellm_api_key or "sk-no-key",
             base_url=settings.litellm_base_url,
-        )
+        ))
         instructions = STARTER_GENERATION_INSTRUCTIONS
         if direction:
             instructions += (
@@ -1382,10 +1432,10 @@ def group_starters_by_keyword() -> dict[str, Any]:
     try:
         import openai
 
-        client = openai.OpenAI(
+        client = _ModelClient(openai.OpenAI(
             api_key=settings.litellm_api_key or "sk-no-key",
             base_url=settings.litellm_base_url,
-        )
+        ))
         question_list = "\n".join(f"- {s['text']}" for s in pool[:150])
         response = client.chat.completions.create(
             model=settings.litellm_model,
@@ -1679,6 +1729,12 @@ def chat_stream(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
     full_messages, model, temperature, info = _assemble_payload(body)
 
     def _generate() -> Any:
+        t0 = time.time()
+        first_at = None
+        reasoning_chars = 0
+        # Text is held back while it may still be a leading <think> block.
+        pending = ""
+        in_prefix = True
         try:
             stream = client.chat.completions.create(
                 model=model,
@@ -1688,11 +1744,38 @@ def chat_stream(body: dict[str, Any], user: Any = Depends(get_current_user)) -> 
             )
             for chunk in stream:
                 try:
-                    delta = chunk.choices[0].delta.content
+                    d = chunk.choices[0].delta
                 except (AttributeError, IndexError):
-                    delta = None
-                if delta:
-                    yield delta
+                    continue
+                # Hidden reasoning (servers that separate it out): never shown,
+                # only measured, so slow answers can be traced to thinking.
+                reasoning = getattr(d, "reasoning_content", None) or getattr(d, "reasoning", None)
+                if isinstance(reasoning, str):
+                    reasoning_chars += len(reasoning)
+                delta = getattr(d, "content", None)
+                if not delta:
+                    continue
+                if first_at is None:
+                    first_at = time.time()
+                if in_prefix:
+                    pending += delta
+                    stripped = pending.lstrip()
+                    if stripped.startswith("<think>") and "</think>" not in stripped:
+                        continue
+                    if not stripped and len(pending) < 20:
+                        continue
+                    if "<think>".startswith(stripped):
+                        continue
+                    delta, pending, in_prefix = strip_think(pending), "", False
+                    if not delta:
+                        continue
+                yield delta
+            if pending:
+                rest = strip_think(pending)
+                if rest and not rest.lstrip().startswith("<think>"):
+                    yield rest
+            logger.info("Chat stream (%s): first text after %.1fs, total %.1fs, hidden reasoning %d chars",
+                        info.get("mode"), (first_at or time.time()) - t0, time.time() - t0, reasoning_chars)
         except Exception as exc:
             logger.warning("Chat stream failed: %s", exc)
             yield f"\n\n[Error contacting the model: {exc}]"
