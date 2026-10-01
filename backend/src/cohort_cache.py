@@ -1139,6 +1139,41 @@ def get_cached_cohort_ids() -> List[str]:
     return list(_cohorts_cache.keys())
 
 
+_LEADING_COUNT = re.compile(r"^\s*(\d{1,3}(?:[.,\s]\d{3})+(?!\d)|\d+)")
+
+
+def parse_participant_count(raw: Any) -> Optional[int]:
+    """The leading participant count of a study_participants cell ("1,234",
+    "500 patients"), or None. Same rule as parseParticipantCount in the
+    frontend's utils.ts."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return round(raw) if raw == raw and raw > 0 else None
+    m = _LEADING_COUNT.match(str(raw))
+    if not m:
+        return None
+    n = int(re.sub(r"[.,\s]", "", m.group(1)))
+    return n if n > 0 else None
+
+
+def get_catalog_statistics() -> Dict[str, int]:
+    """Front-page statistics over every cohort in the catalog: no permission
+    handling and no copying of the cohorts. Computed here from the cache so
+    no client ever supplies them."""
+    _ensure_cache_loaded()
+    cohorts = list(_cohorts_cache.values())
+    with_metadata = [c for c in cohorts if c.variables]
+    return {
+        "totalCohorts": len(cohorts),
+        "cohortsWithMetadata": len(with_metadata),
+        "cohortsWithVariableProfiling": sum(1 for c in cohorts if c.eda_version in ("v1", "v2")),
+        "totalPatients": sum(parse_participant_count(c.study_participants) or 0 for c in cohorts),
+        "patientsInCohortsWithMetadata": sum(parse_participant_count(c.study_participants) or 0 for c in with_metadata),
+        "totalVariables": sum(len(c.variables) for c in cohorts),
+    }
+
+
 def get_cohorts_from_cache(user_email: str) -> Dict[str, Cohort]:
     """Get all cohorts from the cache, updating the can_edit field based on user email."""
     global _cohorts_cache

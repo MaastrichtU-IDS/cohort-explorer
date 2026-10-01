@@ -16,10 +16,18 @@ from src.cohort_cache import (
     get_cohorts_from_cache,
     is_cache_initialized,
     cohort_to_dict,
+    get_catalog_statistics,
     initialize_cache_from_source_files,
 )
 
 router = APIRouter()
+
+
+@router.get("/cohort-statistics", name="Catalog statistics for the front page")
+def cohort_statistics() -> dict[str, int]:
+    """Public and read-only: visible without logging in. Computed on the
+    server from the cohort cache; there is no endpoint that writes them."""
+    return get_catalog_statistics()
 
 
 @router.get("/cohorts-metadata")

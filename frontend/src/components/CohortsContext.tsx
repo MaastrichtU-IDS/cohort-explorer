@@ -1,19 +1,9 @@
 'use client';
 
-import React, {createContext, useState, useEffect, useContext, useRef, useCallback, useMemo, MutableRefObject} from 'react';
+import React, {createContext, useState, useEffect, useContext, useRef, useMemo, MutableRefObject} from 'react';
 import {Cohort} from '@/types';
-import {apiUrl, parseParticipantCount} from '@/utils';
+import {apiUrl} from '@/utils';
 import {buildSemanticMatchIndex} from '@/utils/semanticMatches';
-
-// Define statistics interface
-interface CohortStatistics {
-  totalCohorts: number;
-  cohortsWithMetadata: number;
-  cohortsWithVariableProfiling: number;
-  totalPatients: number;
-  patientsInCohortsWithMetadata: number;
-  totalVariables: number;
-}
 
 // Define loading metrics interface
 interface LoadingMetrics {
@@ -36,16 +26,6 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
   const [userEmail, setUserEmail]: [string | null, any] = useState('');
   const worker: MutableRefObject<Worker | null> = useRef(null);
   
-  // Add state for statistics
-  const [cohortStatistics, setCohortStatistics] = useState<CohortStatistics>({
-    totalCohorts: 0,
-    cohortsWithMetadata: 0,
-    cohortsWithVariableProfiling: 0,
-    totalPatients: 0,
-    patientsInCohortsWithMetadata: 0,
-    totalVariables: 0
-  });
-
   // Add state for loading metrics
   const [loadingMetrics, setLoadingMetrics] = useState<LoadingMetrics>({
     loadTime: null,
@@ -82,75 +62,6 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
 
     return { cohortCount, variableCount, categoryCount };
   };
-
-  // Participant count of a cohort (0 when the field holds no number).
-  const parseParticipants = (participants: unknown): number => parseParticipantCount(participants) ?? 0;
-
-  // Calculate statistics - extracted as a separate function to be called explicitly
-  const calculateStatistics = useCallback(async () => {
-    if (Object.keys(cohortsData).length === 0) return;
-    
-    // Convert cohortsData to a typed array for safer operations
-    const cohortsList: Cohort[] = Object.values(cohortsData);
-    
-    // Calculate basic statistics
-    const totalCohorts = cohortsList.length;
-    
-    // Cohorts with metadata (has variables)
-    const cohortsWithMetadata = cohortsList.filter(
-      (cohort: Cohort) => Object.keys(cohort.variables || {}).length > 0
-    );
-    const cohortsWithMetadataCount = cohortsWithMetadata.length;
-    
-    // Total patients across all cohorts
-    const totalPatients = cohortsList.reduce(
-      (sum: number, cohort: Cohort) => sum + parseParticipants(cohort.study_participants), 
-      0
-    );
-    
-    // Patients in cohorts with metadata
-    const patientsInCohortsWithMetadata = cohortsWithMetadata.reduce(
-      (sum: number, cohort: Cohort) => sum + parseParticipants(cohort.study_participants),
-      0
-    );
-    
-    // Total unique variables across all cohorts
-    let totalVariables = 0;
-    cohortsList.forEach((cohort: Cohort) => {
-      if (cohort.variables) {
-        totalVariables += Object.keys(cohort.variables).length;
-      }
-    });
-    
-    // Count cohorts with variable profiling (EDA v1 or v2)
-    const cohortsWithVariableProfiling = cohortsList.filter(
-      (cohort: Cohort) => cohort.eda_version === 'v1' || cohort.eda_version === 'v2'
-    ).length;
-
-    // Create the statistics object
-    const statistics = {
-      totalCohorts,
-      cohortsWithMetadata: cohortsWithMetadataCount,
-      cohortsWithVariableProfiling,
-      totalPatients,
-      patientsInCohortsWithMetadata,
-      totalVariables
-    };
-    
-    // Update statistics state
-    setCohortStatistics(statistics);
-    
-    // Save statistics to JSON file via API
-    fetch('/api/save-statistics', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(statistics)
-    }).catch(error => {
-      console.error('Error saving statistics:', error);
-    });
-  }, [cohortsData]);
 
   useEffect(() => {
     setDataCleanRoom(JSON.parse(sessionStorage.getItem('dataCleanRoom') || '{"cohorts": {}}'));
@@ -201,9 +112,7 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
         
         console.log(`Updated context with data from ${useSparql ? 'SPARQL' : 'cache'}:`, 
           `${metrics.cohortCount} cohorts, ${metrics.variableCount} variables, ${metrics.categoryCount} categories in ${Math.round(loadTime)}ms`);
-        
-        // Calculate statistics only on initial load or manual refresh
-        calculateStatistics();
+
       } else {
         setUserEmail(null);
         setIsLoading(false);
@@ -246,9 +155,6 @@ export const CohortsProvider = ({children, useSparql = false}: {children: any, u
         setDataCleanRoom,
         userEmail,
         setUserEmail,
-        // Expose the statistics
-        cohortStatistics,
-        calculateStatistics,
         // Expose loading metrics and state
         loadingMetrics,
         isLoading,

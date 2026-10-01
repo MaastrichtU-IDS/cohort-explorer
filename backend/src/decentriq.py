@@ -27,6 +27,7 @@ from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
 from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script
+from src.mapping import resolve_selected_mapping_files
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata, split_emails
 from datetime import datetime
@@ -1834,8 +1835,8 @@ async def api_create_live_compute_dcr(
     # Extract excluded_data_owners from request, default to empty list
     excluded_data_owners = cohorts_request.get("excluded_data_owners", [])
     
-    # Extract selected_mapping_files from request, default to empty list
-    selected_mapping_files = cohorts_request.get("selected_mapping_files", [])
+    # Extract selected_mapping_files from request (names only; paths are rebuilt server-side)
+    selected_mapping_files = resolve_selected_mapping_files(cohorts_request.get("selected_mapping_files", []))
     
     # Extract include_mapping_upload_slot from request, default to False
     include_mapping_upload_slot = cohorts_request.get("include_mapping_upload_slot", False)
@@ -1969,8 +1970,8 @@ async def api_get_compute_dcr_definition(
     # Extract dcr_name from request, default to None
     dcr_name = cohorts_request.get("dcr_name", None)
 
-    # Extract selected_mapping_files from request
-    selected_mapping_files = cohorts_request.get("selected_mapping_files", [])
+    # Extract selected_mapping_files from request (names only; paths are rebuilt server-side)
+    selected_mapping_files = resolve_selected_mapping_files(cohorts_request.get("selected_mapping_files", []))
 
     session_id = cohorts_request.get("session_id")
     log_dcr_event(
@@ -2124,29 +2125,42 @@ def get_dcr_log_main(dcr_id: str,  user: Any = Depends(get_current_user)):
     return main_events
 
 
+def _provision_dcr_cohort_id(dcr: Any, required_node: str) -> str:
+    """The cohort of an upload (provision) DCR: the name of its first node,
+    which create_provision_dcr sets to the cohort ID with spaces as '-'.
+    Accepted only when it names a cohort in the catalog, because it becomes
+    part of the /data/dcr_output_{cohort_id} path the results are written to.
+    Errors never list the DCR's node names."""
+    from src.cohort_cache import get_cached_cohort_ids
+    cohort_id = dcr.node_definitions[0].name.strip() if dcr.node_definitions else ""
+    if cohort_id not in {c.replace(" ", "-") for c in get_cached_cohort_ids()}:
+        raise HTTPException(
+            status_code=400,
+            detail="This DCR's first node is not a cohort in the catalog, so it does not look "
+                   "like a data-upload (provision) DCR.")
+    if dcr.get_node(required_node) is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This DCR has no '{required_node}' compute node, so it does not look "
+                   f"like a data-upload (provision) DCR of the current format.")
+    return cohort_id
+
+
 @router.get("/compute-get-output/{dcr_id}", 
             name = "run the scripts for a given DCR and download the output")
 def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_user)):
     """Run the scripts for a given DCR and download the output. Admins only."""
-    if user["email"] not in settings.admins_list:
-        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+    _require_admin(user)
     #example id = "9e2715f4b32a646d2da3d8952b7fa7ca48537ee6731627417f735d15fa17d4f6"
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
     dcr = client.retrieve_analytics_dcr(dcr_id)
-    cohort_id = dcr.node_definitions[0].name.strip()
+    cohort_id = _provision_dcr_cohort_id(dcr, "c3_eda_data_profiling")
     
     #SINCE C3 depends on c1 and c2, they will run automatically in the background!
     #c1_node = dcr.get_node("c1_data_dict_check") 
     #c1_node.run_computation()
     #c2_node = dcr.get_node("c2_save_to_json") 
     c3_node = dcr.get_node("c3_eda_data_profiling")
-    if c3_node is None:
-        available = ", ".join(n.name for n in dcr.node_definitions)
-        raise HTTPException(
-            status_code=400,
-            detail=(f"DCR {dcr_id} has no 'c3_eda_data_profiling' compute node, so it does not "
-                    f"look like a data-upload (provision) DCR of the current format. "
-                    f"Nodes in this DCR: {available}"))
     result = c3_node.run_computation_and_get_results_as_zip()
     # The longitudinal_analysis node shares c1/c2 dependencies with c3, so those
     # have already run; here we just execute it and collect its own output zip.
@@ -2198,22 +2212,14 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
             name = "run the C4 shuffle script for a given DCR and download the output")
 def run_shuffle_get_output(dcr_id: str, user: Any = Depends(get_current_user)):
     """Run the C4 shuffle_data script and save output to the same folder as C3 (EDA) output.
-    
-    Accessible to all authenticated users.
-    """
+    Admins only."""
+    _require_admin(user)
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
     dcr = client.retrieve_analytics_dcr(dcr_id)
-    cohort_id = dcr.node_definitions[0].name.strip()
-    
+    cohort_id = _provision_dcr_cohort_id(dcr, "shuffle_data")
+
     # Run the shuffle_data node (C4)
     shuffle_node = dcr.get_node("shuffle_data")
-    if shuffle_node is None:
-        available = ", ".join(n.name for n in dcr.node_definitions)
-        raise HTTPException(
-            status_code=400,
-            detail=(f"DCR {dcr_id} has no 'shuffle_data' compute node, so it does not look "
-                    f"like a data-upload (provision) DCR of the current format. "
-                    f"Nodes in this DCR: {available}"))
     result = shuffle_node.run_computation_and_get_results_as_zip()
     
     # Save to the same directory as C3 output

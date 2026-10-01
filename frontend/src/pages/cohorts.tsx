@@ -874,7 +874,7 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
 
 export default function CohortsList() {
   const router = useRouter();
-  const {cohortsData, userEmail, loadingMetrics, isLoading, fetchCohortsData, calculateStatistics, dataCleanRoom, setDataCleanRoom} = useCohorts();
+  const {cohortsData, userEmail, loadingMetrics, isLoading, fetchCohortsData, dataCleanRoom, setDataCleanRoom} = useCohorts();
   const [searchQuery, setSearchQuery] = useState('');
   
   // Check if we should use SPARQL mode based on query parameter

@@ -197,6 +197,53 @@ async def check_mapping_cache(
     })
 
 
+def _is_mapping_filename(filename: str) -> bool:
+    """A mapping file as /get-available-mapping-files lists it."""
+    return filename.endswith('.csv') and not filename.endswith('.meta.csv')
+
+
+def resolve_selected_mapping_files(selected: Any) -> list[dict]:
+    """The mapping files a DCR request selected, with server-side paths.
+
+    Clients send only file names: any filepath in the request is ignored and
+    rebuilt inside the mapping output folder, so a request can never point the
+    server at another file. A name that is not a plain mapping file name in
+    that folder is rejected (400). A listed file deleted since is kept; the
+    DCR code already skips missing files.
+    """
+    if not selected:
+        return []
+    if not isinstance(selected, list):
+        raise HTTPException(status_code=400, detail="selected_mapping_files must be a list")
+
+    from CohortVarLinker.src.config import settings as cohort_linker_settings
+    output_dir = os.path.realpath(cohort_linker_settings.output_dir)
+
+    resolved = []
+    for entry in selected:
+        filename = entry.get('filename') if isinstance(entry, dict) else None
+        if (
+            not isinstance(filename, str)
+            or filename != os.path.basename(filename)
+            or filename in ('', '.', '..')
+            or not _is_mapping_filename(filename)
+        ):
+            raise HTTPException(status_code=400, detail=f"Invalid mapping file name: {filename!r}")
+        filepath = os.path.realpath(os.path.join(output_dir, filename))
+        if os.path.dirname(filepath) != output_dir:
+            raise HTTPException(status_code=400, detail=f"Invalid mapping file name: {filename!r}")
+
+        cohorts = entry.get('cohorts')
+        display_name = entry.get('display_name')
+        resolved.append({
+            'filename': filename,
+            'filepath': filepath,
+            'display_name': display_name if isinstance(display_name, str) else filename,
+            'cohorts': [c for c in cohorts if isinstance(c, str)] if isinstance(cohorts, list) else [],
+        })
+    return resolved
+
+
 @router.post("/get-available-mapping-files")
 async def get_available_mapping_files(
     cohort_ids: list[str] = Body(...),
@@ -230,7 +277,7 @@ async def get_available_mapping_files(
     if os.path.exists(output_dir):
         all_files = os.listdir(output_dir)
         logger.info(f"[DEBUG] get_available_mapping_files: all files in output_dir = {all_files}")
-        csv_files = [f for f in all_files if f.endswith('.csv') and not f.endswith('.meta.csv')]
+        csv_files = [f for f in all_files if _is_mapping_filename(f)]
         logger.info(f"[DEBUG] get_available_mapping_files: csv files = {csv_files}")
         for filename in csv_files:
             # Parse cohort names from filename by matching leading underscore-

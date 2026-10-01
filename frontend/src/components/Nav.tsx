@@ -482,7 +482,7 @@ export function Nav() {
           selected_mapping_files: mergeChainOn
             ? availableMappingFiles
                 .filter(m => selectedMappingFiles[m.filename] !== false)
-                .map(m => ({ filename: m.filename, filepath: m.filepath, display_name: m.display_name, cohorts: m.cohorts }))
+                .map(m => ({ filename: m.filename, display_name: m.display_name, cohorts: m.cohorts }))
             : [],
           merge_use_shuffled: mergeChainOn ? mergeUseShuffled : false
         })
