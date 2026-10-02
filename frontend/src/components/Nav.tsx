@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Grid} from 'react-feather';
 import NocodeWizard from '@/components/nocode/NocodeWizard';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon, SparklesIcon} from '@/components/Icons';
@@ -833,6 +833,12 @@ export function Nav() {
               <span className="text-base">My DCRs</span>
             </Link>
           </li>
+          <li>
+            <Link href="/results-gallery" className={pathname === '/results-gallery' ? 'active' : ''}>
+              <Grid size={24} />
+              <span className="text-base">Results Gallery</span>
+            </Link>
+          </li>
           {aiNavEnabled && (
             <li>
               <Link href="/ai" className={pathname === '/ai' || pathname.startsWith('/ai/') ? 'active' : ''}>
@@ -857,6 +863,7 @@ export function Nav() {
             <li><Link href="/cohorts">Explore</Link></li>
             <li><Link href="/mapping">Mapping</Link></li>
             <li><Link href="/dcrs">My DCRs</Link></li>
+            <li><Link href="/results-gallery">Results Gallery</Link></li>
             {aiNavEnabled && <li><Link href="/ai">iCARE-AI</Link></li>}
             <li><Link href="/docs_store">Documents</Link></li>
           </ul>

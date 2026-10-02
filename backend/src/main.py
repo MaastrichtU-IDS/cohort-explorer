@@ -15,6 +15,7 @@ from src.config import settings
 from src.data_analysis import router as data_analysis_router
 from src.data_analysis import bare_router as data_analysis_bare_router
 from src.decentriq import router as decentriq_router
+from src.dcr_results import router as dcr_results_router
 from src.decentriq import refresh_all_dcrs_via_decentriq_api
 from src.eda_counts import router as eda_counts_router
 from src.explore import router as explore_router
@@ -83,6 +84,7 @@ app.include_router(data_analysis_router, prefix="/api", tags=["data-analysis"])
 app.include_router(data_analysis_bare_router, tags=["data-analysis"])
 app.include_router(upload_router, tags=["upload"])
 app.include_router(decentriq_router, tags=["upload"])
+app.include_router(dcr_results_router, tags=["dcr-results"])
 app.include_router(auth_router, tags=["authentication"])
 app.include_router(admin_router, tags=["admin"])
 app.include_router(announcements_router, tags=["announcements"])

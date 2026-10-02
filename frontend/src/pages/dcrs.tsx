@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { apiUrl } from '@/utils';
 import { AlertTriangle, Clock, RefreshCw, ExternalLink } from 'react-feather';
 import { DcrLogPanel } from '@/components/DcrLogPanel';
+import { DcrResultsPanel } from '@/components/results/DcrResultsPanel';
 
 /** Shape of a single DCR record returned by the /my-dcrs endpoint. */
 interface DcrRecord {
@@ -309,6 +310,7 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
           </div>
         )}
 
+        {dcr.id && <DcrResultsPanel dcrId={dcr.id} dcrTitle={dcr.title || ''} />}
         {dcr.id && <DcrLogPanel dcrId={dcr.id} />}
       </div>
     </div>
