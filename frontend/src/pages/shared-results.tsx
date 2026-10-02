@@ -1,6 +1,6 @@
 'use client';
 
-// Results Gallery: DCR result files that participants shared with every
+// Shared Results: DCR result files that participants shared with every
 // logged-in user, grouped by the DCR they came from and filterable by cohort.
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
@@ -39,9 +39,9 @@ interface DcrGroup {
   items: GalleryItem[];
 }
 
-const fileUrl = (id: string, index: number) => `${apiUrl}/results-gallery/${encodeURIComponent(id)}/files/${index}`;
+const fileUrl = (id: string, index: number) => `${apiUrl}/shared-results/${encodeURIComponent(id)}/files/${index}`;
 
-export default function ResultsGalleryPage() {
+export default function SharedResultsPage() {
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,13 +53,13 @@ export default function ResultsGalleryPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${apiUrl}/results-gallery`, {credentials: 'include'});
-      if (res.status === 401 || res.status === 403) throw new Error('You must be signed in to view the Results Gallery.');
-      if (!res.ok) throw new Error(`Failed to load the gallery: ${res.status} ${res.statusText}`);
+      const res = await fetch(`${apiUrl}/shared-results`, {credentials: 'include'});
+      if (res.status === 401 || res.status === 403) throw new Error('You must be signed in to view Shared Results.');
+      if (!res.ok) throw new Error(`Failed to load Shared Results: ${res.status} ${res.statusText}`);
       const data = await res.json();
       setItems(Array.isArray(data?.items) ? data.items : []);
     } catch (e: any) {
-      setError(e?.message || 'Failed to load the gallery');
+      setError(e?.message || 'Failed to load Shared Results');
     } finally {
       setLoading(false);
     }
@@ -101,8 +101,8 @@ export default function ResultsGalleryPage() {
     setSelectedCohorts(prev => (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]));
 
   const remove = async (item: GalleryItem) => {
-    if (!window.confirm(`Remove “${item.title}” from the Results Gallery?`)) return;
-    const res = await fetch(`${apiUrl}/results-gallery/${encodeURIComponent(item.id)}`, {method: 'DELETE', credentials: 'include'});
+    if (!window.confirm(`Remove “${item.title}” from Shared Results?`)) return;
+    const res = await fetch(`${apiUrl}/shared-results/${encodeURIComponent(item.id)}`, {method: 'DELETE', credentials: 'include'});
     if (!res.ok) {
       setError(`Could not remove the result: ${res.status} ${res.statusText}`);
       return;
@@ -114,7 +114,7 @@ export default function ResultsGalleryPage() {
     <main className="flex flex-col items-center justify-start p-6 min-h-screen bg-base-200">
       <div className="w-full max-w-6xl space-y-6">
         <header className="text-center">
-          <h1 className="text-3xl font-bold">Results Gallery</h1>
+          <h1 className="text-3xl font-bold">Shared Results</h1>
           <p className="text-lg text-base-content/70 mt-1">
             Results from Data Clean Rooms, shared by their participants. Share your own from{' '}
             <Link href="/dcrs" className="link">My DCRs</Link>.
@@ -212,7 +212,7 @@ function GalleryCard({item, onView, onRemove, onError}: {item: GalleryItem; onVi
       <div className="flex items-start gap-2">
         <h3 className="font-semibold flex-1">{item.title}</h3>
         {item.can_delete && (
-          <button className="btn btn-xs btn-ghost text-error" onClick={onRemove} title="Remove from the gallery">
+          <button className="btn btn-xs btn-ghost text-error" onClick={onRemove} title="Remove from Shared Results">
             <Trash2 size={12} />
           </button>
         )}

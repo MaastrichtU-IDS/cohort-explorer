@@ -1,4 +1,4 @@
-"""Running DCR compute nodes from My DCRs, and the Results Gallery.
+"""Running DCR compute nodes from My DCRs, and Shared Results.
 
 My DCRs: a participant can run (or re-run) any compute node of a DCR they are
 an analyst of, and view or download each file of its output. The run goes
@@ -11,10 +11,11 @@ a re-run replaces it only once it succeeds.
   {data_folder}/dcr_results/{dcr_id}/{node}/run.json   status + file list
   {data_folder}/dcr_results/{dcr_id}/{node}/files/     extracted output
 
-Results Gallery: an analyst can share one or more output files of a DCR
+Shared Results: an analyst can share one or more output files of a DCR
 with every logged-in user, under one title, description and optional details.
 Sharing copies the files, so a later re-run never changes what was shared.
 
+  (stored under the folder's original name, results_gallery)
   {data_folder}/results_gallery/items.json
   {data_folder}/results_gallery/files/{item_id}/{index}/{file name}
 
@@ -302,7 +303,7 @@ def get_dcr_result_file(dcr_id: str, node_name: str, path: str, user: Any = Depe
 
 
 # ---------------------------------------------------------------------------
-# Results Gallery
+# Shared Results
 # ---------------------------------------------------------------------------
 
 def _gallery_dir() -> str:
@@ -332,7 +333,7 @@ def _clean(value: Any, limit: int) -> str:
     return str(value or "").strip()[:limit]
 
 
-@router.post("/results-gallery", name="Share DCR result files to the Results Gallery")
+@router.post("/shared-results", name="Share DCR result files to Shared Results")
 def share_result(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """One share: a title, description and optional details for one or more
     output files of the same DCR."""
@@ -394,11 +395,11 @@ def share_result(body: dict[str, Any], user: Any = Depends(get_current_user)) ->
         items = _gallery_items()
         items.append(item)
         _write_json(os.path.join(_gallery_dir(), "items.json"), items)
-    logger.info("Results shared to gallery: %s (%s, %d files) by %s", item_id, dcr_id, len(files), email)
+    logger.info("Results shared: %s (%s, %d files) by %s", item_id, dcr_id, len(files), email)
     return item
 
 
-@router.get("/results-gallery", name="List the shared results (any logged-in user)")
+@router.get("/shared-results", name="List the shared results (any logged-in user)")
 def list_gallery(user: Any = Depends(get_current_user)) -> dict[str, Any]:
     email = _email(user)
     items = sorted(_gallery_items(), key=lambda i: str(i.get("shared_at") or ""), reverse=True)
@@ -417,7 +418,7 @@ def _gallery_item(item_id: str) -> dict[str, Any]:
     raise HTTPException(status_code=404, detail="Shared result not found")
 
 
-@router.get("/results-gallery/{item_id}/files/{index}", name="One file of a shared result (any logged-in user)")
+@router.get("/shared-results/{item_id}/files/{index}", name="One file of a shared result (any logged-in user)")
 def get_gallery_file(item_id: str, index: int, user: Any = Depends(get_current_user)):
     _email(user)
     files = _gallery_item(item_id).get("files") or []
@@ -430,7 +431,7 @@ def get_gallery_file(item_id: str, index: int, user: Any = Depends(get_current_u
     return _serve(full, files[index]["file_name"])
 
 
-@router.delete("/results-gallery/{item_id}", name="Remove a shared result (its sharer or an admin)")
+@router.delete("/shared-results/{item_id}", name="Remove a shared result (its sharer or an admin)")
 def delete_gallery_item(item_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     email = _email(user)
     with _file_lock(os.path.join(_gallery_dir(), ".lock")):

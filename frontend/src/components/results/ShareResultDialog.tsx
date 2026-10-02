@@ -1,6 +1,6 @@
 'use client';
 
-// Dialog for sharing one or more DCR result files to the Results Gallery as
+// Dialog for sharing one or more DCR result files to Shared Results as
 // one entry (title, description, optional details, cohorts).
 import React, {useState} from 'react';
 import {createPortal} from 'react-dom';
@@ -30,7 +30,7 @@ export function ShareResultDialog({target, onClose, onShared}: {target: ShareTar
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(`${apiUrl}/results-gallery`, {
+      const res = await fetch(`${apiUrl}/shared-results`, {
         method: 'POST',
         credentials: 'include',
         headers: {'Content-Type': 'application/json'},
@@ -63,7 +63,7 @@ export function ShareResultDialog({target, onClose, onShared}: {target: ShareTar
     <div className="modal modal-open z-[10000]" onMouseDown={onClose}>
       <div className="modal-box max-w-2xl flex flex-col max-h-[90vh]" onMouseDown={e => e.stopPropagation()}>
         <h3 className="font-bold text-lg flex items-center gap-2 shrink-0">
-          <Share2 size={18} /> Share to the Results Gallery
+          <Share2 size={18} /> Share to Shared Results
         </h3>
         <div className="text-sm opacity-70 mt-1 shrink-0">
           {target.files.length === 1 ? '1 file' : `${target.files.length} files`} from{' '}

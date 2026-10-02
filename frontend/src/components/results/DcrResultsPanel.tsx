@@ -144,7 +144,7 @@ export function DcrResultsPanel({dcrId, dcrTitle}: {dcrId: string; dcrTitle: str
         {sharedMsg && (
           <span className="text-sm text-success">
             {sharedMsg}{' '}
-            <Link href="/results-gallery" className="link">Open the Results Gallery</Link>
+            <Link href="/shared-results" className="link">Open Shared Results</Link>
           </span>
         )}
       </div>

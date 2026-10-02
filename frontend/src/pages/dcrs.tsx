@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { apiUrl } from '@/utils';
 import { AlertTriangle, Clock, RefreshCw, ExternalLink } from 'react-feather';
 import { DcrLogPanel } from '@/components/DcrLogPanel';
-import { DcrResultsPanel } from '@/components/results/DcrResultsPanel';
+import { DeactivateDcr } from '@/components/DeactivateDcr';
 
 /** Shape of a single DCR record returned by the /my-dcrs endpoint. */
 interface DcrRecord {
@@ -17,6 +17,10 @@ interface DcrRecord {
   nodes?: { name?: string; type?: string; script?: string }[];
   cohorts?: string[];
   error?: string;
+  deactivated?: boolean;
+  deactivated_at?: string | null;
+  deactivated_by?: string | null;
+  can_deactivate?: boolean;
   [key: string]: any;
 }
 
@@ -310,7 +314,16 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
           </div>
         )}
 
-        {dcr.id && <DcrResultsPanel dcrId={dcr.id} dcrTitle={dcr.title || ''} />}
+        {/* Compute nodes & results (DcrResultsPanel) hidden for now. */}
+        {dcr.id && (dcr.deactivated || dcr.can_deactivate) && (
+          <DeactivateDcr
+            dcrId={dcr.id}
+            dcrTitle={dcr.title || ''}
+            deactivated={!!dcr.deactivated}
+            deactivatedAt={dcr.deactivated_at}
+            deactivatedBy={dcr.deactivated_by}
+          />
+        )}
         {dcr.id && <DcrLogPanel dcrId={dcr.id} />}
       </div>
     </div>

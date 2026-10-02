@@ -1,7 +1,7 @@
 'use client';
 
 // Inline viewer and download helper for DCR result files, used on My DCRs and
-// on the Results Gallery. The API always serves files as attachments; the
+// on Shared Results. The API always serves files as attachments; the
 // bytes are fetched here and rendered by type (HTML only inside a sandboxed
 // iframe, so a result never runs with the explorer's origin).
 import React, {useEffect, useState} from 'react';
