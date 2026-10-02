@@ -1,41 +1,30 @@
 'use client';
 
-// Dialog for sharing one DCR result file to the Results Gallery.
+// Dialog for sharing one or more DCR result files to the Results Gallery as
+// one entry (title, description, optional details, cohorts).
 import React, {useState} from 'react';
 import {createPortal} from 'react-dom';
-import {Share2} from 'react-feather';
+import {Plus, Share2} from 'react-feather';
 import {apiUrl} from '@/utils';
-
-const NAME_KEY = 'resultsGallery.sharerName';
-
-function readStoredName(): string {
-  try {
-    return localStorage.getItem(NAME_KEY) || '';
-  } catch {
-    return '';
-  }
-}
 
 export interface ShareTarget {
   dcrId: string;
   dcrTitle: string;
-  nodeName: string;
-  filePath: string;
+  files: {nodeName: string; filePath: string}[];
   cohorts: string[];
+  sharerName: string;
 }
 
 export function ShareResultDialog({target, onClose, onShared}: {target: ShareTarget; onClose: () => void; onShared: () => void}) {
-  const fileName = target.filePath.split('/').pop() || target.filePath;
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [details, setDetails] = useState('');
-  const [sharerName, setSharerName] = useState(readStoredName);
+  const [showDetails, setShowDetails] = useState(false);
   const [cohorts, setCohorts] = useState<string[]>(target.cohorts);
-  const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit = title.trim() && description.trim() && sharerName.trim() && confirmed && !submitting;
+  const canSubmit = title.trim() && description.trim() && !submitting;
 
   const submit = async () => {
     setSubmitting(true);
@@ -47,12 +36,10 @@ export function ShareResultDialog({target, onClose, onShared}: {target: ShareTar
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
           dcr_id: target.dcrId,
-          node_name: target.nodeName,
-          file_path: target.filePath,
+          files: target.files.map(f => ({node_name: f.nodeName, file_path: f.filePath})),
           title,
           description,
-          details,
-          sharer_name: sharerName,
+          details: showDetails ? details : '',
           cohorts,
         }),
       });
@@ -63,9 +50,6 @@ export function ShareResultDialog({target, onClose, onShared}: {target: ShareTar
         } catch {}
         throw new Error(detail);
       }
-      try {
-        localStorage.setItem(NAME_KEY, sharerName.trim());
-      } catch {}
       onShared();
     } catch (e: any) {
       setError(e?.message || 'Sharing failed');
@@ -81,37 +65,42 @@ export function ShareResultDialog({target, onClose, onShared}: {target: ShareTar
         <h3 className="font-bold text-lg flex items-center gap-2 shrink-0">
           <Share2 size={18} /> Share to the Results Gallery
         </h3>
-        <div className="text-sm opacity-70 mt-1 break-all shrink-0">
-          <span className="font-mono">{fileName}</span> from <span className="font-mono">{target.nodeName}</span> in{' '}
+        <div className="text-sm opacity-70 mt-1 shrink-0">
+          {target.files.length === 1 ? '1 file' : `${target.files.length} files`} from{' '}
           <span className="font-semibold">{target.dcrTitle || target.dcrId}</span>
+          {target.sharerName && <>, shared as <span className="font-semibold">{target.sharerName}</span></>}
         </div>
+        <ul className="text-xs font-mono mt-2 max-h-24 overflow-auto bg-base-200 rounded px-3 py-2 shrink-0">
+          {target.files.map(f => (
+            <li key={`${f.nodeName}/${f.filePath}`} className="break-all">{f.filePath}</li>
+          ))}
+        </ul>
 
         <div className="overflow-auto mt-4 space-y-3 pr-1">
           <label className="form-control">
             <span className="label-text font-semibold">Title *</span>
-            <input className="input input-bordered input-sm" maxLength={200} value={title} onChange={e => setTitle(e.target.value)}
-              placeholder="e.g. Age distribution by sex across the pooled cohorts" />
+            <input className="input input-bordered input-sm" maxLength={200} value={title} onChange={e => setTitle(e.target.value)} autoFocus />
           </label>
           <label className="form-control">
             <span className="label-text font-semibold">Description *</span>
             <textarea className="textarea textarea-bordered textarea-sm h-20" maxLength={2000} value={description}
-              onChange={e => setDescription(e.target.value)} placeholder="What this result shows, in a few sentences." />
+              onChange={e => setDescription(e.target.value)} placeholder="What these results show, in a few sentences." />
           </label>
-          <label className="form-control">
-            <span className="label-text font-semibold">Details</span>
-            <span className="label-text-alt opacity-70 mb-1">
-              Research question, methods, variables and filters used, how to read the result, caveats and limitations.
-            </span>
-            <textarea className="textarea textarea-bordered textarea-sm h-32" maxLength={10000} value={details}
-              onChange={e => setDetails(e.target.value)} />
-          </label>
-          <label className="form-control">
-            <span className="label-text font-semibold">Your name (shown with the result) *</span>
-            <input className="input input-bordered input-sm" maxLength={120} value={sharerName} onChange={e => setSharerName(e.target.value)} />
-          </label>
+          {showDetails ? (
+            <label className="form-control">
+              <span className="label-text font-semibold">Details</span>
+              <textarea className="textarea textarea-bordered textarea-sm h-32" maxLength={10000} value={details}
+                onChange={e => setDetails(e.target.value)} autoFocus
+                placeholder="Research question, methods, variables and filters used, how to read the results, caveats." />
+            </label>
+          ) : (
+            <button className="btn btn-xs btn-ghost gap-1" onClick={() => setShowDetails(true)}>
+              <Plus size={12} /> Add details
+            </button>
+          )}
           {target.cohorts.length > 0 && (
             <div>
-              <div className="label-text font-semibold mb-1">Cohorts this result concerns</div>
+              <div className="label-text font-semibold mb-1">Cohorts</div>
               <div className="flex flex-wrap gap-x-4 gap-y-1">
                 {target.cohorts.map(c => (
                   <label key={c} className="label cursor-pointer gap-2 py-0.5">
@@ -122,13 +111,6 @@ export function ShareResultDialog({target, onClose, onShared}: {target: ShareTar
               </div>
             </div>
           )}
-          <label className="label cursor-pointer justify-start gap-2 items-start bg-base-200 rounded p-2">
-            <input type="checkbox" className="checkbox checkbox-sm mt-0.5" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />
-            <span className="label-text text-sm">
-              I confirm this file contains only aggregate results that may be shown to every logged-in Cohort Explorer user, and
-              that sharing it is in line with the data owners&apos; terms for this DCR.
-            </span>
-          </label>
           {error && <div className="alert alert-error text-sm">{error}</div>}
         </div>
 

@@ -8,23 +8,26 @@ import {AlertTriangle, Box, Download, Eye, Search, Trash2, User} from 'react-fea
 import {apiUrl} from '@/utils';
 import {ResultFileModal, downloadFile, formatBytes, formatDateTime, isViewable} from '@/components/results/ResultFileView';
 
+interface GalleryFile {
+  node_name: string;
+  file_path: string;
+  file_name: string;
+  size: number;
+  result_generated_at?: string | null;
+}
+
 interface GalleryItem {
   id: string;
   title: string;
   description: string;
   details: string;
-  sharer_name: string;
   shared_by: string;
   shared_at: string;
   dcr_id: string;
   dcr_title: string;
   dcr_created_at?: string | null;
   cohorts: string[];
-  node_name: string;
-  file_path: string;
-  file_name: string;
-  size: number;
-  result_generated_at?: string | null;
+  files: GalleryFile[];
   can_delete?: boolean;
 }
 
@@ -36,7 +39,7 @@ interface DcrGroup {
   items: GalleryItem[];
 }
 
-const fileUrl = (id: string) => `${apiUrl}/results-gallery/${encodeURIComponent(id)}/file`;
+const fileUrl = (id: string, index: number) => `${apiUrl}/results-gallery/${encodeURIComponent(id)}/files/${index}`;
 
 export default function ResultsGalleryPage() {
   const [items, setItems] = useState<GalleryItem[]>([]);
@@ -44,7 +47,7 @@ export default function ResultsGalleryPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedCohorts, setSelectedCohorts] = useState<string[]>([]);
   const [query, setQuery] = useState('');
-  const [viewing, setViewing] = useState<GalleryItem | null>(null);
+  const [viewing, setViewing] = useState<{item: GalleryItem; index: number} | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,7 +80,7 @@ export default function ResultsGalleryPage() {
     const filtered = items.filter(i => {
       if (selectedCohorts.length > 0 && !(i.cohorts || []).some(c => selectedCohorts.includes(c))) return false;
       if (!q) return true;
-      return [i.title, i.description, i.details, i.sharer_name, i.dcr_title, i.file_name, i.node_name]
+      return [i.title, i.description, i.details, i.shared_by, i.dcr_title, ...(i.files || []).map(f => f.file_path)]
         .some(s => (s || '').toLowerCase().includes(q));
     });
     const byDcr = new Map<string, DcrGroup>();
@@ -182,7 +185,7 @@ export default function ResultsGalleryPage() {
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mt-3">
                 {g.items.map(item => (
-                  <GalleryCard key={item.id} item={item} onView={() => setViewing(item)} onRemove={() => remove(item)} onError={setError} />
+                  <GalleryCard key={item.id} item={item} onView={index => setViewing({item, index})} onRemove={() => remove(item)} onError={setError} />
                 ))}
               </div>
             </div>
@@ -192,9 +195,9 @@ export default function ResultsGalleryPage() {
 
       {viewing && (
         <ResultFileModal
-          url={fileUrl(viewing.id)}
-          fileName={viewing.file_name}
-          subtitle={`${viewing.title} · shared by ${viewing.sharer_name}`}
+          url={fileUrl(viewing.item.id, viewing.index)}
+          fileName={viewing.item.files[viewing.index].file_name}
+          subtitle={`${viewing.item.title} · shared by ${viewing.item.shared_by}`}
           onClose={() => setViewing(null)}
         />
       )}
@@ -202,7 +205,7 @@ export default function ResultsGalleryPage() {
   );
 }
 
-function GalleryCard({item, onView, onRemove, onError}: {item: GalleryItem; onView: () => void; onRemove: () => void; onError: (m: string) => void}) {
+function GalleryCard({item, onView, onRemove, onError}: {item: GalleryItem; onView: (index: number) => void; onRemove: () => void; onError: (m: string) => void}) {
   const [showDetails, setShowDetails] = useState(false);
   return (
     <div className="rounded-lg border border-base-300 p-3 flex flex-col gap-2">
@@ -215,8 +218,8 @@ function GalleryCard({item, onView, onRemove, onError}: {item: GalleryItem; onVi
         )}
       </div>
       <div className="text-xs text-base-content/70 flex flex-wrap items-center gap-x-2">
-        <span className="flex items-center gap-1" title={item.shared_by}>
-          <User size={12} /> {item.sharer_name}
+        <span className="flex items-center gap-1">
+          <User size={12} /> {item.shared_by}
         </span>
         <span>· shared {formatDateTime(item.shared_at)}</span>
         {item.cohorts.length > 0 && <span>· {item.cohorts.join(', ')}</span>}
@@ -230,25 +233,27 @@ function GalleryCard({item, onView, onRemove, onError}: {item: GalleryItem; onVi
           {showDetails && <p className="text-sm whitespace-pre-wrap mt-1 bg-base-200 rounded p-2">{item.details}</p>}
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-2 mt-auto pt-2 border-t border-base-200">
-        <span className="font-mono text-xs break-all flex-1">
-          {item.file_name} <span className="opacity-60">({formatBytes(item.size)})</span>
-        </span>
-        {isViewable(item.file_name) && (
-          <button className="btn btn-xs btn-outline gap-1" onClick={onView}>
-            <Eye size={12} /> View
-          </button>
-        )}
-        <button
-          className="btn btn-xs btn-outline gap-1"
-          onClick={() => downloadFile(fileUrl(item.id), item.file_name).catch(e => onError(e?.message || 'Download failed'))}
-        >
-          <Download size={12} /> Download
-        </button>
-      </div>
-      <div className="text-[11px] opacity-50 font-mono break-all">
-        node {item.node_name}
-        {item.result_generated_at && <> · computed {formatDateTime(item.result_generated_at)}</>}
+      <div className="mt-auto pt-2 border-t border-base-200 divide-y divide-base-200">
+        {item.files.map((f, index) => (
+          <div key={index} className="flex flex-wrap sm:flex-nowrap items-center gap-x-2 gap-y-1 py-1">
+            <span className="font-mono text-xs break-all flex-1 min-w-0" title={`node ${f.node_name}: ${f.file_path}`}>
+              {f.file_name} <span className="opacity-60 whitespace-nowrap">({formatBytes(f.size)})</span>
+            </span>
+            <div className="flex gap-1 shrink-0">
+              {isViewable(f.file_name) && (
+                <button className="btn btn-xs btn-outline gap-1" onClick={() => onView(index)}>
+                  <Eye size={12} /> View
+                </button>
+              )}
+              <button
+                className="btn btn-xs btn-outline gap-1"
+                onClick={() => downloadFile(fileUrl(item.id, index), f.file_name).catch(e => onError(e?.message || 'Download failed'))}
+              >
+                <Download size={12} /> Download
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

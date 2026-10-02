@@ -11,12 +11,12 @@ a re-run replaces it only once it succeeds.
   {data_folder}/dcr_results/{dcr_id}/{node}/run.json   status + file list
   {data_folder}/dcr_results/{dcr_id}/{node}/files/     extracted output
 
-Results Gallery: an analyst can share single output files with every
-logged-in user, with a title, description and details. Sharing copies the
-file, so a later re-run never changes what was shared.
+Results Gallery: an analyst can share one or more output files of a DCR
+with every logged-in user, under one title, description and optional details.
+Sharing copies the files, so a later re-run never changes what was shared.
 
   {data_folder}/results_gallery/items.json
-  {data_folder}/results_gallery/files/{item_id}/{file name}
+  {data_folder}/results_gallery/files/{item_id}/{index}/{file name}
 
 Who may run, view or share is decided from the DCR records of /my-dcrs (the
 participants and their analyst_of nodes as read from Decentriq).
@@ -50,7 +50,7 @@ STALE_RUN_AFTER = timedelta(hours=3)
 MAX_TITLE = 200
 MAX_DESCRIPTION = 2000
 MAX_DETAILS = 10000
-MAX_NAME = 120
+MAX_FILES_PER_SHARE = 100
 
 # Airlock (preview) nodes cannot be run on their own; everything else that
 # computes can.
@@ -254,7 +254,8 @@ def list_dcr_results(dcr_id: str, user: Any = Depends(get_current_user)) -> dict
             "result_run_by": state.get("result_run_by"),
             "files": state.get("files") or [],
         })
-    return {"dcr_id": dcr_id, "cohorts": _dcr_cohorts(record), "nodes": nodes}
+    return {"dcr_id": dcr_id, "cohorts": _dcr_cohorts(record), "nodes": nodes,
+            "sharer_name": email}
 
 
 @router.post("/my-dcrs/{dcr_id}/nodes/{node_name}/run", name="Run or re-run a DCR compute node")
@@ -308,62 +309,92 @@ def _gallery_dir() -> str:
     return os.path.join(settings.data_folder, "results_gallery")
 
 
+def _normalize_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Items shared before multi-file shares held one file in top-level fields."""
+    if "files" not in item and item.get("file_name"):
+        item["files"] = [{
+            "node_name": item.pop("node_name", ""),
+            "file_path": item.pop("file_path", item["file_name"]),
+            "file_name": item["file_name"],
+            "size": item.pop("size", 0),
+            "stored": item.pop("file_name"),
+            "result_generated_at": item.pop("result_generated_at", None),
+        }]
+    return item
+
+
 def _gallery_items() -> list[dict[str, Any]]:
     items = _read_json(os.path.join(_gallery_dir(), "items.json"), [])
-    return items if isinstance(items, list) else []
+    return [_normalize_item(i) for i in items if isinstance(i, dict)] if isinstance(items, list) else []
 
 
 def _clean(value: Any, limit: int) -> str:
     return str(value or "").strip()[:limit]
 
 
-@router.post("/results-gallery", name="Share a DCR result file to the Results Gallery")
+@router.post("/results-gallery", name="Share DCR result files to the Results Gallery")
 def share_result(body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """One share: a title, description and optional details for one or more
+    output files of the same DCR."""
     email = _email(user)
     dcr_id = str(body.get("dcr_id") or "")
-    node_name = str(body.get("node_name") or "")
-    path = str(body.get("file_path") or "")
-    record = _require_node(email, dcr_id, node_name)
-    src = _result_file(dcr_id, node_name, path)
-
+    requested_files = body.get("files")
+    if not isinstance(requested_files, list) or not requested_files:
+        raise HTTPException(status_code=400, detail="Choose at least one file to share")
+    if len(requested_files) > MAX_FILES_PER_SHARE:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_FILES_PER_SHARE} files can be shared at once")
     title = _clean(body.get("title"), MAX_TITLE)
     description = _clean(body.get("description"), MAX_DESCRIPTION)
-    sharer_name = _clean(body.get("sharer_name"), MAX_NAME)
-    if not title or not description or not sharer_name:
-        raise HTTPException(status_code=400, detail="Title, description and your name are required")
-    dcr_cohorts = _dcr_cohorts(record)
-    requested = body.get("cohorts")
-    cohorts = [c for c in requested if c in dcr_cohorts] if isinstance(requested, list) else dcr_cohorts
+    if not title or not description:
+        raise HTTPException(status_code=400, detail="Title and description are required")
 
-    state = _run_state(dcr_id, node_name)
+    record = _user_dcr(email, dcr_id)
+    sources: list[tuple[dict[str, Any], str]] = []
+    for f in requested_files:
+        node_name = str((f or {}).get("node_name") or "")
+        path = str((f or {}).get("file_path") or "")
+        _require_node(email, dcr_id, node_name)
+        sources.append(({"node_name": node_name, "file_path": path}, _result_file(dcr_id, node_name, path)))
+
+    dcr_cohorts = _dcr_cohorts(record)
+    requested_cohorts = body.get("cohorts")
+    cohorts = ([c for c in requested_cohorts if c in dcr_cohorts]
+               if isinstance(requested_cohorts, list) else dcr_cohorts)
+
     item_id = uuid.uuid4().hex
-    file_name = os.path.basename(src)
-    dest_dir = os.path.join(_gallery_dir(), "files", item_id)
-    os.makedirs(dest_dir, exist_ok=True)
-    shutil.copy2(src, os.path.join(dest_dir, file_name))
+    files = []
+    for index, (entry, src) in enumerate(sources):
+        file_name = os.path.basename(src)
+        stored = os.path.join(str(index), file_name)
+        dest = os.path.join(_gallery_dir(), "files", item_id, stored)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copy2(src, dest)
+        files.append({
+            **entry,
+            "file_name": file_name,
+            "size": os.path.getsize(src),
+            "stored": stored,
+            "result_generated_at": _run_state(dcr_id, entry["node_name"]).get("result_generated_at"),
+        })
     item = {
         "id": item_id,
         "title": title,
         "description": description,
         "details": _clean(body.get("details"), MAX_DETAILS),
-        "sharer_name": sharer_name,
+        "sharer_name": email,
         "shared_by": email,
         "shared_at": _now(),
         "dcr_id": dcr_id,
         "dcr_title": record.get("title") or "",
         "dcr_created_at": record.get("createdAt"),
         "cohorts": cohorts,
-        "node_name": node_name,
-        "file_path": path,
-        "file_name": file_name,
-        "size": os.path.getsize(src),
-        "result_generated_at": state.get("result_generated_at"),
+        "files": files,
     }
     with _file_lock(os.path.join(_gallery_dir(), ".lock")):
         items = _gallery_items()
         items.append(item)
         _write_json(os.path.join(_gallery_dir(), "items.json"), items)
-    logger.info("Result shared to gallery: %s (%s/%s/%s) by %s", item_id, dcr_id, node_name, path, email)
+    logger.info("Results shared to gallery: %s (%s, %d files) by %s", item_id, dcr_id, len(files), email)
     return item
 
 
@@ -374,6 +405,8 @@ def list_gallery(user: Any = Depends(get_current_user)) -> dict[str, Any]:
     admin = _is_admin(email)
     for item in items:
         item["can_delete"] = admin or item.get("shared_by") == email
+        for f in item.get("files") or []:
+            f.pop("stored", None)
     return {"items": items}
 
 
@@ -384,14 +417,17 @@ def _gallery_item(item_id: str) -> dict[str, Any]:
     raise HTTPException(status_code=404, detail="Shared result not found")
 
 
-@router.get("/results-gallery/{item_id}/file", name="The file of a shared result (any logged-in user)")
-def get_gallery_file(item_id: str, user: Any = Depends(get_current_user)):
+@router.get("/results-gallery/{item_id}/files/{index}", name="One file of a shared result (any logged-in user)")
+def get_gallery_file(item_id: str, index: int, user: Any = Depends(get_current_user)):
     _email(user)
-    item = _gallery_item(item_id)
-    full = os.path.join(_gallery_dir(), "files", os.path.basename(item["id"]), os.path.basename(item["file_name"]))
-    if not os.path.isfile(full):
+    files = _gallery_item(item_id).get("files") or []
+    if not 0 <= index < len(files):
         raise HTTPException(status_code=404, detail="File not found")
-    return _serve(full, item["file_name"])
+    base = os.path.realpath(os.path.join(_gallery_dir(), "files", os.path.basename(item_id)))
+    full = os.path.realpath(os.path.join(base, files[index].get("stored") or ""))
+    if not full.startswith(base + os.sep) or not os.path.isfile(full):
+        raise HTTPException(status_code=404, detail="File not found")
+    return _serve(full, files[index]["file_name"])
 
 
 @router.delete("/results-gallery/{item_id}", name="Remove a shared result (its sharer or an admin)")

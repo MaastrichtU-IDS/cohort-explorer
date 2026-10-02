@@ -22,18 +22,20 @@ interface NodeResult {
   files: {path: string; size: number}[];
 }
 
-const STATUS_BADGE: Record<NodeResult['status'], string> = {
-  never_run: 'badge-ghost',
+// Decentriq offers no way to list a node's earlier runs, so status is shown
+// only for runs started from the explorer; 'never_run' gets no badge.
+const STATUS_BADGE: Partial<Record<NodeResult['status'], string>> = {
   running: 'badge-info',
   succeeded: 'badge-success',
   failed: 'badge-error',
 };
-const STATUS_LABEL: Record<NodeResult['status'], string> = {
-  never_run: 'not run yet',
+const STATUS_LABEL: Partial<Record<NodeResult['status'], string>> = {
   running: 'running…',
-  succeeded: 'succeeded',
-  failed: 'failed',
+  succeeded: 'last run succeeded',
+  failed: 'last run failed',
 };
+
+const fileKey = (node: string, path: string) => `${node}\u0000${path}`;
 
 async function errorDetail(res: Response): Promise<string> {
   try {
@@ -47,6 +49,8 @@ export function DcrResultsPanel({dcrId, dcrTitle}: {dcrId: string; dcrTitle: str
   const [open, setOpen] = useState(false);
   const [nodes, setNodes] = useState<NodeResult[] | null>(null);
   const [cohorts, setCohorts] = useState<string[]>([]);
+  const [sharerName, setSharerName] = useState('');
+  const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
@@ -65,8 +69,13 @@ export function DcrResultsPanel({dcrId, dcrTitle}: {dcrId: string; dcrTitle: str
         const res = await fetch(`${base}/results`, {credentials: 'include'});
         if (!res.ok) throw new Error(await errorDetail(res));
         const data = await res.json();
-        setNodes(Array.isArray(data?.nodes) ? data.nodes : []);
+        const loaded: NodeResult[] = Array.isArray(data?.nodes) ? data.nodes : [];
+        setNodes(loaded);
         setCohorts(Array.isArray(data?.cohorts) ? data.cohorts : []);
+        setSharerName(data?.sharer_name || '');
+        // Drop selections whose file is gone after a re-run.
+        const present = new Set(loaded.flatMap(n => n.files.map(f => fileKey(n.name, f.path))));
+        setSelected(prev => prev.filter(k => present.has(k)));
         setError(null);
       } catch (e: any) {
         setError(e?.message || 'Failed to load compute nodes');
@@ -89,6 +98,19 @@ export function DcrResultsPanel({dcrId, dcrTitle}: {dcrId: string; dcrTitle: str
     return () => clearInterval(t);
   }, [open, anyRunning, load]);
 
+  const toggleSelected = (key: string) =>
+    setSelected(prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]));
+
+  const share = (files: {nodeName: string; filePath: string}[]) =>
+    setSharing({dcrId, dcrTitle, files, cohorts, sharerName});
+
+  const shareSelected = () => {
+    const files = (nodes || []).flatMap(n =>
+      n.files.filter(f => selected.includes(fileKey(n.name, f.path))).map(f => ({nodeName: n.name, filePath: f.path}))
+    );
+    if (files.length) share(files);
+  };
+
   const run = async (node: string) => {
     setRunErrors(prev => ({...prev, [node]: ''}));
     try {
@@ -110,6 +132,14 @@ export function DcrResultsPanel({dcrId, dcrTitle}: {dcrId: string; dcrTitle: str
           <button className="btn btn-sm btn-ghost gap-1" onClick={() => load()} disabled={loading} title="Reload run status">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
+        )}
+        {open && selected.length > 0 && (
+          <>
+            <button className="btn btn-sm btn-primary gap-1" onClick={shareSelected}>
+              <Share2 size={14} /> Share selected ({selected.length})
+            </button>
+            <button className="btn btn-sm btn-ghost" onClick={() => setSelected([])}>Clear selection</button>
+          </>
         )}
         {sharedMsg && (
           <span className="text-sm text-success">
@@ -134,7 +164,9 @@ export function DcrResultsPanel({dcrId, dcrTitle}: {dcrId: string; dcrTitle: str
             <div key={node.name} className="rounded border border-base-300 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-sm font-semibold break-all">{node.name}</span>
-                <span className={`badge badge-sm ${STATUS_BADGE[node.status]}`}>{STATUS_LABEL[node.status]}</span>
+                {STATUS_LABEL[node.status] && (
+                  <span className={`badge badge-sm ${STATUS_BADGE[node.status]}`}>{STATUS_LABEL[node.status]}</span>
+                )}
                 <div className="flex-1" />
                 <button className="btn btn-xs btn-primary gap-1" onClick={() => run(node.name)} disabled={node.status === 'running'}>
                   {node.status === 'running' ? (
@@ -167,41 +199,57 @@ export function DcrResultsPanel({dcrId, dcrTitle}: {dcrId: string; dcrTitle: str
               {runErrors[node.name] && <div className="text-xs text-error mt-1">{runErrors[node.name]}</div>}
 
               {node.files.length > 0 && (
-                <table className="table table-xs mt-2">
-                  <tbody>
-                    {node.files.map(f => (
-                      <tr key={f.path}>
-                        <td className="font-mono break-all">{f.path}</td>
-                        <td className="whitespace-nowrap opacity-70 w-20 text-right">{formatBytes(f.size)}</td>
-                        <td className="whitespace-nowrap w-0">
-                          <div className="flex gap-1 justify-end">
-                            {isViewable(f.path) && (
-                              <button className="btn btn-xs btn-ghost gap-1" onClick={() => setViewing({node: node.name, path: f.path})}>
-                                <Eye size={12} /> View
-                              </button>
-                            )}
-                            <button
-                              className="btn btn-xs btn-ghost gap-1"
-                              onClick={() =>
-                                downloadFile(fileUrl(node.name, f.path), f.path.split('/').pop() || f.path).catch(e =>
-                                  setRunErrors(prev => ({...prev, [node.name]: e?.message || 'Download failed'}))
-                                )
-                              }
-                            >
-                              <Download size={12} /> Download
+                <div className="mt-2 divide-y divide-base-200">
+                  {node.files.length > 1 && (
+                    <label className="flex items-center gap-2 py-1 text-xs opacity-70 cursor-pointer w-fit">
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-xs"
+                        checked={node.files.every(f => selected.includes(fileKey(node.name, f.path)))}
+                        onChange={e => {
+                          const keys = node.files.map(f => fileKey(node.name, f.path));
+                          setSelected(prev =>
+                            e.target.checked ? Array.from(new Set([...prev, ...keys])) : prev.filter(k => !keys.includes(k))
+                          );
+                        }}
+                      />
+                      Select all files of this node
+                    </label>
+                  )}
+                  {node.files.map(f => {
+                    const key = fileKey(node.name, f.path);
+                    return (
+                      <div key={f.path} className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1 py-1">
+                        <input type="checkbox" className="checkbox checkbox-xs shrink-0" checked={selected.includes(key)}
+                          onChange={() => toggleSelected(key)} aria-label={`Select ${f.path}`} />
+                        <span className="font-mono text-xs break-all flex-1 min-w-0">{f.path}</span>
+                        <span className="text-xs opacity-70 whitespace-nowrap shrink-0 w-20 text-right">{formatBytes(f.size)}</span>
+                        <div className="flex gap-1 shrink-0">
+                          {isViewable(f.path) ? (
+                            <button className="btn btn-xs btn-ghost gap-1" onClick={() => setViewing({node: node.name, path: f.path})}>
+                              <Eye size={12} /> View
                             </button>
-                            <button
-                              className="btn btn-xs btn-ghost gap-1"
-                              onClick={() => setSharing({dcrId, dcrTitle, nodeName: node.name, filePath: f.path, cohorts})}
-                            >
-                              <Share2 size={12} /> Share
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          ) : (
+                            <span className="btn btn-xs btn-ghost invisible gap-1" aria-hidden><Eye size={12} /> View</span>
+                          )}
+                          <button
+                            className="btn btn-xs btn-ghost gap-1"
+                            onClick={() =>
+                              downloadFile(fileUrl(node.name, f.path), f.path.split('/').pop() || f.path).catch(e =>
+                                setRunErrors(prev => ({...prev, [node.name]: e?.message || 'Download failed'}))
+                              )
+                            }
+                          >
+                            <Download size={12} /> Download
+                          </button>
+                          <button className="btn btn-xs btn-ghost gap-1" onClick={() => share([{nodeName: node.name, filePath: f.path}])}>
+                            <Share2 size={12} /> Share
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
               {node.status === 'succeeded' && node.files.length === 0 && (
                 <div className="text-xs opacity-70 mt-1">The run produced no output files.</div>
@@ -224,7 +272,9 @@ export function DcrResultsPanel({dcrId, dcrTitle}: {dcrId: string; dcrTitle: str
           target={sharing}
           onClose={() => setSharing(null)}
           onShared={() => {
-            setSharedMsg(`Shared “${sharing.filePath.split('/').pop()}”.`);
+            const n = sharing.files.length;
+            setSharedMsg(n === 1 ? `Shared “${sharing.files[0].filePath.split('/').pop()}”.` : `Shared ${n} files.`);
+            setSelected(prev => prev.filter(k => !sharing.files.some(f => fileKey(f.nodeName, f.filePath) === k)));
             setSharing(null);
           }}
         />
