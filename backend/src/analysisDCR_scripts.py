@@ -153,8 +153,13 @@ with open(log_file, "a") as log:
         
         # Create a mapping from original IDs to synthetic IDs
         # This ensures rows with the same original ID get the same synthetic ID
+        # Synthetic numbers are handed out in a fresh random order (unseeded), never in
+        # file or ID order: numbered in order, AIRLOCK_000001 would be the first row /
+        # lowest original ID, and anyone knowing the cohort's ID list could map the
+        # synthetic IDs back to real patients.
         unique_ids = df[id_column].unique()
-        id_mapping = {{orig_id: 'AIRLOCK_' + str(i).zfill(6) for i, orig_id in enumerate(unique_ids, start=1)}}
+        synthetic_numbers = np.random.default_rng().permutation(len(unique_ids)) + 1
+        id_mapping = {{orig_id: 'AIRLOCK_' + str(n).zfill(6) for orig_id, n in zip(unique_ids, synthetic_numbers)}}
         
         # Map original IDs to synthetic IDs
         synthetic_ids = df[id_column].map(id_mapping)
@@ -168,8 +173,9 @@ with open(log_file, "a") as log:
         log.write("Replaced ID column '{{}}' with synthetic IDs at position {{}}\\n".format(id_column, id_col_position))
         log.write("Mapped {{}} unique original IDs to synthetic IDs\\n".format(len(unique_ids)))
     else:
-        # No ID column found - add synthetic IDs at the beginning (row-based, no grouping)
-        synthetic_ids = ['AIRLOCK_' + str(i).zfill(6) for i in range(1, len(df) + 1)]
+        # No ID column found - add synthetic IDs at the beginning (row-based, no grouping),
+        # numbered in random order so they do not reveal the row order of the file
+        synthetic_ids = ['AIRLOCK_' + str(n).zfill(6) for n in np.random.default_rng().permutation(len(df)) + 1]
         df.insert(0, 'Synthetic_ID', synthetic_ids)
         if id_column_expected:
             log.write("Expected ID column '{{}}' not found in data columns, added row-based synthetic IDs\\n".format(id_column_expected))
@@ -762,6 +768,120 @@ with open(log_file, "a") as log:
 """
 
 
+# ---------------------------------------------------------------------------
+# What leaves the enclave from the merge node's output
+#
+# The node "run-the-merge-and-create-airlock" (every participant can run it)
+# copies files from the merge node's output into harmonization_reports/. It
+# copies ONLY:
+#   - every .png figure, wherever it sits, and
+#   - the files named in MERGE_EXPORT_ALLOWLIST below (matched on file name,
+#     in whatever sub-folder cohortpool puts them).
+# Anything else stays inside the enclave. This is an allowlist so that a new
+# cohortpool version cannot publish a new file just by giving it a name a
+# denylist did not anticipate - which is how pooled_longitudinal.csv (every
+# patient's rows, with real patient IDs) got out before.
+#
+# Deliberately NOT on the list (linked data about individual patients):
+#   pooled_dataset.csv, pooled_longitudinal.csv, pooled_longitudinal_filtered.csv,
+#   pooled_harmonized_patient_level.csv / .parquet, pooled_harmonized_filtered.csv,
+#   pooled_provenance_patient_level.csv, medication_implausible_dose_audit.csv
+#   (per-patient rows with the original patient IDs). Also left out:
+#   longitudinal_backfilled_from_patient_level.csv.
+# Add a file here only after checking that it holds no per-patient rows and no
+# patient identifiers. The list matches cohortpool commit COHORTPOOL_COMMIT in
+# decentriq.py; re-check it whenever that commit is bumped.
+# ---------------------------------------------------------------------------
+MERGE_EXPORT_ALLOWLIST: tuple[str, ...] = (
+    # Reports and logs
+    "merge_datasets_log.txt",  # written by our merge script
+    "data_quality_report.pdf",
+    "cohortpool.log",
+    "stage_timings.csv",
+    "visualization_summary.txt",
+    "visualization_error.txt",
+    "report_generated.txt",
+    "report_error.txt",
+    "parquet_warning.txt",
+    # Tables a reader starts with (tables/)
+    "00_INDEX.csv",
+    "analyst_summary.csv",
+    "input_summary.csv",
+    "temporal_quality_summary.csv",
+    "detected_visit_timepoints.csv",
+    "manual_review_summary.csv",
+    "unit_conversion_summary.csv",
+    "core_variable_coverage.csv",
+    "context_concept_decisions.csv",
+    "feature_quality_assessment.csv",
+    "feature_quality_summary.csv",
+    "harmonization_execution_issues.csv",
+    "medication_audit_summary.csv",
+    "value_range_audit.csv",
+    "combined_cross_mapping.json",
+    # Mapping and dictionary audits (tables/audit/)
+    "combined_mapping_evidence.csv",
+    "mapping_status_summary.csv",
+    "llm_proposed_units.csv",
+    "operational_mapping_plan.csv",
+    "mapping_manual_review_queue.csv",
+    "mapping_relation_disputed.csv",
+    "drug_pair_operation_summary.csv",
+    "category_matching_issues.csv",
+    "operational_plan_summary.csv",
+    "mapping_coverage_summary.csv",
+    "mapping_coverage_variables.csv",
+    "dictionary_dataset_coverage.csv",
+    "dictionary_mismatch_details.csv",
+    "category_code_dictionary.csv",
+    "partial_rules_applied.csv",
+    "llm_transformation_verification_audit.csv",
+    # Source data, unit and temporal audits (tables/audit/)
+    "source_data_audit.csv",
+    "source_data_audit_details.csv",
+    "unit_declaration_disagreements.csv",
+    "unit_table_internal_issues.csv",
+    "unit_conversion_coverage.csv",
+    "unit_contract_violations.csv",
+    "temporal_resolution_audit.csv",
+    "untimed_folded_to_enrolment.csv",
+    # Harmonization audits (tables/audit/)
+    "feature_provenance.csv",
+    "data_metadata_value_mismatch.csv",
+    "competing_columns_resolved.csv",
+    "competing_columns_resolved_longitudinal.csv",
+    "coalesced_columns.csv",
+    "coalesced_columns_longitudinal.csv",
+    "contained_duplicate_columns.csv",
+    "contained_duplicate_columns_longitudinal.csv",
+    "snapshot_restated_at_visit.csv",
+    "dropped_empty_columns.csv",
+    "dropped_below_study_threshold.csv",
+    "positive_only_columns.csv",
+    "derived_variables_audit.csv",
+    "feature_quality_longitudinal.csv",
+    "feature_availability_long.csv",
+    "pooled_column_provenance.csv",
+    "harmonization_execution_issue_summary.csv",
+    # Value checks (tables/audit/)
+    "cross_study_median_comparison.csv",
+    "value_anomaly_audit.csv",
+    "semantic_anomaly_audit.csv",
+    # Medication audits (tables/audit/)
+    "medication_columns_offered_to_normaliser.csv",
+    "medication_duplicate_kept.csv",
+    "medication_substance_dose_coherence.csv",
+    "medication_dual_route_disagreement.csv",
+    "medication_normalization_audit.csv",
+    "medication_candidates.csv",
+)
+
+
+def _allowlist_comment(indent: str = "#   ") -> str:
+    """The allowlist as comment lines, for the headers of the embedded scripts."""
+    return "\n".join(f"{indent}{name}" for name in MERGE_EXPORT_ALLOWLIST)
+
+
 def merge_datasets_script(
     studies_info: list[dict],
     mappings_info: list[dict] = None,
@@ -828,7 +948,17 @@ def merge_datasets_script(
         )
     mappings_block = "\n".join(mappings_lines) if mappings_lines else ""
 
-    return f"""import os
+    return f"""###############################################################################
+# MERGE (POOL) THE COHORTS
+#
+# This node's output is never shown to participants directly. The node
+# "run-the-merge-and-create-airlock" copies from it ONLY every .png figure and
+# the files on this allowlist (matched on file name); everything else - the
+# pooled dataset and the patient-level files above all - stays in the enclave:
+{_allowlist_comment()}
+###############################################################################
+
+import os
 
 import numpy as np
 import pandas as pd
@@ -1160,15 +1290,20 @@ for col in df.columns:
 with open(log_file, "a") as log:
     if pooled_id_col:
         id_col_position = df.columns.get_loc(pooled_id_col)
+        # Synthetic numbers are handed out in a fresh random order (unseeded), never in
+        # file or ID order: numbered in order, AIRLOCK_000001 would be the first row /
+        # lowest original ID, and anyone knowing the cohort's ID list could map the
+        # synthetic IDs back to real patients.
         unique_ids = df[pooled_id_col].unique()
-        id_mapping = {{orig_id: 'AIRLOCK_' + str(i).zfill(6) for i, orig_id in enumerate(unique_ids, start=1)}}
+        synthetic_numbers = np.random.default_rng().permutation(len(unique_ids)) + 1
+        id_mapping = {{orig_id: 'AIRLOCK_' + str(n).zfill(6) for orig_id, n in zip(unique_ids, synthetic_numbers)}}
         synthetic_ids = df[pooled_id_col].map(id_mapping)
         df = df.drop(columns=[pooled_id_col])
         df.insert(id_col_position, 'Synthetic_ID', synthetic_ids)
         log.write("Replaced '{{}}' with synthetic IDs at position {{}}\\n".format(pooled_id_col, id_col_position))
         log.write("Mapped {{}} unique pooled IDs to synthetic IDs\\n".format(len(unique_ids)))
     else:
-        synthetic_ids = ['AIRLOCK_' + str(i).zfill(6) for i in range(1, len(df) + 1)]
+        synthetic_ids = ['AIRLOCK_' + str(n).zfill(6) for n in np.random.default_rng().permutation(len(df)) + 1]
         if 'Synthetic_ID' in df.columns:
             df = df.drop(columns=['Synthetic_ID'])
         df.insert(0, 'Synthetic_ID', synthetic_ids)
@@ -1579,7 +1714,6 @@ wlog("example-analysis: done - {{}} columns plotted over {{}} overview page(s) a
 def merged_data_overview_script(
     merge_node_name: str,
     preview_node_name: str,
-    merge_node_visible: bool = False,
 ) -> str:
     """Generate the example script that summarizes the FULL merged dataset.
 
@@ -1590,36 +1724,21 @@ def merged_data_overview_script(
 
     It reads the full pooled dataset but writes ONLY aggregate information to
     its output — dataset shape, patients per study, per-column completeness —
-    plus ALL merge-process metadata produced by cohortpool (mapping tables,
-    disambiguation/review decisions, provenance, audits, logs, figures, the PDF
-    quality report). Excluded from the export, always: pooled_dataset.csv and
-    any .csv/.parquet file whose name contains "patient_level".
+    plus the merge node's files that are safe to publish: every .png figure and
+    the files named in MERGE_EXPORT_ALLOWLIST. Nothing else is copied.
 
     Args:
         merge_node_name: Name of the merge compute node (its output, including
             cohortpool's tables/, is mounted at /input/<merge_node_name>/).
         preview_node_name: Name of the airlock node, referenced in the header
             comments so users know how to explore the fragment in Development mode.
-        merge_node_visible: True when the merge pools the shuffled samples —
-            the merge node then has analysts and is visible in the interface,
-            which changes the explanatory note in the script header. Has no
-            effect on which files are exported.
 
     Returns:
         The Python script as a string.
     """
-    # merge_node_visible is True exactly when the merge pools the SHUFFLED
-    # samples; in that case the merge node has analysts and is visible in the
-    # interface, so the "hidden node" explanation would be wrong.
-    if merge_node_visible:
-        name_note = f"""# A note on the name: the merge itself does NOT happen in this script — the
-# merge code lives in the "{merge_node_name}" node. Running THIS node makes
-# the platform compute that node and the airlock fragment first (they are its
-# dependencies), which populates the airlock for Development-mode use. Since
-# this merge pools the shuffled samples (synthetic data), the merge node is
-# also visible and directly runnable on its own."""
-    else:
-        name_note = f"""# A note on the name: the merge itself does NOT happen in this script. The
+    # Set literal of the allowlist, embedded in the script's copy loop.
+    allowlist = ", ".join(repr(name) for name in MERGE_EXPORT_ALLOWLIST)
+    name_note = f"""# A note on the name: the merge itself does NOT happen in this script. The
 # actual merge code lives in the "{merge_node_name}" node, which the platform
 # hides from the interface because no participant has direct access to it (it
 # deliberately has no analysts — its full patient-level output must not be
@@ -1638,11 +1757,13 @@ def merged_data_overview_script(
 # produced by the "{merge_node_name}" node and writes AGGREGATE information only:
 #   - dataset shape (rows, columns) and patients per study
 #   - per-column completeness (non-empty / empty counts)
-#   - ALL metadata the pooling package produced about the merge process
-#     (mapping tables, disambiguation/review decisions, provenance, audits,
-#     logs, figures, the PDF quality report) — everything except the merged
-#     dataset itself (pooled_dataset.csv) and the patient-level csv/parquet
-#     files.
+#   - the merge-process files from the pooling package that are on the
+#     ALLOWLIST below, plus every .png figure, copied to harmonization_reports/
+#
+# ALLOWLIST - only these files (matched on file name, in any sub-folder) and
+# every .png leave the enclave from the merge node's output. Everything else,
+# including the pooled dataset and all patient-level files, is NOT copied:
+{_allowlist_comment()}
 #
 # To explore the (de-identified, outlier-capped) merged-data fragment yourself,
 # see the node "example-analysis-for-merged-data-in-airlock": it explains how to
@@ -1721,15 +1842,13 @@ with open(report_file, "w") as report:
                 row["column"], row["non_empty_values"], row["empty_values"], row["pct_missing"]))
         report.write("\\n")
 
-# Export ALL merge-process metadata produced by the pooling package — the
-# combined cross-study mapping, the applied mapping plan, disambiguation and
-# review decisions, provenance, audits, logs, figures and the PDF quality
-# report. Excluded, regardless of what was pooled:
-#   - pooled_dataset.csv (the merged dataset itself)
-#   - any .csv or .parquet file whose name contains "patient_level"
-# Everything else is copied verbatim, preserving the tables/, figures/ and
-# logs/ directory structure.
-wlog("merged-data-overview: overview written; copying the merge-process metadata (harmonization reports)")
+# Copy the merge-process files that are safe to publish: every .png figure and
+# the files on the ALLOWLIST (see the header). Everything else - the merged
+# dataset, the patient-level files, anything a newer pooling package adds - is
+# left out and only listed by name below. Sub-folders (tables/, figures/,
+# logs/) are kept.
+EXPORT_ALLOWLIST = {{{allowlist}}}
+wlog("merged-data-overview: overview written; copying the allow-listed merge-process files (harmonization reports)")
 reports_dir = os.path.join(output_dir, "harmonization_reports")
 os.makedirs(reports_dir, exist_ok=True)
 copied = []
@@ -1737,28 +1856,24 @@ skipped = []
 for root, dirs, files in os.walk(merge_dir):
     rel_root = os.path.relpath(root, merge_dir)
     for fname in sorted(files):
-        in_output_root = rel_root == "."
-        fname_lower = fname.lower()
-        is_excluded = fname_lower == "pooled_dataset.csv" or (
-            fname_lower.endswith((".csv", ".parquet")) and "patient_level" in fname_lower
-        )
-        if is_excluded:
-            skipped.append(fname if in_output_root else os.path.join(rel_root, fname))
+        rel_name = fname if rel_root == "." else os.path.join(rel_root, fname)
+        if not (fname.lower().endswith(".png") or fname in EXPORT_ALLOWLIST):
+            skipped.append(rel_name)
             continue
-        dst_dir = reports_dir if in_output_root else os.path.join(reports_dir, rel_root)
+        dst_dir = reports_dir if rel_root == "." else os.path.join(reports_dir, rel_root)
         os.makedirs(dst_dir, exist_ok=True)
         try:
             shutil.copy(os.path.join(root, fname), os.path.join(dst_dir, fname))
-            copied.append(fname if in_output_root else os.path.join(rel_root, fname))
+            copied.append(rel_name)
         except Exception as e:
-            skipped.append("{{}} (copy failed: {{}})".format(fname, e))
+            skipped.append("{{}} (copy failed: {{}})".format(rel_name, e))
 
 with open(report_file, "a") as report:
-    report.write("Merge-process metadata copied to harmonization_reports/ ({{}} files):\\n".format(len(copied)))
+    report.write("Allow-listed merge-process files copied to harmonization_reports/ ({{}} files):\\n".format(len(copied)))
     for name in copied:
         report.write("  [ok]      {{}}\\n".format(name))
     if skipped:
-        report.write("\\nSkipped (merged dataset / patient-level files, not exported):\\n")
+        report.write("\\nNot exported (not on the allowlist):\\n")
         for name in skipped:
             report.write("  [skipped] {{}}\\n".format(name))
 

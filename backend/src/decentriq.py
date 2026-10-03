@@ -1245,14 +1245,15 @@ async def get_compute_dcr_definition(
         # actually referenced by studies_info ensures the shuffled sample nodes are
         # included when pooling shuffled data.
         #
-        # Access depends on what is being pooled: with FULL cohort data no
-        # participant is granted analyst_of on this node or its environment (its
-        # patient-level output must not be directly retrievable, so it runs only
-        # as a dependency and the platform hides it). With SHUFFLED samples the
-        # data is synthetic, so the node gets a distinct name and every
-        # participant becomes an analyst of it — the merge script is then visible
-        # and directly runnable.
-        merge_node_name = "merge-dataset-samples" if merge_use_shuffled else MERGE_NODE_NAME
+        # No participant is granted analyst_of on this node or its environment,
+        # whether it pools the full cohort data or the shuffled samples: its
+        # output holds the pooled dataset and cohortpool's patient-level files,
+        # so it runs only as a dependency and the platform hides it. Its files
+        # reach participants only through "run-the-merge-and-create-airlock",
+        # which copies the .png figures and MERGE_EXPORT_ALLOWLIST alone. The
+        # two cases differ only in their inputs and in the node's name, which
+        # says when it pools the shuffled samples.
+        merge_node_name = "merge-shuffled-samples" if merge_use_shuffled else MERGE_NODE_NAME
         study_data_nodes = [s["data_node"] for s in studies_info]
         merge_dependencies = list(dict.fromkeys(study_data_nodes + list(metadata_nodes) + [m["node_name"] for m in mapping_nodes]))
         builder.add_node_definition(
@@ -1270,14 +1271,10 @@ async def get_compute_dcr_definition(
                 enable_logs_on_success=True,
             )
         )
-        if merge_use_shuffled:
-            for p_email in participants:
-                participants[p_email]["analyst_of"].add(merge_node_name)
         logging.info(
             f"Added '{merge_node_name}' node using custom env '{MERGE_ENV_NAME}' "
             f"with {len(studies_info)} studies and {len(merge_mappings_info)} mapping(s); "
-            + ("all participants are analysts (shuffled samples)" if merge_use_shuffled
-               else "no direct analysts — accessible only via its airlock chain")
+            "no direct analysts — accessible only via its airlock chain"
         )
 
         merge_airlock_percentage = MERGED_AIRLOCK_PERCENTAGE
@@ -1290,8 +1287,7 @@ async def get_compute_dcr_definition(
             | ({"Synthetic_ID", "patient_id", "id"} if any(not s.get("patient_id") for s in studies_info) else set())
         )
         # The fragment node has no analysts (and, being a compute node, no data
-        # owners): it only runs as part of the chain. (The merge node itself is
-        # analyst-less too, except when pooling shuffled samples — see above.)
+        # owners): it only runs as part of the chain, like the merge node itself.
         merge_fragment_node_name = "create-testing-fragment-of-merged-data-noIDs-noOutliers"
         builder.add_node_definition(
             PythonComputeNodeDefinition(
@@ -1321,18 +1317,15 @@ async def get_compute_dcr_definition(
         # reports. It also depends on the fragment node so that running it
         # computes the fragment and thereby populates the airlock for
         # Development-mode use. Every participant can run it.
-        # pooled_dataset.csv and the patient-level csv/parquet files are never
-        # exported, regardless of whether the merge pools the full cohort data
-        # or the shuffled samples.
+        # Of the merge node's files it exports only every .png and the files on
+        # MERGE_EXPORT_ALLOWLIST (analysisDCR_scripts.py), regardless of whether
+        # the merge pools the full cohort data or the shuffled samples; the
+        # pooled dataset and all patient-level files are never on that list.
         merge_check_node_name = "run-the-merge-and-create-airlock"
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_check_node_name,
-                script=merged_data_overview_script(
-                    merge_node_name,
-                    merge_preview_node_name,
-                    merge_node_visible=merge_use_shuffled,
-                ),
+                script=merged_data_overview_script(merge_node_name, merge_preview_node_name),
                 dependencies=[merge_node_name, merge_fragment_node_name]
             )
         )
