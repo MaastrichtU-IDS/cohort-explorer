@@ -3068,12 +3068,17 @@ async def api_refresh_my_dcrs(
 
 # ---------------------------------------------------------------------------
 # Deactivating (stopping) a DCR. Irreversible: no computation can run in it
-# afterwards. Done through the service account, which publishes the explorer's
-# DCRs; allowed to the DCR's creator (from the wizard's publish log), the
-# DCR's owner on Decentriq, the data owners of its cohort data, and admins.
-# Deactivations made here are also kept in a small JSON file, so every worker
-# shows them at once (the DCR history only picks up isStopped on its next
-# refresh).
+# afterwards. Decentriq lets only a DCR's owner - the participant holding the
+# 'manager' permission, set by .with_owner() - stop it. That owner is the DCR's
+# creator here, and only they are offered the action:
+#   - owner is the service account (older DCRs): the service account's own
+#     My DCRs page stops it directly through the API;
+#   - owner is a user (the explorer publishes with .with_owner(<wizard user>)):
+#     neither the service account nor the explorer can stop it, so the user
+#     stops it on the Decentriq platform and My DCRs then asks Decentriq (as
+#     the service account, which may read the status) whether it is stopped.
+# Deactivations are kept in a small JSON file, so every worker shows them at
+# once (the DCR history only picks up isStopped on its next refresh).
 # ---------------------------------------------------------------------------
 
 _deactivation_lock = threading.Lock()
@@ -3095,95 +3100,90 @@ def _load_deactivated() -> dict[str, Any]:
         return {}
 
 
-def _dcr_creators() -> dict[str, str]:
-    """dcr_id -> email of the user whose wizard session published it."""
-    creators: dict[str, str] = {}
-    for evt in read_events():
-        if evt.get("event") == "dcr_publish_succeeded" and evt.get("dcr_id") and evt.get("user_email"):
-            creators.setdefault(evt["dcr_id"], str(evt["user_email"]).strip().lower())
-    return creators
+def _dcr_managers(record: dict[str, Any]) -> list[str]:
+    """Participants holding the DCR's 'manager' permission (shown as the Owner
+    role), i.e. whoever .with_owner() named: the only accounts Decentriq lets
+    stop the DCR."""
+    return [
+        (p.get("email") or "").strip().lower()
+        for p in record.get("participants") or []
+        if "Owner" in (p.get("roles") or []) and p.get("email")
+    ]
 
 
-def _can_deactivate(record: dict[str, Any], email: str, creators: dict[str, str]) -> bool:
-    email = (email or "").strip().lower()
-    if not email:
-        return False
-    if email in (getattr(settings, "admins_list", []) or []):
-        return True
-    owner = ((record.get("owner") or {}).get("email") or "").strip().lower()
-    if creators.get(record.get("id") or "") == email or (owner == email and owner != (settings.decentriq_email or "").lower()):
-        return True
-    return _is_cohort_data_owner(record, email)
+def _dcr_creator(record: dict[str, Any]) -> str | None:
+    """The DCR's creator: its owner (manager) on Decentriq, or None if unknown."""
+    managers = _dcr_managers(record)
+    return managers[0] if managers else None
 
 
-def _is_cohort_data_owner(record: dict[str, Any], email: str) -> bool:
-    """Whether the user is a data owner of one of the DCR's main cohort data
-    nodes (named after the cohort id with '-' for spaces); data ownership of
-    metadata, shuffled-sample or mapping nodes does not count."""
-    from src.cohort_cache import get_cached_cohort_ids
-    try:
-        cohort_nodes = {c.replace(" ", "-") for c in get_cached_cohort_ids()}
-    except Exception as exc:
-        logging.warning("Could not list catalog cohorts: %s", exc)
-        return False
-    for p in record.get("participants") or []:
-        if (p.get("email") or "").strip().lower() == email:
-            if any(node in cohort_nodes for node in p.get("data_owner_of") or []):
-                return True
-    return False
+def _is_service_account(email: str | None) -> bool:
+    return bool(email) and email == (settings.decentriq_email or "").strip().lower()
 
 
 def _with_deactivation(records: list[dict[str, Any]], email: str) -> list[dict[str, Any]]:
-    """Copies of the user's DCR records with deactivated / can_deactivate."""
+    """Copies of the user's DCR records with creator / deactivated /
+    can_deactivate / deactivate_in_app (the creator is the service account,
+    which can stop the DCR itself)."""
     deactivated = _load_deactivated()
-    creators = _dcr_creators()
+    email = (email or "").strip().lower()
     out = []
     for record in records:
         info = deactivated.get(record.get("id") or "")
         stopped = bool(info) or bool(record.get("isStopped"))
+        creator = _dcr_creator(record)
         out.append({
             **record,
+            "creator": creator,
             "deactivated": stopped,
             "deactivated_at": (info or {}).get("at"),
             "deactivated_by": (info or {}).get("by"),
-            "can_deactivate": not stopped and _can_deactivate(record, email, creators),
+            "can_deactivate": not stopped and creator is not None and creator == email,
+            "deactivate_in_app": _is_service_account(creator),
         })
     return out
 
 
-def _deactivate_dcr(dcr_id: str) -> None:
+def _is_dcr_stopped(dcr_id: str) -> bool:
     client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
-    dcr = client.retrieve_analytics_dcr(dcr_id)
-    try:
-        dcr.stop()
-    except Exception:
-        # Already stopped (e.g. on the Decentriq platform) counts as done.
-        if dcr.session.retrieve_data_room_status(dcr_id) != "Stopped":
-            raise
+    for desc in client.get_data_room_descriptions():
+        if desc.get("id") == dcr_id:
+            return bool(desc.get("isStopped"))
+    raise LookupError("DCR not found on Decentriq for the service account")
 
 
 @router.post(
-    "/my-dcrs/{dcr_id}/deactivate",
-    name="Deactivate (stop) a DCR - irreversible",
+    "/my-dcrs/{dcr_id}/check-deactivated",
+    name="Ask Decentriq whether a DCR has been deactivated (stopped)",
 )
-async def api_deactivate_dcr(dcr_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    user_email = (user.get("email") if isinstance(user, dict) else "") or ""
+async def api_check_dcr_deactivated(dcr_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Called after the creator has stopped the DCR on the Decentriq platform.
+    Any participant may ask; a stop found here is recorded for every worker."""
+    user_email = ((user.get("email") if isinstance(user, dict) else "") or "").strip().lower()
     if not user_email:
         raise HTTPException(status_code=401, detail="Not authenticated")
     record = next((r for r in get_dcrs_for_participant(user_email) if r.get("id") == dcr_id), None)
     if record is None:
         raise HTTPException(status_code=404, detail="DCR not found among your Data Clean Rooms")
-    if not _can_deactivate(record, user_email, _dcr_creators()):
-        raise HTTPException(status_code=403, detail="Only the DCR's creator, the data owners of its cohorts or an admin can deactivate it")
     import asyncio
     try:
-        await asyncio.to_thread(_deactivate_dcr, dcr_id)
+        stopped = await asyncio.to_thread(_is_dcr_stopped, dcr_id)
     except Exception as exc:
-        logging.error("Deactivating DCR %s failed: %s", dcr_id, exc)
-        raise HTTPException(status_code=502, detail=f"Decentriq could not deactivate the DCR: {exc}")
-    info = {"at": datetime.now().isoformat(timespec="seconds"), "by": user_email.strip().lower()}
+        logging.error("Checking the status of DCR %s failed: %s", dcr_id, exc)
+        raise HTTPException(status_code=502, detail=f"Could not read the DCR's status from Decentriq: {exc}")
+    if not stopped:
+        return {"dcr_id": dcr_id, "deactivated": False}
+    # Only the creator can stop it; the time is when the explorer noticed.
+    info = _record_deactivation(dcr_id, _dcr_creator(record))
+    logging.info("DCR %s found deactivated (checked by %s)", dcr_id, user_email)
+    return {"dcr_id": dcr_id, "deactivated": True, "deactivated_at": info.get("at"), "deactivated_by": info.get("by")}
+
+
+def _record_deactivation(dcr_id: str, by: str | None) -> dict[str, Any]:
+    """Store a deactivation for every worker (keeping an earlier record)."""
     with _deactivation_lock:
         data = _load_deactivated()
+        info = data.get(dcr_id) or {"at": datetime.now().isoformat(timespec="seconds"), "by": by}
         data[dcr_id] = info
         tmp = f"{_deactivated_path()}.tmp.{os.getpid()}"
         with open(tmp, "w", encoding="utf-8") as fh:
@@ -3193,6 +3193,44 @@ async def api_deactivate_dcr(dcr_id: str, user: Any = Depends(get_current_user))
         for r in _dcr_history_records:
             if r.get("id") == dcr_id:
                 r["isStopped"] = True
+    return info
+
+
+def _stop_dcr_as_service_account(dcr_id: str) -> None:
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+    dcr = client.retrieve_analytics_dcr(dcr_id)
+    try:
+        dcr.stop()
+    except Exception:
+        # Already stopped (e.g. on the Decentriq platform) counts as done.
+        if not _is_dcr_stopped(dcr_id):
+            raise
+
+
+@router.post(
+    "/my-dcrs/{dcr_id}/deactivate",
+    name="Deactivate (stop) a DCR owned by the service account - irreversible",
+)
+async def api_deactivate_dcr(dcr_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Only for DCRs whose owner (manager) is the service account, requested by
+    the service account itself; any other DCR is stopped by its owner on the
+    Decentriq platform."""
+    user_email = ((user.get("email") if isinstance(user, dict) else "") or "").strip().lower()
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    record = next((r for r in get_dcrs_for_participant(user_email) if r.get("id") == dcr_id), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="DCR not found among your Data Clean Rooms")
+    creator = _dcr_creator(record)
+    if creator != user_email or not _is_service_account(creator):
+        raise HTTPException(status_code=403, detail="Only the service account can deactivate a DCR it owns from here")
+    import asyncio
+    try:
+        await asyncio.to_thread(_stop_dcr_as_service_account, dcr_id)
+    except Exception as exc:
+        logging.error("Deactivating DCR %s failed: %s", dcr_id, exc)
+        raise HTTPException(status_code=502, detail=f"Decentriq could not deactivate the DCR: {exc}")
+    info = _record_deactivation(dcr_id, user_email)
     logging.info("DCR %s deactivated by %s", dcr_id, user_email)
     return {"dcr_id": dcr_id, "deactivated": True, "deactivated_at": info["at"], "deactivated_by": info["by"]}
 

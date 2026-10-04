@@ -17,10 +17,12 @@ interface DcrRecord {
   nodes?: { name?: string; type?: string; script?: string }[];
   cohorts?: string[];
   error?: string;
+  creator?: string | null;
   deactivated?: boolean;
   deactivated_at?: string | null;
   deactivated_by?: string | null;
   can_deactivate?: boolean;
+  deactivate_in_app?: boolean;
   [key: string]: any;
 }
 
@@ -31,6 +33,11 @@ export default function DcrsPage() {
   const [error, setError] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
+  const [scope, setScope] = useState<'all' | 'created'>('all');
+
+  const isMine = (dcr: DcrRecord) =>
+    !!dcr.creator && !!userEmail && dcr.creator.toLowerCase() === userEmail.toLowerCase();
+  const visibleDcrs = scope === 'created' ? dcrs.filter(isMine) : dcrs;
 
   const fetchMyDcrs = useCallback(async () => {
     setIsLoading(true);
@@ -122,6 +129,26 @@ export default function DcrsPage() {
           </p>
         </header>
 
+        {/* Which DCRs to show */}
+        <div className="flex justify-center">
+          <div className="join" role="group" aria-label="Which DCRs to show">
+            <button
+              className={`btn btn-sm join-item ${scope === 'all' ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => setScope('all')}
+              aria-pressed={scope === 'all'}
+            >
+              All DCRs I am a participant in
+            </button>
+            <button
+              className={`btn btn-sm join-item ${scope === 'created' ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => setScope('created')}
+              aria-pressed={scope === 'created'}
+            >
+              Only DCRs I created
+            </button>
+          </div>
+        </div>
+
         {/* Refresh button */}
         <div className="flex justify-start items-center gap-3">
           <button
@@ -153,15 +180,17 @@ export default function DcrsPage() {
           </div>
         )}
 
-        {!isLoading && !error && dcrs.length === 0 && (
+        {!isLoading && !error && visibleDcrs.length === 0 && (
           <div className="text-center text-base-content/60 py-16">
-            No Data Clean Rooms found for your account.
+            {scope === 'created' && dcrs.length > 0
+              ? 'You have not created any of these Data Clean Rooms.'
+              : 'No Data Clean Rooms found for your account.'}
           </div>
         )}
 
-        {!isLoading && !error && dcrs.length > 0 && (
+        {!isLoading && !error && visibleDcrs.length > 0 && (
           <div className="space-y-3">
-            {dcrs.map((dcr, idx) => (
+            {visibleDcrs.map((dcr, idx) => (
               <DcrCard key={dcr.id || idx} dcr={dcr} />
             ))}
           </div>
@@ -190,6 +219,8 @@ function formatTimestamp(iso?: string): string {
 
 function DcrCard({ dcr }: { dcr: DcrRecord }) {
   const participantCount = dcr.participants?.length ?? 0;
+  const creator = dcr.creator?.toLowerCase() || null;
+  const isCreator = (email?: string) => !!creator && !!email && email.toLowerCase() === creator;
   const dcrUrl = dcr.id
     ? `https://platform.decentriq.com/datarooms/p/${dcr.id}`
     : null;
@@ -241,7 +272,10 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
           <div className="mt-3 text-sm">
             <span className="font-semibold">Participants:</span>
             <ul className="list-disc ml-5 mt-1 text-base-content/80">
-              {dcr.participants.map((p, i) => {
+              {[...dcr.participants]
+                // The DCR's creator first.
+                .sort((a, b) => Number(isCreator(b.email)) - Number(isCreator(a.email)))
+                .map((p, i) => {
                 // Determine if participant is data owner (owns data nodes without "metadata", "sample", or "mapping" in name)
                 const dataOwnerOf = p.data_owner_of || [];
                 const isDataOwner = dataOwnerOf.some(
@@ -259,7 +293,11 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
 
                 return (
                   <li key={p.email || i}>
-                    {p.email || 'unknown'}
+                    {isCreator(p.email) ? (
+                      <span className="font-semibold" title="Created this DCR">{p.email}</span>
+                    ) : (
+                      p.email || 'unknown'
+                    )}
                     <span className="text-xs text-base-content/60 ml-1">
                       ({role})
                     </span>
@@ -320,6 +358,8 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
             dcrId={dcr.id}
             dcrTitle={dcr.title || ''}
             deactivated={!!dcr.deactivated}
+            canDeactivate={!!dcr.can_deactivate}
+            inApp={!!dcr.deactivate_in_app}
             deactivatedAt={dcr.deactivated_at}
             deactivatedBy={dcr.deactivated_by}
           />
