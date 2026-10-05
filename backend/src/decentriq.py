@@ -3138,6 +3138,8 @@ def _with_deactivation(records: list[dict[str, Any]], email: str) -> list[dict[s
             "deactivated": stopped,
             "deactivated_at": (info or {}).get("at"),
             "deactivated_by": (info or {}).get("by"),
+            # Records written before "source" existed come from stops made in My DCRs.
+            "deactivated_source": ((info or {}).get("source") or "explorer") if info else None,
             "can_deactivate": not stopped and creator is not None and creator == email,
             "deactivate_in_app": _is_service_account(creator),
         })
@@ -3173,17 +3175,21 @@ async def api_check_dcr_deactivated(dcr_id: str, user: Any = Depends(get_current
         raise HTTPException(status_code=502, detail=f"Could not read the DCR's status from Decentriq: {exc}")
     if not stopped:
         return {"dcr_id": dcr_id, "deactivated": False}
-    # Only the creator can stop it; the time is when the explorer noticed.
-    info = _record_deactivation(dcr_id, _dcr_creator(record))
+    # Only the creator can stop it; the time is when the explorer found it stopped.
+    info = _record_deactivation(dcr_id, _dcr_creator(record), "decentriq")
     logging.info("DCR %s found deactivated (checked by %s)", dcr_id, user_email)
-    return {"dcr_id": dcr_id, "deactivated": True, "deactivated_at": info.get("at"), "deactivated_by": info.get("by")}
+    return {"dcr_id": dcr_id, "deactivated": True, "deactivated_at": info.get("at"),
+            "deactivated_by": info.get("by"), "deactivated_source": info.get("source")}
 
 
-def _record_deactivation(dcr_id: str, by: str | None) -> dict[str, Any]:
-    """Store a deactivation for every worker (keeping an earlier record)."""
+def _record_deactivation(dcr_id: str, by: str | None, source: str) -> dict[str, Any]:
+    """Store a deactivation for every worker (keeping an earlier record).
+    source "explorer": stopped from My DCRs, so "at" is when it was stopped;
+    source "decentriq": stopped on the Decentriq platform, so "at" is only when
+    the explorer found it stopped."""
     with _deactivation_lock:
         data = _load_deactivated()
-        info = data.get(dcr_id) or {"at": datetime.now().isoformat(timespec="seconds"), "by": by}
+        info = data.get(dcr_id) or {"at": datetime.now().isoformat(timespec="seconds"), "by": by, "source": source}
         data[dcr_id] = info
         tmp = f"{_deactivated_path()}.tmp.{os.getpid()}"
         with open(tmp, "w", encoding="utf-8") as fh:
@@ -3230,9 +3236,10 @@ async def api_deactivate_dcr(dcr_id: str, user: Any = Depends(get_current_user))
     except Exception as exc:
         logging.error("Deactivating DCR %s failed: %s", dcr_id, exc)
         raise HTTPException(status_code=502, detail=f"Decentriq could not deactivate the DCR: {exc}")
-    info = _record_deactivation(dcr_id, user_email)
+    info = _record_deactivation(dcr_id, user_email, "explorer")
     logging.info("DCR %s deactivated by %s", dcr_id, user_email)
-    return {"dcr_id": dcr_id, "deactivated": True, "deactivated_at": info["at"], "deactivated_by": info["by"]}
+    return {"dcr_id": dcr_id, "deactivated": True, "deactivated_at": info.get("at"),
+            "deactivated_by": info.get("by"), "deactivated_source": info.get("source")}
 
 
 @router.get(

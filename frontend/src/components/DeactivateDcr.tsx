@@ -18,14 +18,12 @@ interface Props {
   deactivated: boolean;
   canDeactivate: boolean;
   inApp: boolean;
-  deactivatedAt?: string | null;
-  deactivatedBy?: string | null;
 }
 
-export function DeactivateDcr({dcrId, dcrTitle, deactivated, canDeactivate, inApp, deactivatedAt, deactivatedBy}: Props) {
-  const [done, setDone] = useState<{at?: string | null; by?: string | null} | null>(
-    deactivated ? {at: deactivatedAt, by: deactivatedBy} : null
-  );
+// The backend also records who deactivated the DCR and when (deactivated_by /
+// deactivated_at / deactivated_source on the DCR record); not shown for now.
+export function DeactivateDcr({dcrId, dcrTitle, deactivated, canDeactivate, inApp}: Props) {
+  const [done, setDone] = useState(deactivated);
   const [confirming, setConfirming] = useState(false);
   const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<{kind: 'error' | 'info'; text: string} | null>(null);
@@ -50,7 +48,7 @@ export function DeactivateDcr({dcrId, dcrTitle, deactivated, canDeactivate, inAp
       }
       const data = await res.json();
       if (data?.deactivated) {
-        setDone({at: data?.deactivated_at, by: data?.deactivated_by});
+        setDone(true);
         setConfirming(false);
       } else {
         setMessage({kind: 'info', text: 'Decentriq still reports this DCR as active.'});
@@ -64,16 +62,10 @@ export function DeactivateDcr({dcrId, dcrTitle, deactivated, canDeactivate, inAp
 
   if (done) {
     return (
-      <div className="mt-3 alert alert-error font-semibold">
+      <div className="mt-3 alert bg-base-200 border-base-300 text-base-content font-semibold">
         <AlertOctagon size={20} />
         <span>
           This DCR has been deactivated. No new computations can be run in it.
-          {(done.at || done.by) && (
-            <span className="block text-xs font-normal opacity-90">
-              Deactivated{done.by && <> by {done.by}</>}
-              {done.at && <> (noticed {new Date(done.at).toLocaleString()})</>}.
-            </span>
-          )}
         </span>
       </div>
     );
@@ -84,7 +76,7 @@ export function DeactivateDcr({dcrId, dcrTitle, deactivated, canDeactivate, inAp
   const modal = confirming && (
     <div className="modal modal-open z-[10000]" onMouseDown={() => !checking && setConfirming(false)}>
       <div className="modal-box" onMouseDown={e => e.stopPropagation()}>
-        <h3 className="font-bold text-lg flex items-center gap-2 text-error">
+        <h3 className="font-bold text-lg flex items-center gap-2">
           <AlertTriangle size={20} /> Deactivate this DCR?
         </h3>
         <p className="mt-3 text-sm">
@@ -92,7 +84,7 @@ export function DeactivateDcr({dcrId, dcrTitle, deactivated, canDeactivate, inAp
         </p>
         <ul className="list-disc ml-5 mt-2 text-sm space-y-1">
           <li>No new computations can be run in it, by anyone.</li>
-          <li className="font-semibold text-error">This action is not reversible.</li>
+          <li>This action is not reversible.</li>
         </ul>
         {!inApp && (
           <p className="mt-3 text-sm">
@@ -101,7 +93,7 @@ export function DeactivateDcr({dcrId, dcrTitle, deactivated, canDeactivate, inAp
           </p>
         )}
         {message && (
-          <div className={`alert text-sm mt-3 ${message.kind === 'error' ? 'alert-error' : 'alert-info'}`}>{message.text}</div>
+          <div className="alert bg-base-200 border-base-300 text-base-content text-sm mt-3">{message.text}</div>
         )}
         <div className="modal-action flex-wrap">
           <button className="btn btn-sm btn-ghost" onClick={() => setConfirming(false)} disabled={checking}>

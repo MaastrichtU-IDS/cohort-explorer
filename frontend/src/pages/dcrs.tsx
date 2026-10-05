@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiUrl } from '@/utils';
-import { AlertTriangle, Clock, RefreshCw, ExternalLink } from 'react-feather';
+import { AlertTriangle, Clock, RefreshCw, ExternalLink, Search } from 'react-feather';
 import { DcrLogPanel } from '@/components/DcrLogPanel';
 import { DeactivateDcr } from '@/components/DeactivateDcr';
 
@@ -21,6 +21,7 @@ interface DcrRecord {
   deactivated?: boolean;
   deactivated_at?: string | null;
   deactivated_by?: string | null;
+  deactivated_source?: string | null;
   can_deactivate?: boolean;
   deactivate_in_app?: boolean;
   [key: string]: any;
@@ -37,7 +38,14 @@ export default function DcrsPage() {
 
   const isMine = (dcr: DcrRecord) =>
     !!dcr.creator && !!userEmail && dcr.creator.toLowerCase() === userEmail.toLowerCase();
-  const visibleDcrs = scope === 'created' ? dcrs.filter(isMine) : dcrs;
+  const [keyword, setKeyword] = useState('');
+  // Every word typed must appear somewhere in the DCR's text (case-insensitive).
+  const keywordWords = keyword.toLowerCase().split(/\s+/).filter(Boolean);
+  const visibleDcrs = (scope === 'created' ? dcrs.filter(isMine) : dcrs).filter(dcr => {
+    if (keywordWords.length === 0) return true;
+    const text = searchableText(dcr);
+    return keywordWords.every(w => text.includes(w));
+  });
 
   const fetchMyDcrs = useCallback(async () => {
     setIsLoading(true);
@@ -167,6 +175,18 @@ export default function DcrsPage() {
           )}
         </div>
 
+        {/* Keyword filter */}
+        <label className="input input-bordered input-sm flex items-center gap-2 w-56 -mt-3">
+          <Search size={12} className="opacity-50" />
+          <input
+            className="grow min-w-0"
+            placeholder="Filter DCRs by keyword"
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
+            aria-label="Filter DCRs by keyword"
+          />
+        </label>
+
         {isLoading && (
           <div className="flex justify-center py-16">
             <span className="loading loading-spinner loading-lg"></span>
@@ -182,9 +202,11 @@ export default function DcrsPage() {
 
         {!isLoading && !error && visibleDcrs.length === 0 && (
           <div className="text-center text-base-content/60 py-16">
-            {scope === 'created' && dcrs.length > 0
-              ? 'You have not created any of these Data Clean Rooms.'
-              : 'No Data Clean Rooms found for your account.'}
+            {keywordWords.length > 0 && dcrs.length > 0
+              ? 'No Data Clean Rooms match this keyword.'
+              : scope === 'created' && dcrs.length > 0
+                ? 'You have not created any of these Data Clean Rooms.'
+                : 'No Data Clean Rooms found for your account.'}
           </div>
         )}
 
@@ -201,6 +223,24 @@ export default function DcrsPage() {
 }
 
 // ---------- Subcomponents ----------------------------------------------------
+
+/** Everything shown about a DCR, lower-cased, for the keyword filter: title,
+ *  description (incl. the research question), id, cohorts, creator,
+ *  participants and node names. */
+function searchableText(dcr: DcrRecord): string {
+  return [
+    dcr.title,
+    dcr.description,
+    dcr.id,
+    dcr.creator,
+    ...(dcr.cohorts || []),
+    ...(dcr.participants || []).map(p => p.email),
+    ...(dcr.nodes || []).map(n => n.name),
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .toLowerCase();
+}
 
 function formatTimestamp(iso?: string): string {
   if (!iso) return '';
@@ -360,8 +400,6 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
             deactivated={!!dcr.deactivated}
             canDeactivate={!!dcr.can_deactivate}
             inApp={!!dcr.deactivate_in_app}
-            deactivatedAt={dcr.deactivated_at}
-            deactivatedBy={dcr.deactivated_by}
           />
         )}
         {dcr.id && <DcrLogPanel dcrId={dcr.id} />}
