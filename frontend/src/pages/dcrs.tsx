@@ -175,17 +175,24 @@ export default function DcrsPage() {
           )}
         </div>
 
-        {/* Keyword filter */}
-        <label className="input input-bordered input-sm flex items-center gap-2 w-56 -mt-3">
-          <Search size={12} className="opacity-50" />
-          <input
-            className="grow min-w-0"
-            placeholder="Filter DCRs by keyword"
-            value={keyword}
-            onChange={e => setKeyword(e.target.value)}
-            aria-label="Filter DCRs by keyword"
-          />
-        </label>
+        {/* Keyword filter, with how many DCRs the filters let through */}
+        <div className="flex flex-wrap items-center gap-3 -mt-3">
+          <label className="input input-bordered input-sm flex items-center gap-2 w-56">
+            <Search size={12} className="opacity-50" />
+            <input
+              className="grow min-w-0"
+              placeholder="Filter DCRs by keyword"
+              value={keyword}
+              onChange={e => setKeyword(e.target.value)}
+              aria-label="Filter DCRs by keyword"
+            />
+          </label>
+          {!isLoading && !error && (
+            <span className="text-xs text-base-content/60" aria-live="polite">
+              Showing {visibleDcrs.length} of {dcrs.length} DCRs
+            </span>
+          )}
+        </div>
 
         {isLoading && (
           <div className="flex justify-center py-16">
