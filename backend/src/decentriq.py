@@ -1,6 +1,7 @@
 import csv
 from copy import deepcopy
 from typing import Any
+import fcntl
 import os, json
 import logging # Add logging import
 import threading
@@ -2530,7 +2531,7 @@ def _dcr_history_path() -> str:
     return os.path.join(_decentriq_history_dir(), "decentriq_dcrs_history.jsonl")
 
 
-# In-memory DCR history state. Populated by ``refresh_all_dcrs_via_decentriq_api``
+# In-memory DCR history state. Populated by ``refresh_dcr_history``
 # at startup and lazily on first access if the JSONL already exists on disk.
 # ``_dcr_history_mtime_ns`` tracks the JSONL file's mtime at the moment the
 # in-memory state was last synced, so each accessor can detect whether another
@@ -2650,20 +2651,11 @@ def load_dcr_history_from_disk() -> int:
     path = _dcr_history_path()
     if not os.path.isfile(path):
         return 0
-    records: list[dict[str, Any]] = []
     try:
         # Snapshot the mtime *before* reading so a concurrent rewrite mid-read
         # is detected next time (rather than us claiming we have the latest).
         mtime_ns = _file_mtime_ns(path)
-        with open(path, "r", encoding="utf-8") as fh:
-            for raw in fh:
-                raw = raw.strip()
-                if not raw:
-                    continue
-                try:
-                    records.append(json.loads(raw))
-                except json.JSONDecodeError:
-                    continue
+        records = _read_dcr_history_file()
     except OSError as exc:
         logging.warning("Failed to read DCR history file %s: %s", path, exc)
         return 0
@@ -2717,297 +2709,163 @@ def get_dcrs_for_participant(email: str) -> list[dict[str, Any]]:
         ]
 
 
-def refresh_all_dcrs_via_decentriq_api() -> dict[str, Any]:
-    """Fetch every DCR the cohort-explorer service account is a member of,
-    enrich each with its node titles/types and detailed participant list,
-    persist them to a single JSONL file at
-    ``<data_folder>/logs/decentriq_dcrs_history.jsonl``, and rebuild the
-    in-memory ``email -> [dcr_records]`` index used by ``get_dcrs_for_participant``.
+# The history file is the single source of truth shared by the API workers: a
+# refresh reads it, merges what Decentriq reports now, and rewrites it whole
+# (atomically), so every worker picks the result up through the mtime check in
+# _reload_if_stale. Only one refresh runs at a time across workers.
+_DCR_REFRESH_LOCK_FILE = ".dcr_refresh.lock"
+# Detail fetches that failed (e.g. a non-analytics DCR) are retried this often.
+_DCR_DETAIL_MAX_ATTEMPTS = 3
+_DCR_DETAIL_WORKERS = 8
+# Description fields Decentriq may change after publishing; refreshed every time.
+_DCR_DESCRIPTION_FIELDS = ("title", "isStopped", "updatedAt", "owner", "kind", "driverAttestationHash")
 
-    Only fetches detailed info for new DCRs (not already in the JSONL file).
-    Appends new DCRs to the JSONL file instead of rewriting it.
 
-    Returns a summary dict (count, earliest / latest ``createdAt``, processed /
-    failures / total_nodes / total_participants, output path). Synchronous;
-    safe to run inside ``asyncio.to_thread`` from a non-blocking startup task.
+def _read_dcr_history_file() -> list[dict[str, Any]]:
+    """Records from the history file, one per DCR id (a later line wins, so
+    duplicates left by earlier versions collapse)."""
+    path = _dcr_history_path()
+    by_id: dict[str, dict[str, Any]] = {}
+    no_id: list[dict[str, Any]] = []
+    if not os.path.isfile(path):
+        return []
+    with open(path, "r", encoding="utf-8") as fh:
+        for raw in fh:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                record = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if record.get("id"):
+                by_id[record["id"]] = record
+            else:
+                no_id.append(record)
+    return list(by_id.values()) + no_id
+
+
+def _write_dcr_history_file(records: list[dict[str, Any]]) -> None:
+    path = _dcr_history_path()
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        for record in records:
+            fh.write(json.dumps(record, default=str, ensure_ascii=False) + "\n")
+    os.replace(tmp, path)
+
+
+def _fetch_dcr_details(client: Any, dcr_id: str) -> dict[str, Any]:
+    """Nodes (name, type, first script line), cohorts and participants of a DCR."""
+    dcr = client.retrieve_analytics_dcr(dcr_id=dcr_id)
+    nodes = []
+    for node_def in getattr(dcr, "node_definitions", []) or []:
+        node_info = {"name": getattr(node_def, "name", None), "type": type(node_def).__name__}
+        if node_info["type"] in ("PreviewComputeNodeDefinition", "PythonComputeNodeDefinition"):
+            script = getattr(node_def, "script", None)
+            if script:
+                node_info["script"] = str(script).split("\n")[0]
+        nodes.append(node_info)
+    # Cohort names from the metadata dictionary nodes ("<cohort>_metadata_dictionary", ...).
+    cohort_names = set()
+    for node in nodes:
+        name = node["name"] or ""
+        for suffix in ("-metadata", "_metadata", "-metadata_dictionary", "_metadata_dictionary"):
+            if name.lower().endswith(suffix) and name[: -len(suffix)]:
+                cohort_names.add(name[: -len(suffix)])
+                break
+    return {"nodes": nodes, "cohorts": sorted(cohort_names), "participants": _extract_participants(dcr)}
+
+
+def refresh_dcr_history(wait: bool = True, skip_if_newer_than: float | None = None) -> dict[str, Any]:
+    """Bring the DCR history up to date with Decentriq.
+
+    One GraphQL call lists every DCR the service account is in. Known DCRs get
+    their description fields (title, isStopped, ...) updated; new DCRs - and
+    known ones whose details failed to load, up to _DCR_DETAIL_MAX_ATTEMPTS -
+    get their nodes and participants fetched. DCRs Decentriq no longer lists
+    are kept. The file is then rewritten whole, so every worker reloads it, and
+    DCRs found stopped are recorded in deactivated_dcrs.json.
+
+    wait=False returns at once when another worker is refreshing.
+    skip_if_newer_than: a time.time() value; when the history file was
+    rewritten after it (e.g. by a refresh this call waited for), no new fetch
+    is made.
     """
-    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
-    logging.info("Fetching all DCR descriptions from Decentriq (incremental startup refresh)...")
-    descriptions = client.get_data_room_descriptions()
+    import time
+    from concurrent.futures import ThreadPoolExecutor
 
-    output_path = _dcr_history_path()
+    lock_path = os.path.join(_decentriq_history_dir(), _DCR_REFRESH_LOCK_FILE)
+    with open(lock_path, "a") as lock_file:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+        except BlockingIOError:
+            return {"skipped": "another worker is refreshing"}
+        try:
+            mtime = os.path.getmtime(_dcr_history_path()) if os.path.isfile(_dcr_history_path()) else None
+            if skip_if_newer_than is not None and mtime is not None and mtime >= skip_if_newer_than:
+                load_dcr_history_from_disk()
+                return {"skipped": "refreshed meanwhile by another request"}
 
-    # Load existing DCRs from JSONL file
-    existing_dcrs_by_id: dict[str, dict[str, Any]] = {}
-    if os.path.isfile(output_path):
-        with open(output_path, "r", encoding="utf-8") as fh:
-            for raw in fh:
-                raw = raw.strip()
-                if not raw:
+            started = time.monotonic()
+            client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+            descriptions = [dict(d) for d in client.get_data_room_descriptions()]
+            existing = {r["id"]: r for r in _read_dcr_history_file() if r.get("id")}
+
+            records: list[dict[str, Any]] = []
+            to_fetch: list[dict[str, Any]] = []
+            for desc in descriptions:
+                dcr_id = desc.get("id")
+                if not dcr_id:
                     continue
+                record = existing.pop(dcr_id, None)
+                if record is None:
+                    record = {**desc, "nodes": [], "participants": [], "cohorts": []}
+                else:
+                    record.update({k: desc[k] for k in _DCR_DESCRIPTION_FIELDS if k in desc})
+                needs_details = record.get("error") or not (record.get("nodes") or record.get("participants"))
+                if needs_details and int(record.get("detail_attempts") or 0) < _DCR_DETAIL_MAX_ATTEMPTS:
+                    to_fetch.append(record)
+                records.append(record)
+
+            def fetch(record: dict[str, Any]) -> bool:
                 try:
-                    record = json.loads(raw)
-                    dcr_id = record.get("id")
-                    if dcr_id:
-                        existing_dcrs_by_id[dcr_id] = record
-                except json.JSONDecodeError:
-                    continue
+                    record.update(_fetch_dcr_details(client, record["id"]))
+                    record.pop("error", None)
+                    record.pop("detail_attempts", None)
+                    return True
+                except Exception as exc:
+                    # Non-analytics DCRs (e.g. MEDIA) or transient errors.
+                    record["error"] = f"{type(exc).__name__}: {exc}"
+                    record["detail_attempts"] = int(record.get("detail_attempts") or 0) + 1
+                    return False
 
-    logging.info("Found %d existing DCRs in JSONL file", len(existing_dcrs_by_id))
+            with ThreadPoolExecutor(max_workers=_DCR_DETAIL_WORKERS) as pool:
+                fetched_ok = sum(pool.map(fetch, to_fetch))
 
-    earliest: str | None = None
-    latest: str | None = None
-    count = 0
-    processed = 0
-    failures = 0
-    total_nodes = 0
-    total_participants = 0
-    new_dcrs_added = 0
-    new_records: list[dict[str, Any]] = []
-    all_records: list[dict[str, Any]] = []
+            # DCRs Decentriq no longer lists for the service account stay as they were.
+            records.extend(existing.values())
+            _write_dcr_history_file(records)
+            load_dcr_history_from_disk()
 
-    for desc in descriptions:
-        count += 1
-        record: dict[str, Any] = dict(desc) if isinstance(desc, dict) else {"raw": desc}
+            newly_stopped = 0
+            known_stopped = _load_deactivated()
+            for record in records:
+                if record.get("isStopped") and record.get("id") not in known_stopped:
+                    _record_deactivation(record["id"], _dcr_creator(record), "decentriq")
+                    newly_stopped += 1
 
-        created_at = record.get("createdAt")
-        if created_at:
-            if earliest is None or created_at < earliest:
-                earliest = created_at
-            if latest is None or created_at > latest:
-                latest = created_at
-
-        dcr_id = record.get("id")
-        is_new = dcr_id and dcr_id not in existing_dcrs_by_id
-
-        record["nodes"] = []
-        record["participants"] = []
-        record["cohorts"] = []
-
-        # Only fetch detailed info for new DCRs
-        if is_new and dcr_id:
-            try:
-                dcr = client.retrieve_analytics_dcr(dcr_id=dcr_id)
-                for node_def in getattr(dcr, "node_definitions", []) or []:
-                    node_name = getattr(node_def, "name", None)
-                    node_info = {
-                        "name": node_name,
-                        "type": type(node_def).__name__,
-                    }
-                    # Capture script name for compute nodes
-                    if type(node_def).__name__ in ("PreviewComputeNodeDefinition", "PythonComputeNodeDefinition"):
-                        script = getattr(node_def, "script", None)
-                        if script:
-                            node_info["script"] = str(script).split("\n")[0] if isinstance(script, str) else str(script)
-                    record["nodes"].append(node_info)
-                # Extract cohort names from metadata nodes (nodes with "metadata" in the name)
-                # The cohort name is at the start of the node name before "metadata"
-                cohort_names = set()
-                for node in record["nodes"]:
-                    if node["name"] and "metadata" in node["name"].lower():
-                        # Extract cohort name from node name (e.g., "cohort1-metadata" -> "cohort1")
-                        # Handle both "-metadata" and "_metadata" suffixes
-                        name_lower = node["name"].lower()
-                        for suffix in ["-metadata", "_metadata", "-metadata_dictionary", "_metadata_dictionary"]:
-                            if name_lower.endswith(suffix):
-                                cohort_name = node["name"][:-len(suffix)]
-                                if cohort_name:
-                                    cohort_names.add(cohort_name)
-                                break
-                record["cohorts"] = sorted(list(cohort_names))
-                total_nodes += len(record["nodes"])
-                record["participants"] = _extract_participants(dcr)
-                total_participants += len(record["participants"])
-                processed += 1
-                new_dcrs_added += 1
-                new_records.append(record)
-            except Exception as exc:
-                # Non-analytics DCRs (e.g. MEDIA) or transient errors land here.
-                record["error"] = f"{type(exc).__name__}: {exc}"
-                failures += 1
-                new_records.append(record)
-        elif dcr_id:
-            # For existing DCRs, use the record from the JSONL file, with the
-            # stopped flag from the fresh description (a DCR can be stopped later).
-            record = existing_dcrs_by_id[dcr_id]
-            if isinstance(desc, dict) and "isStopped" in desc:
-                record["isStopped"] = desc["isStopped"]
-        else:
-            record["error"] = "missing_dcr_id"
-            failures += 1
-
-        all_records.append(record)
-
-        if count % 25 == 0:
-            logging.info(
-                "DCR refresh progress (startup): count=%d processed=%d failures=%d new=%d",
-                count, processed, failures, new_dcrs_added,
-            )
-
-    # Append new DCRs to JSONL file if any were found
-    if new_records:
-        logging.info("Appending %d new DCRs to JSONL file", len(new_records))
-        with open(output_path, "a", encoding="utf-8") as fh:
-            for record in new_records:
-                fh.write(json.dumps(record, default=str, ensure_ascii=False) + "\n")
-
-    # Update in-memory state with all records
-    _set_dcr_history_state(all_records, _file_mtime_ns(output_path) if os.path.exists(output_path) else None)
-
-    logging.info(
-        "DCR refresh done (startup): %d total records (processed=%d, failures=%d, "
-        "new_dcrs_added=%d, total_nodes=%d, total_participants=%d, indexed_emails=%d, earliest=%s, "
-        "latest=%s)",
-        count, processed, failures, new_dcrs_added, total_nodes,
-        total_participants, len(_dcr_history_by_participant), earliest, latest,
-    )
-    return {
-        "count": count,
-        "processed": processed,
-        "failures": failures,
-        "total_nodes": total_nodes,
-        "total_participants": total_participants,
-        "indexed_emails": len(_dcr_history_by_participant),
-        "new_dcrs_added": new_dcrs_added,
-        "earliest_created_at": earliest,
-        "latest_created_at": latest,
-        "output_path": output_path,
-    }
-
-
-def refresh_dcrs_in_memory_only() -> dict[str, Any]:
-    """Fetch every DCR from the Decentriq API and update in-memory state.
-    Only fetches detailed info for new DCRs (not already in memory).
-    Appends new DCRs to the JSONL file if any are found.
-
-    Returns a summary dict (count, earliest / latest ``createdAt``, processed /
-    failures / total_nodes / total_participants, new_dcrs_added).
-    """
-    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
-    logging.info("Fetching all DCR descriptions from Decentriq (incremental refresh)...")
-    descriptions = client.get_data_room_descriptions()
-
-    # Get existing DCR IDs from in-memory state
-    existing_dcr_ids = set()
-    with _dcr_history_lock:
-        existing_dcr_ids = {record.get("id") for record in _dcr_history_records if record.get("id")}
-
-    earliest: str | None = None
-    latest: str | None = None
-    count = 0
-    processed = 0
-    failures = 0
-    total_nodes = 0
-    total_participants = 0
-    new_dcrs_added = 0
-    new_records: list[dict[str, Any]] = []
-    all_records: list[dict[str, Any]] = []
-
-    for desc in descriptions:
-        count += 1
-        record: dict[str, Any] = dict(desc) if isinstance(desc, dict) else {"raw": desc}
-
-        created_at = record.get("createdAt")
-        if created_at:
-            if earliest is None or created_at < earliest:
-                earliest = created_at
-            if latest is None or created_at > latest:
-                latest = created_at
-
-        dcr_id = record.get("id")
-        is_new = dcr_id and dcr_id not in existing_dcr_ids
-
-        record["nodes"] = []
-        record["participants"] = []
-        record["cohorts"] = []
-
-        # Only fetch detailed info for new DCRs
-        if is_new and dcr_id:
-            try:
-                dcr = client.retrieve_analytics_dcr(dcr_id=dcr_id)
-                for node_def in getattr(dcr, "node_definitions", []) or []:
-                    node_name = getattr(node_def, "name", None)
-                    node_info = {
-                        "name": node_name,
-                        "type": type(node_def).__name__,
-                    }
-                    # Capture script name for compute nodes
-                    if type(node_def).__name__ in ("PreviewComputeNodeDefinition", "PythonComputeNodeDefinition"):
-                        script = getattr(node_def, "script", None)
-                        if script:
-                            node_info["script"] = str(script).split("\n")[0] if isinstance(script, str) else str(script)
-                    record["nodes"].append(node_info)
-                # Extract cohort names from metadata nodes
-                cohort_names = set()
-                for node in record["nodes"]:
-                    if node["name"] and "metadata" in node["name"].lower():
-                        name_lower = node["name"].lower()
-                        for suffix in ["-metadata", "_metadata", "-metadata_dictionary", "_metadata_dictionary"]:
-                            if name_lower.endswith(suffix):
-                                cohort_name = node["name"][:-len(suffix)]
-                                if cohort_name:
-                                    cohort_names.add(cohort_name)
-                                break
-                record["cohorts"] = sorted(list(cohort_names))
-                total_nodes += len(record["nodes"])
-                record["participants"] = _extract_participants(dcr)
-                total_participants += len(record["participants"])
-                processed += 1
-                new_dcrs_added += 1
-                new_records.append(record)
-            except Exception as exc:
-                record["error"] = f"{type(exc).__name__}: {exc}"
-                failures += 1
-                new_records.append(record)
-        elif dcr_id:
-            # For existing DCRs, use the in-memory record
-            with _dcr_history_lock:
-                existing_record = next((r for r in _dcr_history_records if r.get("id") == dcr_id), None)
-                if existing_record:
-                    if "isStopped" in record:
-                        existing_record["isStopped"] = record["isStopped"]
-                    record = existing_record
-        else:
-            record["error"] = "missing_dcr_id"
-            failures += 1
-
-        all_records.append(record)
-
-        if count % 25 == 0:
-            logging.info(
-                "DCR refresh progress (incremental): count=%d processed=%d failures=%d new=%d",
-                count, processed, failures, new_dcrs_added,
-            )
-
-    # Append new DCRs to JSONL file if any were found
-    output_path = _dcr_history_path()
-    if new_records:
-        logging.info("Appending %d new DCRs to JSONL file", len(new_records))
-        with open(output_path, "a", encoding="utf-8") as fh:
-            for record in new_records:
-                fh.write(json.dumps(record, default=str, ensure_ascii=False) + "\n")
-
-    # Update in-memory state with all records
-    _set_dcr_history_state(all_records, _file_mtime_ns(output_path) if os.path.exists(output_path) else None)
-
-    logging.info(
-        "DCR refresh done (incremental): %d total records (processed=%d, failures=%d, "
-        "new_dcrs_added=%d, total_nodes=%d, total_participants=%d, indexed_emails=%d, earliest=%s, "
-        "latest=%s)",
-        count, processed, failures, new_dcrs_added, total_nodes,
-        total_participants, len(_dcr_history_by_participant), earliest, latest,
-    )
-    return {
-        "count": count,
-        "processed": processed,
-        "failures": failures,
-        "total_nodes": total_nodes,
-        "total_participants": total_participants,
-        "indexed_emails": len(_dcr_history_by_participant),
-        "new_dcrs_added": new_dcrs_added,
-        "earliest_created_at": earliest,
-        "latest_created_at": latest,
-    }
+            summary = {
+                "dcrs": len(records),
+                "listed_by_decentriq": len(descriptions),
+                "details_fetched": fetched_ok,
+                "details_failed": len(to_fetch) - fetched_ok,
+                "newly_stopped": newly_stopped,
+                "seconds": round(time.monotonic() - started, 1),
+            }
+            logging.info("DCR history refreshed: %s", summary)
+            return summary
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 @router.post(
@@ -3018,14 +2876,11 @@ def refresh_dcrs_in_memory_only() -> dict[str, Any]:
 async def api_refresh_all_dcrs_via_decentriq_api(
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Admin-only. Fetch all DCRs from the Decentriq account, enrich each with
-    its node titles + types and detailed participants, persist the result to
-    one JSONL file, and rebuild the in-memory participant index.
-    """
+    """Admin-only. Same refresh as the My DCRs button (see refresh_dcr_history)."""
     _require_admin(user)
     # Run the (blocking) SDK calls off the event loop.
     import asyncio
-    return await asyncio.to_thread(refresh_all_dcrs_via_decentriq_api)
+    return await asyncio.to_thread(refresh_dcr_history)
 
 
 @router.get(
@@ -3054,14 +2909,18 @@ async def api_my_dcrs(
 async def api_refresh_my_dcrs(
     user: Any = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Trigger a refresh of the DCR history from the Decentriq API (in-memory only),
-    then return the records relevant to the authenticated user.
+    """Refresh the DCR history from the Decentriq API for every worker, then
+    return the records relevant to the authenticated user. When a refresh is
+    already running, this waits for it and uses its result instead of starting
+    another one.
     """
     user_email = user.get("email") if isinstance(user, dict) else None
     if not user_email:
         raise HTTPException(status_code=401, detail="Not authenticated")
     import asyncio
-    summary = await asyncio.to_thread(refresh_dcrs_in_memory_only)
+    import time
+    requested_at = time.time()
+    summary = await asyncio.to_thread(refresh_dcr_history, True, requested_at)
     records = _with_deactivation(get_dcrs_for_participant(user_email), user_email)
     return {"dcrs": records, "count": len(records), "email": user_email, "refresh_summary": summary}
 

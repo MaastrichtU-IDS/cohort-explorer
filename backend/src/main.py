@@ -1,8 +1,8 @@
 from contextlib import asynccontextmanager
 import asyncio
-import fcntl
 import logging
 import os
+import time
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
@@ -16,7 +16,7 @@ from src.data_analysis import router as data_analysis_router
 from src.data_analysis import bare_router as data_analysis_bare_router
 from src.decentriq import router as decentriq_router
 from src.dcr_results import router as dcr_results_router
-from src.decentriq import refresh_all_dcrs_via_decentriq_api
+from src.decentriq import refresh_dcr_history
 from src.eda_counts import router as eda_counts_router
 from src.explore import router as explore_router
 from src.mapping import router as mapping_router
@@ -31,44 +31,45 @@ init_triplestore()
 #asyncio.create_task(run_periodic_monitoring())
 
 
-def _refresh_dcr_history_with_lock() -> None:
-    """Run the DCR history refresh under a non-blocking file lock so that, in
-    multi-worker deployments, only one worker actually performs the SDK-heavy
-    refresh. Other workers see ``LOCK_EX | LOCK_NB`` fail and skip silently.
-    """
-    os.makedirs(settings.data_folder, exist_ok=True)
-    lock_path = os.path.join(settings.data_folder, ".dcr_refresh.lock")
+# How often the DCR history is refreshed from Decentriq in the background.
+DCR_REFRESH_INTERVAL_SECONDS = 60 * 60
+
+
+def _dcr_history_age_seconds() -> float | None:
+    from src.decentriq import _dcr_history_path
     try:
-        with open(lock_path, "w") as lock_file:
+        return time.time() - os.path.getmtime(_dcr_history_path())
+    except OSError:
+        return None
+
+
+async def _refresh_dcr_history_periodically() -> None:
+    """Refresh the DCR history at startup and then about every
+    DCR_REFRESH_INTERVAL_SECONDS. Every worker runs this loop and checks once
+    per interval, but a worker only refreshes when the history file is (nearly)
+    that old and no other worker is refreshing (refresh_dcr_history(wait=False)),
+    so about one refresh happens per interval in all. The 10% slack keeps a
+    check that comes just before the file turns an hour old from pushing the
+    refresh to the next hour."""
+    first = True
+    while True:
+        age = _dcr_history_age_seconds()
+        if first or age is None or age >= 0.9 * DCR_REFRESH_INTERVAL_SECONDS:
             try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                logging.info(
-                    "Worker %s skipping DCR refresh: another worker holds the lock.",
-                    os.getpid(),
-                )
-                return
-            logging.info("Worker %s acquired DCR refresh lock", os.getpid())
-            try:
-                summary = refresh_all_dcrs_via_decentriq_api()
-                logging.info("Startup DCR refresh summary: %s", summary)
-            finally:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception as exc:
-        logging.warning("Startup DCR refresh failed: %s", exc)
+                summary = await asyncio.to_thread(refresh_dcr_history, False)
+                logging.info("Background DCR refresh (worker %s): %s", os.getpid(), summary)
+            except Exception as exc:
+                logging.warning("Background DCR refresh failed: %s", exc)
+        first = False
+        await asyncio.sleep(DCR_REFRESH_INTERVAL_SECONDS)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Application lifespan: schedule background work on startup, then yield."""
-    async def _runner() -> None:
-        try:
-            await asyncio.to_thread(_refresh_dcr_history_with_lock)
-        except Exception as exc:  # pragma: no cover - already logged inside
-            logging.warning("DCR refresh task crashed: %s", exc)
-
-    asyncio.create_task(_runner())
+    task = asyncio.create_task(_refresh_dcr_history_periodically())
     yield
+    task.cancel()
 
 
 app = FastAPI(

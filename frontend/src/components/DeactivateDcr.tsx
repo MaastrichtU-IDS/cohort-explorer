@@ -65,7 +65,7 @@ export function DeactivateDcr({dcrId, dcrTitle, deactivated, canDeactivate, inAp
       <div className="mt-3 alert bg-base-200 border-base-300 text-base-content font-semibold">
         <AlertOctagon size={20} />
         <span>
-          This DCR has been deactivated. No new computations can be run in it.
+          This DCR has been permanently deactivated. No computations can run in it.
         </span>
       </div>
     );
