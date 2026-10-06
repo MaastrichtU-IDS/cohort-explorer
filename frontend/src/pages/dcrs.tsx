@@ -5,7 +5,6 @@ import { apiUrl } from '@/utils';
 import { AlertTriangle, Clock, RefreshCw, ExternalLink, Search } from 'react-feather';
 import { DcrLogPanel } from '@/components/DcrLogPanel';
 import { DeactivateDcr } from '@/components/DeactivateDcr';
-import { DatasetStatusNotice } from '@/components/DatasetStatusNotice';
 
 /** Shape of a single DCR record returned by the /my-dcrs endpoint. */
 interface DcrRecord {
@@ -402,8 +401,6 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
         )}
 
         {/* Compute nodes & results (DcrResultsPanel) hidden for now. */}
-        {/* Missing cohort datasets matter only while computations can still run. */}
-        {dcr.id && !dcr.deactivated && <DatasetStatusNotice dcrId={dcr.id} />}
         {dcr.id && (dcr.deactivated || dcr.can_deactivate) && (
           <DeactivateDcr
             dcrId={dcr.id}
