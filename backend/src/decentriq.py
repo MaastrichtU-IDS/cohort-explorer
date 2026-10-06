@@ -3305,7 +3305,12 @@ def api_dcr_dataset_status(dcr_id: str, user: Any = Depends(get_current_user)) -
     return {
         "dcr_id": dcr_id,
         "cohorts": sorted(main_nodes.values()),
-        "missing": sorted(cohort for node, cohort in main_nodes.items() if node not in published),
+        # Table data nodes publish under "<node id>_leaf", raw data nodes under the
+        # node id; the explorer creates nodes without an id, so the id is the name.
+        "missing": sorted(
+            cohort for node, cohort in main_nodes.items()
+            if node not in published and f"{node}_leaf" not in published
+        ),
     }
 
 

@@ -28,11 +28,15 @@ export function DatasetStatusNotice({dcrId}: {dcrId: string}) {
   useEffect(() => {
     let cancelled = false;
     fetch(`${apiUrl}/my-dcrs/${encodeURIComponent(dcrId)}/dataset-status`, {credentials: 'include'})
-      .then(res => (res.ok ? res.json() : null))
+      .then(async res => {
+        if (!res.ok) throw new Error(`${res.status} ${(await res.json().catch(() => null))?.detail || res.statusText}`);
+        return res.json();
+      })
       .then(data => {
         if (!cancelled && Array.isArray(data?.missing)) setMissing(data.missing);
       })
-      .catch(() => {});
+      // No notice when the status cannot be read; say why in the console.
+      .catch(err => console.warn(`Dataset status of DCR ${dcrId} unavailable:`, err?.message || err));
     return () => {
       cancelled = true;
     };
