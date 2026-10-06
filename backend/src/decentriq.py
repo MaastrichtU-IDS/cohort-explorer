@@ -3242,6 +3242,73 @@ async def api_deactivate_dcr(dcr_id: str, user: Any = Depends(get_current_user))
             "deactivated_by": info.get("by"), "deactivated_source": info.get("source")}
 
 
+# ---------------------------------------------------------------------------
+# Whether a DCR's main cohort datasets are provisioned. The main datasets are
+# the data nodes named exactly after a catalog cohort (id with '-' for spaces);
+# metadata dictionaries, shuffled samples and mapping files do not count.
+# Decentriq lists what is currently published to a DCR (one enclave call, made
+# as the service account, a participant of every explorer DCR); a dataset that
+# was removed again simply is not listed. Results are cached briefly per worker,
+# as My DCRs asks for every card it shows.
+# ---------------------------------------------------------------------------
+
+_DATASET_STATUS_TTL_SECONDS = 600
+_dataset_status_cache: dict[str, tuple[float, set[str]]] = {}
+_dataset_status_lock = threading.Lock()
+
+
+def _main_data_nodes(record: dict[str, Any]) -> dict[str, str]:
+    """node name -> catalog cohort id, for the DCR's main cohort data nodes."""
+    from src.cohort_cache import get_cached_cohort_ids
+    by_node = {c.replace(" ", "-"): c for c in get_cached_cohort_ids()}
+    return {
+        n["name"]: by_node[n["name"]]
+        for n in record.get("nodes") or []
+        if n.get("name") in by_node and n.get("type") in ("TableDataNodeDefinition", "RawDataNodeDefinition")
+    }
+
+
+def _published_data_nodes(dcr_id: str) -> set[str]:
+    import time
+    now = time.monotonic()
+    with _dataset_status_lock:
+        cached = _dataset_status_cache.get(dcr_id)
+        if cached and now - cached[0] < _DATASET_STATUS_TTL_SECONDS:
+            return cached[1]
+    client = dq.create_client(settings.decentriq_email, settings.decentriq_token)
+    dcr = client.retrieve_analytics_dcr(dcr_id)
+    published = {d.leafId for d in dcr.session.retrieve_published_datasets(dcr_id).publishedDatasets}
+    with _dataset_status_lock:
+        _dataset_status_cache[dcr_id] = (now, published)
+    return published
+
+
+@router.get(
+    "/my-dcrs/{dcr_id}/dataset-status",
+    name="Which of a DCR's main cohort datasets are not provisioned",
+)
+def api_dcr_dataset_status(dcr_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    user_email = ((user.get("email") if isinstance(user, dict) else "") or "").strip().lower()
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    record = next((r for r in get_dcrs_for_participant(user_email) if r.get("id") == dcr_id), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="DCR not found among your Data Clean Rooms")
+    main_nodes = _main_data_nodes(record)
+    if not main_nodes:
+        return {"dcr_id": dcr_id, "cohorts": [], "missing": []}
+    try:
+        published = _published_data_nodes(dcr_id)
+    except Exception as exc:
+        logging.warning("Could not list the published datasets of DCR %s: %s", dcr_id, exc)
+        raise HTTPException(status_code=502, detail=f"Could not read the DCR's datasets from Decentriq: {exc}")
+    return {
+        "dcr_id": dcr_id,
+        "cohorts": sorted(main_nodes.values()),
+        "missing": sorted(cohort for node, cohort in main_nodes.items() if node not in published),
+    }
+
+
 @router.get(
     "/my-dcrs/last-modified",
     name="Get last modified timestamp of DCR history",
