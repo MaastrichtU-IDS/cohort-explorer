@@ -11,16 +11,20 @@
 // Requires login. Alternative experimental layouts live under
 // /ai/alternatives (admins only, not linked from here on purpose).
 import React, {useEffect, useMemo, useState} from 'react';
-import {ChevronDown, ChevronLeft, ChevronUp, Compass, Home, MessageCircle, RefreshCw, Search, Send, X} from 'react-feather';
+import {ChevronDown, ChevronLeft, ChevronUp, Clock, Compass, Home, MessageCircle, RefreshCw, Search, Send, X} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {useCohortChat} from '@/components/ai/useCohortChat';
 import {withAiAccess} from '@/components/ai/guards';
 import {
   StarterKeyword,
   ConversationStarter,
+  ConversationSummary,
+  ConversationDetail,
   MappingPairStatus,
   fetchStarterKeywords,
   fetchConversationStarters,
+  fetchHistory,
+  fetchConversation,
   fetchMappingStatus,
   generateMappingPair,
   toBriefs
@@ -501,6 +505,190 @@ function GuidedExploration({
   );
 }
 
+// ---- Past conversations ------------------------------------------------------
+//
+// A top-left button opening a slide-over with the user's own past conversations
+// — limited to those held with the SAME model as the one currently configured,
+// so resuming always continues with the model the conversation was had with.
+// Clicking a conversation shows its transcript read-only; an explicit "Resume
+// Conversation" button at the bottom loads it into the chat for follow-ups.
+
+function fmtWhen(iso: string): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'});
+  } catch {
+    return iso;
+  }
+}
+
+function PastConversations({
+  model,
+  disabled,
+  onResume
+}: {
+  model: string;
+  disabled: boolean;
+  onResume: (detail: ConversationDetail) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<ConversationSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<ConversationDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  // (Re)load the list each time the panel opens — it may have grown since.
+  useEffect(() => {
+    if (!open || !model) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetchHistory({model, limit: 100})
+      .then(page => {
+        if (!cancelled) setItems(page.items);
+      })
+      .catch(err => {
+        if (!cancelled) setError(err?.message || 'Failed to load past conversations.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, model]);
+
+  const close = () => {
+    setOpen(false);
+    setDetail(null);
+    setDetailLoading(false);
+  };
+
+  const openDetail = (id: string) => {
+    setDetailLoading(true);
+    setDetail(null);
+    fetchConversation(id)
+      .then(setDetail)
+      .catch(err => setError(err?.message || 'Failed to load the conversation.'))
+      .finally(() => setDetailLoading(false));
+  };
+
+  return (
+    <>
+      <button
+        className="btn btn-ghost btn-sm gap-1.5"
+        title="Your past conversations with the current model"
+        onClick={() => setOpen(true)}
+      >
+        <Clock size={15} /> Past conversations
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex" onClick={close}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative bg-base-100 w-full max-w-xl h-full shadow-xl flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-base-300">
+              <div className="flex items-center gap-2">
+                {detail || detailLoading ? (
+                  <button
+                    className="btn btn-ghost btn-sm gap-1"
+                    onClick={() => {
+                      setDetail(null);
+                      setDetailLoading(false);
+                    }}
+                  >
+                    <ChevronLeft size={16} /> Back
+                  </button>
+                ) : (
+                  <Clock size={18} />
+                )}
+                <h3 className="font-bold">{detail || detailLoading ? 'Conversation' : 'Past conversations'}</h3>
+              </div>
+              <button className="btn btn-sm btn-ghost btn-circle" onClick={close}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {!detail && !detailLoading && (
+              <div className="flex-1 overflow-y-auto">
+                <p className="px-5 pt-3 text-xs text-base-content/50">
+                  Your conversations with the current model ({model}).
+                </p>
+                {error && <div className="alert alert-error text-sm mx-5 mt-3">{error}</div>}
+                {loading && (
+                  <div className="flex justify-center py-10">
+                    <span className="loading loading-spinner loading-md" />
+                  </div>
+                )}
+                {!loading && items.length === 0 && !error && (
+                  <p className="text-center text-sm text-base-content/50 py-10">
+                    No past conversations with this model yet.
+                  </p>
+                )}
+                <ul className="px-3 py-3 space-y-1">
+                  {items.map(c => (
+                    <li key={c.id}>
+                      <button
+                        className="w-full text-left rounded-xl px-3 py-2.5 hover:bg-base-200 transition-colors"
+                        onClick={() => openDetail(c.id)}
+                      >
+                        <div className="text-sm text-base-content/80 truncate">{c.preview || '(empty)'}</div>
+                        <div className="text-[11px] text-base-content/50 mt-0.5">
+                          {fmtWhen(c.updated_at)} · {c.message_count} message{c.message_count === 1 ? '' : 's'}
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {detailLoading && (
+              <div className="flex-1 flex justify-center items-center">
+                <span className="loading loading-spinner loading-lg" />
+              </div>
+            )}
+
+            {detail && (
+              <>
+                <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                  {detail.messages.map((m, i) => (
+                    <div key={i} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
+                      <div
+                        className={`rounded-2xl px-4 py-2 max-w-[85%] text-sm whitespace-pre-wrap ${
+                          m.role === 'user' ? 'bg-primary text-primary-content' : 'bg-base-200'
+                        }`}
+                      >
+                        {m.role === 'assistant' ? m.detailed || m.summary || m.content : m.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="px-5 py-4 border-t border-base-300">
+                  <button
+                    className="btn w-full gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300"
+                    disabled={disabled}
+                    onClick={() => {
+                      onResume(detail);
+                      close();
+                    }}
+                  >
+                    <MessageCircle size={15} /> Resume Conversation
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ---- Main layout -----------------------------------------------------------
 
 function ICareAI() {
@@ -570,6 +758,16 @@ function ICareAI() {
     <main className="h-[calc(100vh-8rem)] bg-base-200 flex flex-col">
       {/* Top bar */}
       <div className="border-b border-base-300 bg-base-100 px-6 py-3 flex items-center gap-3">
+        {userEmail && chat.model && (
+          <PastConversations
+            model={chat.model}
+            disabled={blocked}
+            onResume={detail => {
+              chat.loadConversation(detail);
+              setMode('chat');
+            }}
+          />
+        )}
         {(chat.messages.length > 0 || mode === 'guided') && (
           <button
             className="btn btn-ghost btn-sm gap-1.5"

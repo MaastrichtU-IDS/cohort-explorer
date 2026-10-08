@@ -613,6 +613,9 @@ export async function saveConversation(payload: SaveConversationPayload): Promis
 export async function fetchHistory(params?: {
   scope?: 'own' | 'all';
   path?: string;
+  // Only conversations held with this exact model (e.g. the currently
+  // configured one, so the list matches what the user would resume into).
+  model?: string;
   search?: string;
   minMessages?: number;
   maxMessages?: number;
@@ -622,6 +625,7 @@ export async function fetchHistory(params?: {
   const q = new URLSearchParams();
   if (params?.scope) q.set('scope', params.scope);
   if (params?.path) q.set('path', params.path);
+  if (params?.model) q.set('model', params.model);
   if (params?.search) q.set('search', params.search);
   if (params?.minMessages != null) q.set('min_messages', String(params.minMessages));
   if (params?.maxMessages != null) q.set('max_messages', String(params.maxMessages));

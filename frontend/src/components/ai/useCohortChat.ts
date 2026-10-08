@@ -4,6 +4,7 @@ import {
   ArrivalPath,
   ChatMessage,
   ContextInfo,
+  ConversationDetail,
   ProgressStep,
   SearchPayload,
   fetchChatConfig,
@@ -75,6 +76,9 @@ export interface UseCohortChat {
   markSummaryViewed: (index: number) => void;
   stop: () => void;
   reset: () => void;
+  // Resume a stored conversation: restores the transcript and the conversation
+  // identity, so follow-up turns keep updating the same history record.
+  loadConversation: (detail: ConversationDetail) => void;
 }
 
 export function useCohortChat(): UseCohortChat {
@@ -148,6 +152,24 @@ export function useCohortChat(): UseCohortChat {
     // Next send starts a brand-new conversation record.
     conversationIdRef.current = null;
   }, [stop]);
+
+  const loadConversation = useCallback(
+    (detail: ConversationDetail) => {
+      stop();
+      setError(null);
+      setMessages(Array.isArray(detail.messages) ? detail.messages : []);
+      conversationIdRef.current = detail.id;
+      startedAtRef.current = detail.started_at || null;
+      arrivalPathRef.current = (detail.arrival_path as ArrivalPath) || 'chat';
+      entryContextRef.current = detail.entry_context || {};
+      // Restore the pinned cohort scope the conversation was started with, so
+      // follow-up turns keep the same context as the original exchange.
+      const cohortIds = detail.entry_context?.cohortIds;
+      setSelected(Array.isArray(cohortIds) ? cohortIds.filter((c: any) => typeof c === 'string') : []);
+      if (typeof detail.entry_context?.focus === 'string') setFocus(detail.entry_context.focus);
+    },
+    [stop]
+  );
 
   const send = useCallback(
     async (text?: string, overrides?: SendOverrides) => {
@@ -546,6 +568,7 @@ export function useCohortChat(): UseCohortChat {
     send,
     markSummaryViewed,
     stop,
-    reset
+    reset,
+    loadConversation
   };
 }

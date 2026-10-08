@@ -1849,6 +1849,7 @@ def save_conversation(body: dict[str, Any], user: Any = Depends(get_current_user
 def list_history(
     scope: str = "own",
     path: Optional[str] = None,
+    model: Optional[str] = None,
     search: Optional[str] = None,
     min_messages: Optional[int] = None,
     max_messages: Optional[int] = None,
@@ -1862,6 +1863,7 @@ def list_history(
         is_admin=_is_admin(user),
         scope=scope,
         path=path,
+        model=model,
         search=search,
         min_messages=min_messages,
         max_messages=max_messages,

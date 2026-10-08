@@ -267,6 +267,7 @@ def list_conversations(
     is_admin: bool,
     scope: str = "own",
     path: Optional[str] = None,
+    model: Optional[str] = None,
     search: Optional[str] = None,
     min_messages: Optional[int] = None,
     max_messages: Optional[int] = None,
@@ -285,6 +286,9 @@ def list_conversations(
     if path:
         where.append("arrival_path = ?")
         params.append(path)
+    if model:
+        where.append("model = ?")
+        params.append(model)
     if search:
         where.append("messages LIKE ?")
         params.append(f"%{search}%")
