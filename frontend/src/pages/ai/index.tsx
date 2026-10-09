@@ -577,11 +577,11 @@ function PastConversations({
   return (
     <>
       <button
-        className="btn btn-ghost btn-sm gap-1.5"
+        className="flex items-center gap-2 px-5 py-3 rounded-2xl border border-dashed border-base-300 bg-base-100 text-sm text-base-content/60 hover:border-blue-300 hover:text-base-content transition-all"
         title="Your past conversations with the current model"
         onClick={() => setOpen(true)}
       >
-        <Clock size={15} /> Past conversations
+        <Clock size={16} /> Past conversations
       </button>
 
       {open && (
@@ -758,16 +758,6 @@ function ICareAI() {
     <main className="h-[calc(100vh-8rem)] bg-base-200 flex flex-col">
       {/* Top bar */}
       <div className="border-b border-base-300 bg-base-100 px-6 py-3 flex items-center gap-3">
-        {userEmail && chat.model && (
-          <PastConversations
-            model={chat.model}
-            disabled={blocked}
-            onResume={detail => {
-              chat.loadConversation(detail);
-              setMode('chat');
-            }}
-          />
-        )}
         {(chat.messages.length > 0 || mode === 'guided') && (
           <button
             className="btn btn-ghost btn-sm gap-1.5"
@@ -788,9 +778,19 @@ function ICareAI() {
       </div>
 
       {/* Mode switcher */}
-      <div className="flex justify-center gap-4 py-5">
+      <div className="flex justify-center items-center gap-4 py-5">
         {modeButton('chat', 'Chat', MessageCircle)}
         {modeButton('guided', 'Guided Exploration', Compass)}
+        {userEmail && chat.model && (
+          <PastConversations
+            model={chat.model}
+            disabled={blocked}
+            onResume={detail => {
+              chat.loadConversation(detail);
+              setMode('chat');
+            }}
+          />
+        )}
       </div>
 
       {/* Temporary service notice for the model switch; hides itself after
