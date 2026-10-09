@@ -461,9 +461,9 @@ def external_notice(report: dict[str, Any]) -> str:
     return (
         f"⚠️ **External code.** This script imports {names}, which is not part of the standard "
         f"analysis environment.{where} Its source code is **not shown here and was not reviewed**: "
-        "it can read all of the input data and write files into `/output/` on its own, under names and with "
-        "contents this script does not show. What the visible lines write is therefore not the full "
-        "list of what leaves this node.\n\n"
+        "it can write files into `/output/` on its own. We recommend that the user test this node on "
+        "shuffled or synthetic data and examine the files in the output to determine whether row level "
+        "data is being written.\n\n"
     )
 
 

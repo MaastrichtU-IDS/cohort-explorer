@@ -409,7 +409,7 @@ function DcrCard({
                       onClick={() => setExplain({ node: explainableNodes[0], conversation: null })}
                       title="Have the AI explain the code of this DCR's compute nodes and check it for data leaks"
                     >
-                      <Code size={11} /> Explain the code
+                      <Code size={11} /> AI - Explain the Code
                     </button>
                   )}
                 </div>

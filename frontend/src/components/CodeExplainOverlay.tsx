@@ -441,10 +441,21 @@ export function CodeExplainOverlay({
               <X size={18} />
             </button>
           </div>
-          <label className="block">
-            <span className="text-xs font-semibold text-base-content/70">Compute node</span>
+          <label className="block mx-auto w-[30%] min-w-[16rem]">
+            <span className="block text-center text-xs font-semibold text-base-content/70 mb-1">Compute node</span>
+            {/* Same blue as the concept-code tags on the explore page; custom, bold chevron. */}
             <select
-              className="select select-bordered select-lg w-full font-mono text-base"
+              className="w-full appearance-none rounded-xl py-3 pl-4 pr-12 font-mono text-base font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-300"
+              style={{
+                backgroundColor: '#dbeafe',
+                color: '#1e3a8a',
+                border: '1px solid #bfdbfe',
+                backgroundImage:
+                  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%231e3a8a' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>\")",
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 0.75rem center',
+                backgroundSize: '1.5rem'
+              }}
               value={node}
               onChange={e => setNode(e.target.value)}
               aria-label="Compute node to explain"
