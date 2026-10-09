@@ -669,6 +669,16 @@ export interface NodeScript {
   line_count: number;
   // Lines that write a file ('output'), print ('print') or pick out rows ('rows').
   hints: {line: number; kind: 'output' | 'print' | 'rows'}[];
+  // Calls into packages outside the standard environment, and file names that
+  // sound like patient-level tables (computed by the server, not the model).
+  external: {
+    external_modules: {module: string; line: number}[];
+    external_call_lines: number[];
+    sensitive_names: {line: number; name: string}[];
+  };
+  // Fixed Markdown warning when the script depends on code that is not visible
+  // (empty when it does not).
+  external_notice: string;
 }
 
 export async function fetchNodeScript(dcrId: string, nodeName: string): Promise<NodeScript> {

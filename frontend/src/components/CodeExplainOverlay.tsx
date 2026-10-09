@@ -10,10 +10,11 @@
 // from (this DCR and node), and can be reopened from there.
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {AlertTriangle, Send, X} from 'react-feather';
-import {RichText, TypingDots} from '@/components/ai/ui';
+import {LocalModelNote, RichText, TypingDots} from '@/components/ai/ui';
 import {
   ChatMessage,
   NodeScript,
+  fetchChatConfig,
   fetchConversation,
   fetchNodeScript,
   saveConversation,
@@ -46,17 +47,18 @@ const CodeRow = React.memo(function CodeRow({
   n: number;
   text: string;
   selected: boolean;
-  hint?: string;
+  hint?: {text: string; cls: string};
   onClick: (n: number, shift: boolean) => void;
 }) {
   const isComment = text.trim().startsWith('#');
   return (
     <div
       data-line={n}
+      onMouseDown={e => e.shiftKey && e.preventDefault()}
       onClick={e => onClick(n, e.shiftKey)}
       className={`flex cursor-pointer min-w-max hover:bg-base-300/60 ${selected ? 'bg-primary/20' : ''}`}
     >
-      <span className="w-5 shrink-0 text-center text-warning select-none" title={hint}>
+      <span className={`w-5 shrink-0 text-center select-none ${hint?.cls || ''}`} title={hint?.text}>
         {hint ? '●' : ''}
       </span>
       <span className="w-10 shrink-0 pr-3 text-right text-base-content/40 select-none tabular-nums">{n}</span>
@@ -65,41 +67,60 @@ const CodeRow = React.memo(function CodeRow({
   );
 });
 
-export function CodeExplainOverlay({
+// The two panels for one node. Mounted with key=<node>, so switching nodes
+// starts a fresh conversation; the parent's cache hands a node its earlier
+// conversation back when the reader returns to it.
+type Session = {convId: string; startedAt: string; messages: ChatMessage[]};
+
+function NodeExplainer({
   dcrId,
   dcrTitle,
   nodeName,
   resumeConversationId,
-  onClose
+  session,
+  onSession
 }: {
   dcrId: string;
   dcrTitle: string;
   nodeName: string;
   resumeConversationId?: string | null;
-  onClose: () => void;
+  session?: Session;
+  onSession: (s: Session) => void;
 }) {
   const [script, setScript] = useState<NodeScript | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(session?.messages || []);
   const [streaming, setStreaming] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Range | null>(null);
   const [input, setInput] = useState('');
   const anchor = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const convIdRef = useRef<string>(resumeConversationId || newConversationId());
-  const startedAtRef = useRef<string>(new Date().toISOString());
+  const convIdRef = useRef<string>(session?.convId || resumeConversationId || newConversationId());
+  const startedAtRef = useRef<string>(session?.startedAt || new Date().toISOString());
   const transcriptRef = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
 
   const lines = useMemo(() => (script ? script.script.split('\n') : []), [script]);
   const hintByLine = useMemo(() => {
-    const m = new Map<number, string>();
+    // Strongest marker wins when a line has several: external call > patient-level name > file write.
+    const m = new Map<number, {text: string; cls: string}>();
     for (const h of script?.hints || []) {
-      if (h.kind === 'output') m.set(h.line, 'This line writes a file (an output of the node)');
+      if (h.kind === 'output') m.set(h.line, {text: 'This line writes a file (an output of the node)', cls: 'text-warning'});
+    }
+    for (const sn of script?.external?.sensitive_names || []) {
+      m.set(sn.line, {text: `Names a file that sounds like patient-level data: ${sn.name}. Check the node's output file to confirm what it contains.`, cls: 'text-secondary'});
+    }
+    for (const n of script?.external?.external_call_lines || []) {
+      m.set(n, {text: 'Calls external code whose source is not shown: it may write files you cannot see', cls: 'text-error'});
     }
     return m;
   }, [script]);
+
+  // Remember this node's conversation for when the reader comes back to it.
+  useEffect(() => {
+    onSession({convId: convIdRef.current, startedAt: startedAtRef.current, messages});
+  }, [messages, onSession]);
 
   // Load the script and, when reopening a stored session, its transcript.
   useEffect(() => {
@@ -111,7 +132,7 @@ export function CodeExplainOverlay({
       .catch(err => {
         if (!cancelled) setLoadError(err?.message || 'Could not load the script.');
       });
-    if (resumeConversationId) {
+    if (resumeConversationId && !session) {
       fetchConversation(resumeConversationId)
         .then(c => {
           if (cancelled) return;
@@ -127,15 +148,8 @@ export function CodeExplainOverlay({
     };
   }, [dcrId, nodeName, resumeConversationId]);
 
-  // Close on Escape; stop a running answer on close.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      abortRef.current?.abort();
-    };
-  }, [onClose]);
+  // Stop a running answer when the node is switched or the overlay closed.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   // Keep the newest text in view while it streams, unless the reader scrolled up.
   useEffect(() => {
@@ -214,37 +228,33 @@ export function CodeExplainOverlay({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 md:p-6" onClick={onClose}>
-      <div
-        className="bg-base-100 rounded-2xl shadow-2xl w-full h-full max-w-[1500px] flex flex-col overflow-hidden"
-        onClick={e => e.stopPropagation()}
-        role="dialog"
-        aria-label={`Explain the code of ${nodeName}`}
-      >
-        <div className="flex items-center justify-between gap-4 px-5 py-3 border-b border-base-300">
-          <div className="min-w-0">
-            <h3 className="font-bold truncate">
-              Explain code: <span className="font-mono">{nodeName}</span>
-            </h3>
-            <div className="text-xs text-base-content/60 truncate">{dcrTitle || 'Untitled DCR'}</div>
-          </div>
-          <button className="btn btn-sm btn-ghost btn-circle" onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
-        </div>
-
         <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-base-300">
           {/* ---- code ---- */}
           <section className="min-h-0 flex flex-col">
             <div className="px-4 py-2 text-xs text-base-content/60 border-b border-base-300 flex flex-wrap gap-x-4">
-              <span>Click a line to select it, shift-click to select a range.</span>
+              <span className="basis-full text-base-content/80">
+                <b>Selecting code:</b> click a line to select it. To select a block, click its{' '}
+                <b>first line</b>, then hold <kbd className="kbd kbd-xs">Shift</kbd> and click its <b>last line</b>.
+                Click the selected line again to unselect.
+              </span>
               <span>
                 <span className="text-warning">●</span> writes a file
+              </span>
+              <span>
+                <span className="text-error">●</span> external code
+              </span>
+              <span>
+                <span className="text-secondary">●</span> patient-level file name
               </span>
               {script && script.dependencies.length > 0 && (
                 <span className="truncate">Reads: {script.dependencies.join(', ')}</span>
               )}
             </div>
+            {script?.external_notice && (
+              <div className="px-4 py-3 text-sm bg-error/10 border-b border-error/30 max-h-48 overflow-y-auto">
+                <RichText text={script.external_notice} />
+              </div>
+            )}
             <div className="flex-1 overflow-auto bg-base-200/60 font-mono text-[12.5px] leading-6 py-2">
               {!script && !loadError && (
                 <div className="flex justify-center py-12">
@@ -283,7 +293,8 @@ export function CodeExplainOverlay({
                 <div className="text-sm text-base-content/70 space-y-3">
                   <p>
                     I can explain what this script does to the data, line by line or as a whole, and check whether any
-                    row-level data could leave the DCR. Select some lines on the left to ask about them, or start here:
+                    row-level data could leave the DCR. Select one line, or a block (click its first line, then
+                    Shift-click its last line), on the left to ask about it, or start here:
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -368,6 +379,95 @@ export function CodeExplainOverlay({
             </div>
           </section>
         </div>
+  );
+}
+
+export function CodeExplainOverlay({
+  dcrId,
+  dcrTitle,
+  nodes,
+  initialNode,
+  resumeConversationId,
+  onClose
+}: {
+  dcrId: string;
+  dcrTitle: string;
+  // The DCR's compute nodes that have code to explain.
+  nodes: string[];
+  initialNode?: string | null;
+  // A stored conversation to continue; it belongs to initialNode.
+  resumeConversationId?: string | null;
+  onClose: () => void;
+}) {
+  const [node, setNode] = useState<string>(initialNode && nodes.includes(initialNode) ? initialNode : nodes[0] || '');
+  const [model, setModel] = useState('');
+  const sessions = useRef<Record<string, Session>>({});
+  const saveSession = useCallback(
+    (s: Session) => {
+      sessions.current[node] = s;
+    },
+    [node]
+  );
+
+  useEffect(() => {
+    fetchChatConfig().then(c => setModel(c.model || ''));
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 md:p-6" onClick={onClose}>
+      <div
+        className="bg-base-100 rounded-2xl shadow-2xl w-full h-full max-w-[1500px] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-label="Explain the code of the compute nodes"
+      >
+        <div className="px-5 py-3 border-b border-base-300 space-y-2">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="font-bold">Explain the code</h3>
+              <div className="text-xs text-base-content/60 truncate">{dcrTitle || 'Untitled DCR'}</div>
+              <div className="text-[11px] text-base-content/50 truncate">
+                Model: <span className="font-mono">{model || '…'}</span> ·{' '}
+                <LocalModelNote className="text-[11px] text-base-content/50" />
+              </div>
+            </div>
+            <button className="btn btn-sm btn-ghost btn-circle" onClick={onClose} aria-label="Close">
+              <X size={18} />
+            </button>
+          </div>
+          <label className="block">
+            <span className="text-xs font-semibold text-base-content/70">Compute node</span>
+            <select
+              className="select select-bordered select-lg w-full font-mono text-base"
+              value={node}
+              onChange={e => setNode(e.target.value)}
+              aria-label="Compute node to explain"
+            >
+              {nodes.map(n => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {node && (
+          <NodeExplainer
+            key={node}
+            dcrId={dcrId}
+            dcrTitle={dcrTitle}
+            nodeName={node}
+            resumeConversationId={node === initialNode ? resumeConversationId : null}
+            session={sessions.current[node]}
+            onSession={saveSession}
+          />
+        )}
       </div>
     </div>
   );

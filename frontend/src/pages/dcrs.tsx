@@ -290,6 +290,10 @@ function DcrCard({
   useEffect(() => {
     if (deepLinkNode) setExplain({ node: deepLinkNode, conversation: deepLinkConversation });
   }, [deepLinkNode, deepLinkConversation]);
+  // Python compute nodes are the ones with code (airlock nodes have none).
+  const explainableNodes = (dcr.nodes || [])
+    .filter(n => n.type === 'PythonComputeNodeDefinition' && n.name)
+    .map(n => n.name as string);
   const participantCount = dcr.participants?.length ?? 0;
   const creator = dcr.creator?.toLowerCase() || null;
   const isCreator = (email?: string) => !!creator && !!email && email.toLowerCase() === creator;
@@ -396,7 +400,19 @@ function DcrCard({
                 </ul>
               </div>
               <div className="flex-1 text-base-content/80">
-                <span className="font-semibold">Compute nodes:</span>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="font-semibold">Compute nodes:</span>
+                  {/* One button for the whole DCR: the overlay has a node picker. */}
+                  {explainableNodes.length > 0 && dcr.id && (
+                    <button
+                      className="btn btn-xs btn-outline btn-primary"
+                      onClick={() => setExplain({ node: explainableNodes[0], conversation: null })}
+                      title="Have the AI explain the code of this DCR's compute nodes and check it for data leaks"
+                    >
+                      <Code size={11} /> Explain the code
+                    </button>
+                  )}
+                </div>
                 <ul className="list-disc ml-4 mt-1">
                   {dcr.nodes
                     .filter(n => n.type === 'PreviewComputeNodeDefinition' || n.type === 'PythonComputeNodeDefinition')
@@ -404,16 +420,6 @@ function DcrCard({
                     .map((n, idx) => (
                       <li key={idx}>
                         <span className="mr-2">{n.name}</span>
-                        {/* Airlock (preview) nodes hold no code; only Python nodes can be explained. */}
-                        {n.type === 'PythonComputeNodeDefinition' && dcr.id && (
-                          <button
-                            className="btn btn-xs btn-outline btn-primary align-middle"
-                            onClick={() => setExplain({ node: n.name!, conversation: null })}
-                            title="Have the AI explain this node's code and check it for data leaks"
-                          >
-                            <Code size={11} /> Explain
-                          </button>
-                        )}
                         {n.type === 'PreviewComputeNodeDefinition' && (
                           <span className="text-xs text-base-content/50">(airlock, no code)</span>
                         )}
@@ -451,11 +457,12 @@ function DcrCard({
           />
         )}
         {dcr.id && <DcrLogPanel dcrId={dcr.id} />}
-        {dcr.id && explain && (
+        {dcr.id && explain && explainableNodes.length > 0 && (
           <CodeExplainOverlay
             dcrId={dcr.id}
             dcrTitle={dcr.title || ''}
-            nodeName={explain.node}
+            nodes={explainableNodes}
+            initialNode={explain.node}
             resumeConversationId={explain.conversation}
             onClose={() => setExplain(null)}
           />

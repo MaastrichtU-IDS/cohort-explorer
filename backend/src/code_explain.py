@@ -164,13 +164,61 @@ and flag any that are missing or look incomplete. The `shuffle_data` script is l
 intended exit of shuffled (synthetic) rows; check that the shuffling really breaks the link \
 between columns and that identifiers are not kept.
 
+EXTERNAL CODE AND HIDDEN WRITERS - the most dangerous blind spot. A script is not the whole \
+program when it calls code you cannot see. The section "EXTERNAL CODE" below lists, from the \
+real DCR definition, the packages the script imports that are not part of the standard \
+environment (for example `cohortpool`, installed from a GitHub repository into a custom \
+environment) and the lines that call them. Rules:
+- If that section lists any external package, the FIRST thing in every overview is a short \
+paragraph headed "External code" (use the warning sign) that names the package, says where it \
+is installed from (GitHub repository and pinned commit if given), says that its source is NOT \
+visible here and was NOT reviewed by you, and says that it can read all the input data and \
+write any file into `/output/` on its own, with names and contents the script does not show. \
+Repeat this caveat whenever the reader asks whether something is safe.
+- Data handed to an external function (input frames, folders, an output directory such as \
+`output_dir`/`log_dir`/`/output`) must be treated as potentially written out by that function. \
+Never conclude "no row-level data leaves" for such a script from the visible lines alone: the \
+verdict is then "Cannot be verified: external code" unless the script itself provably limits \
+what is exported (for example it copies only files from an explicit list of names, and every \
+name on the list is a summary file). When you check such a list, read EVERY name on it: \
+names such as `pooled_*`, `*_longitudinal*`, `*patient_level*`, `*harmonized*`, `*provenance*`, \
+`*_dataset*` are suspects: they often hold one row per participant (or per visit), and a \
+"longitudinal" file often holds every patient's rows. But audit and summary tables can carry \
+the same words (a per-variable "..._longitudinal.csv" audit is fine), so say it is the name \
+that makes you suspicious and that you cannot see the contents, and tell the reader how to \
+confirm: run the node (or ask a participant who may run it) and open the named output file \
+to see whether it holds one row per participant or visit, or only summaries. Name the \
+file(s) and the line(s) that write them.
+- Merging is not a leak. Combining cohorts inside the room, and writing diagnostics or aggregate \
+information about the merged data (coverage, completeness, mapping and harmonization audits, \
+unit-conversion and value-range checks, per-variable or per-cohort summaries, counts), is \
+expected and needed: do not flag it. Merged data becomes a problem only when what is written \
+out contains the cohorts' individual-level data: a table that is a superset or an extension of \
+the cohort rows (every participant's rows still there, possibly with extra harmonized or derived \
+columns, or with an original or pooled patient identifier), in any format. Renaming, re-saving, \
+converting (CSV to Parquet/JSON) or copying such a file does not change that.
+- Do not assume a DataFrame is row-level just because it derives from the input. Decide from \
+what it holds: one row per participant or per visit carrying input values (or identifiers) is \
+row-level, whatever the table is called; tables with one row per variable, cohort, rule, file \
+or issue, or with counts and statistics, are diagnostics or aggregates and are fine. A diagnostic \
+that lists individual participants (for example the identifiers or values of the patients having \
+an issue) is row-level.
+- Who can see an output matters: the DCR section tells you whether anyone is allowed to run the \
+node and which nodes read its output. Row-level output of a node that participants can run \
+directly, or that feeds an airlock directly, is a leak. Row-level output that only goes to a \
+downstream node is a leak if that downstream node (or an airlock on it) passes it on; name the \
+downstream node and say that the safety of the whole chain depends on it.
+- Printing and logging count too: when the DCR section says logs are shown on success or on \
+error, anything the script or an external package logs is visible to the reader.
+
 When you give an overview of a script, always end with a short section titled "Privacy check" that \
 (1) lists each output the script produces and says whether it is aggregated or row-level, and \
-(2) gives a verdict: "No row-level data leaves this script" or "Possible leak:" followed by the \
-line numbers, what exactly would be exported, and why it matters. Be specific and calibrated: say \
+(2) gives a verdict, one of: "No row-level data leaves this script"; "Possible leak:" followed \
+by the line numbers, what exactly would be exported, and why it matters; or "Cannot be verified: \
+external code" when an external package may write files you cannot see (say which). Be specific and calibrated: say \
 "looks aggregate-only" rather than "guaranteed safe", mention what you could not verify, and \
-never cry wolf over aggregates. A list of AUTOMATED HINTS (lines that write, print or access \
-rows) is given with the script: use it as a starting point to find the exits, but judge from \
+never cry wolf over aggregates. A list of AUTOMATED HINTS (lines that write, print, call external \
+code, access rows, or name suspicious files) is given with the script: use it as a starting point to find the exits, but judge from \
 the code, because a hinted line is not necessarily a problem and some exits are not hinted.
 
 When the reader asks about specific lines, answer about those lines in the context of the \
@@ -201,6 +249,14 @@ _dcr_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _dcr_cache_lock = threading.Lock()
 
 
+_CREDENTIAL_RE = re.compile(r"(://)[^/@\s]+@")
+
+
+def _redact(text: str) -> str:
+    """Requirements can embed an access token in a git URL: never pass it on."""
+    return _CREDENTIAL_RE.sub(r"\1***@", text)
+
+
 def _fetch_dcr_nodes(dcr_id: str) -> dict[str, Any]:
     """{'nodes': [{name, type, dependencies, script?}]} of a DCR, from Decentriq."""
     with _dcr_cache_lock:
@@ -228,6 +284,13 @@ def _fetch_dcr_nodes(dcr_id: str) -> dict[str, Any]:
         script = getattr(node_def, "script", None)
         if script:
             node["script"] = str(script)
+        env = getattr(node_def, "custom_environment", None)
+        if env:
+            node["environment"] = str(env)
+        reqs = getattr(node_def, "requirements_txt", None)
+        if reqs:
+            node["requirements"] = _redact(str(reqs))
+        node["logs"] = [flag for flag in ("on_error", "on_success") if getattr(node_def, f"enable_logs_{flag}", False)]
         nodes.append(node)
     result = {"nodes": nodes}
     with _dcr_cache_lock:
@@ -283,6 +346,15 @@ _PRINT_RE = re.compile(
 _ROWS_RE = re.compile(r"\.(?:head|tail|sample|nlargest|nsmallest)\(|\.iloc\[|\.iterrows\(|\.itertuples\(|\.to_dict\(")
 
 
+HINT_TEXT = {
+    "output": "writes a file",
+    "print": "prints / logs",
+    "rows": "picks out rows",
+    "external": "calls external code (may write files you cannot see)",
+    "name": "names a file that sounds like patient-level data",
+}
+
+
 def static_hints(lines: list[str]) -> list[dict[str, Any]]:
     """Lines that write a file ('output'), print ('print') or pick out rows ('rows')."""
     hints: list[dict[str, Any]] = []
@@ -294,6 +366,122 @@ def static_hints(lines: list[str]) -> list[dict[str, Any]]:
         if kind:
             hints.append({"line": i, "kind": kind})
     return hints
+
+
+# ---------------------------------------------------------------------------
+# External code and suspicious names (deterministic, so the reader sees them
+# whatever the model says)
+# ---------------------------------------------------------------------------
+
+# Modules every DCR Python environment ships with; anything else is external.
+_BUNDLED_MODULES = {
+    "pandas", "numpy", "matplotlib", "scipy", "seaborn", "sklearn", "statsmodels", "pyarrow",
+    "openpyxl", "pyreadstat", "decentriq_util", "PIL", "lifelines", "xlrd",
+}
+_STDLIB = set(getattr(__import__("sys"), "stdlib_module_names", ())) | {"__future__"}
+_SENSITIVE_NAME_RE = re.compile(
+    r"""['"]([^'"\n/]*(?:pooled|longitudinal|patient[_-]?level|harmoni[sz]ed|provenance|per[_-]?patient|individual|row[_-]?level)"""
+    r"""[^'"\n/]*\.(?:csv|parquet|json|xlsx?|feather|pkl|pickle|tsv))['"]""", re.I)
+_REQ_NAME_RE = re.compile(r"^\s*([A-Za-z0-9_.\-]+)\s*(?:@|==|>=|<=|~=|<|>|\[|$)")
+
+
+def external_code_report(node: dict[str, Any], lines: list[str], nodes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Imports outside the standard environment, the custom environment's
+    packages (access tokens redacted), the lines calling external code, and
+    string literals naming files that sound like patient-level tables."""
+    import ast
+
+    aliases: dict[str, str] = {}  # name used in the script -> top-level module
+    imported: dict[str, int] = {}  # top-level module -> first line
+    try:
+        for n in ast.walk(ast.parse(node["script"])):
+            if isinstance(n, ast.Import):
+                for a in n.names:
+                    top = a.name.split(".")[0]
+                    aliases[(a.asname or a.name).split(".")[0]] = top
+                    imported.setdefault(top, n.lineno)
+            elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+                top = n.module.split(".")[0]
+                imported.setdefault(top, n.lineno)
+                for a in n.names:
+                    aliases[a.asname or a.name] = top
+    except SyntaxError:
+        for i, l in enumerate(lines, start=1):
+            m = re.match(r"\s*(?:import|from)\s+([A-Za-z_]\w*)", l)
+            if m:
+                imported.setdefault(m.group(1), i)
+                aliases.setdefault(m.group(1), m.group(1))
+    external = sorted(m for m in imported if m not in _STDLIB and m not in _BUNDLED_MODULES)
+
+    env_name = node.get("environment")
+    env_node = next((n for n in nodes if n["name"] == env_name), None) if env_name else None
+    requirements = (env_node or {}).get("requirements", "")
+    packages = []
+    for l in requirements.splitlines():
+        l = l.strip()
+        if not l or l.startswith("#"):
+            continue
+        git = "github.com" in l or l.startswith("git+")
+        m = _REQ_NAME_RE.match(l)
+        packages.append({"name": (m.group(1) if m else l.split("/")[-1].split("@")[0]).removesuffix(".git"), "spec": l, "git": git})
+
+    call_lines = []
+    ext_names = {a for a, top in aliases.items() if top in external}
+    if ext_names:
+        call_re = re.compile(r"\b(" + "|".join(re.escape(a) for a in sorted(ext_names)) + r")\s*(?:\.\w+)*\(")
+        for i, l in enumerate(lines, start=1):
+            if call_re.search(l.split("#", 1)[0]):
+                call_lines.append(i)
+    names = []
+    for i, l in enumerate(lines, start=1):
+        for m in _SENSITIVE_NAME_RE.finditer(l):
+            names.append({"line": i, "name": m.group(1)})
+    return {
+        "external_modules": [{"module": m, "line": imported[m]} for m in external],
+        "environment": env_name,
+        "packages": packages,
+        "external_call_lines": call_lines[:60],
+        "sensitive_names": names[:80],
+        "logs_shown": node.get("logs", []),
+    }
+
+
+def external_notice(report: dict[str, Any]) -> str:
+    """A fixed warning (Markdown) when the script depends on code that is not visible here."""
+    mods = [m["module"] for m in report["external_modules"]]
+    if not mods and not report["packages"]:
+        return ""
+    src = []
+    for p in report["packages"]:
+        if p["git"]:
+            src.append(f"`{p['spec']}`")
+    where = (" It is installed from a GitHub repository into a custom environment (" + ", ".join(src) + ")."
+             if src else " It is installed into a custom environment" + (f" (`{report['environment']}`)" if report["environment"] else "") + ".")
+    names = ", ".join(f"`{m}`" for m in (mods or [p["name"] for p in report["packages"]]))
+    return (
+        f"⚠️ **External code.** This script imports {names}, which is not part of the standard "
+        f"analysis environment.{where} Its source code is **not shown here and was not reviewed**: "
+        "it can read all of the input data and write files into `/output/` on its own, under names and with "
+        "contents this script does not show. What the visible lines write is therefore not the full "
+        "list of what leaves this node.\n\n"
+    )
+
+
+def _dcr_access_section(record: dict[str, Any], node: dict[str, Any], nodes: list[dict[str, Any]]) -> str:
+    """Who may run the node and which nodes consume its output."""
+    name = node["name"]
+    runners = [p for p in record.get("participants") or [] if name in (p.get("analyst_of") or [])]
+    dependents = [(n["name"], n["type"]) for n in nodes if name in n["dependencies"]]
+    out = [
+        f"Participants allowed to run `{name}` directly: {len(runners)}"
+        + (" (nobody: it only runs as a dependency of other nodes)" if not runners else ""),
+        "Nodes that read its output: " + (", ".join(
+            f"`{n}` ({'airlock - its content is shown to the participants' if t == 'PreviewComputeNodeDefinition' else 'python'})"
+            for n, t in dependents) or "none"),
+    ]
+    logs = node.get("logs") or []
+    out.append("Logs shown to the person who runs it: " + (" and ".join(logs).replace("_", " ") if logs else "no"))
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +546,21 @@ def _dcr_section(record: dict[str, Any], node: dict[str, Any], nodes: list[dict[
     return "\n".join(out)
 
 
+def _external_section(report: dict[str, Any]) -> str:
+    if not report["external_modules"] and not report["packages"]:
+        return "No imports outside the standard environment (standard library, pandas, numpy, matplotlib, scipy, ...)."
+    out = ["The script imports packages outside the standard environment. Their source is NOT visible to you."]
+    for m in report["external_modules"]:
+        out.append(f"- imports `{m['module']}` (L{m['line']})")
+    if report["environment"]:
+        out.append(f"Custom environment `{report['environment']}` installs:")
+        for p in report["packages"]:
+            out.append(f"- {p['spec']}" + ("  <== installed from a GitHub repository" if p["git"] else ""))
+    if report["external_call_lines"]:
+        out.append("Lines calling external code: " + ", ".join(f"L{n}" for n in report["external_call_lines"][:30]))
+    return "\n".join(out)
+
+
 def _clean_messages(raw: Any) -> list[dict[str, str]]:
     """Roles user/assistant only, last MAX_TURNS, with a line selection carried by a
     user message folded into its text so the history is self-contained."""
@@ -393,6 +596,7 @@ def _selection(raw: Any, n_lines: int) -> tuple[int, int] | None:
 def get_node_script(dcr_id: str, node_name: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     record, node, nodes = _load_node(dcr_id, node_name, user)
     lines = node["script"].split("\n")
+    report = external_code_report(node, lines, nodes)
     return {
         "dcr_id": dcr_id,
         "dcr_title": record.get("title") or "",
@@ -402,6 +606,8 @@ def get_node_script(dcr_id: str, node_name: str, user: Any = Depends(get_current
         "script": node["script"],
         "line_count": len(lines),
         "hints": static_hints(lines),
+        "external": report,
+        "external_notice": external_notice(report),
     }
 
 
@@ -420,16 +626,27 @@ def code_explain_stream(body: dict[str, Any], user: Any = Depends(get_current_us
     lines = node["script"].split("\n")
     focus = _selection(body.get("selected_lines"), len(lines))
     hints = static_hints(lines)
+    report = external_code_report(node, lines, nodes)
+    notice = external_notice(report)
+    for ln in report["external_call_lines"]:
+        hints.append({"line": ln, "kind": "external"})
+    for sn in report["sensitive_names"]:
+        hints.append({"line": sn["line"], "kind": "name"})
     # The most telling hints first, capped so a print-heavy script cannot flood the context.
-    rank = {"output": 0, "rows": 1, "print": 2}
+    rank = {"external": 0, "output": 1, "name": 2, "rows": 3, "print": 4}
     shown = sorted(sorted(hints, key=lambda h: rank[h["kind"]])[:80], key=lambda h: h["line"])
     listing, truncated = _fit_script(lines, focus, [h["line"] for h in shown])
     hint_text = "\n".join(
-        f"- L{h['line']}: {'writes a file' if h['kind'] == 'output' else 'prints / logs' if h['kind'] == 'print' else 'picks out rows'}"
+        f"- L{h['line']}: {HINT_TEXT[h['kind']]}"
         f" - {lines[h['line'] - 1].strip()[:140]}" for h in shown) or "(none found)"
 
     is_overview = bool(body.get("overview"))
     task = OVERVIEW_TASK if is_overview else FOLLOWUP_TASK
+    if notice:
+        task += ("\n\nThis script depends on external code (see EXTERNAL CODE). " +
+                 ("The fixed warning paragraph about it is already shown to the reader above your answer: do not "
+                  "repeat it at length, but build the Privacy check on it. " if is_overview else "") +
+                 "Do not give a clean verdict on the visible lines alone.")
     if focus:
         sel = "\n".join(f"L{i}: {lines[i - 1][:MAX_LINE_CHARS]}" for i in range(focus[0], min(focus[1], focus[0] + 60) + 1))
         task += f"\n\nThe reader has selected lines L{focus[0]}-L{focus[1]}:\n{sel}"
@@ -439,7 +656,8 @@ def code_explain_stream(body: dict[str, Any], user: Any = Depends(get_current_us
         f"# SCRIPT OF THE NODE `{node['name']}` (python compute node; reads {', '.join(node['dependencies']) or 'no other nodes'})"
         + ("\n\nNOTE: the script is long; parts were omitted where marked." if truncated else "")
         + "\n\n" + listing,
-        "# AUTOMATED HINTS (lines that write, print or pick out rows; a starting point, not a verdict)\n\n" + hint_text,
+        "# EXTERNAL CODE\n\n" + _external_section(report) + "\n\n" + _dcr_access_section(record, node, nodes),
+        "# AUTOMATED HINTS (lines that write, print, call external code, pick out rows or name suspicious files; a starting point, not a verdict)\n\n" + hint_text,
         "# YOUR TASK FOR THIS REPLY\n\n" + task,
     ])
     full_messages = [{"role": "system", "content": system}] + messages
@@ -447,8 +665,15 @@ def code_explain_stream(body: dict[str, Any], user: Any = Depends(get_current_us
         temperature = float(body.get("temperature", 0.2))
     except (TypeError, ValueError):
         temperature = 0.2
+    def _stream() -> Any:
+        # The external-code warning is fixed text, not the model's: an overview
+        # always starts with it, however the model answers.
+        if notice and is_overview:
+            yield notice
+        yield from stream_completion(client, settings.litellm_model, full_messages, temperature, "code-explain")
+
     return StreamingResponse(
-        stream_completion(client, settings.litellm_model, full_messages, temperature, "code-explain"),
+        _stream(),
         media_type="text/plain; charset=utf-8",
         headers={"X-Chat-Context": json.dumps({"mode": "code-explain", "approx_tokens": len(system) // 4})},
     )
