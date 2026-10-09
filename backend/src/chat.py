@@ -1722,67 +1722,72 @@ def admin_delete_starters(body: dict[str, Any], user: Any = Depends(get_current_
     return {"deleted": deleted, "remaining": len(kept)}
 
 
+def stream_completion(client: Any, model: str, full_messages: list[dict], temperature: float, label: str) -> Any:
+    """Generator of plain-text chunks of a streamed chat completion, with the
+    hidden-reasoning handling shared by every streaming endpoint. `label` only
+    names the request in the log line."""
+    t0 = time.time()
+    first_at = None
+    reasoning_chars = 0
+    # Text is held back while it may still be a leading <think> block.
+    pending = ""
+    in_prefix = True
+    try:
+        stream = client.chat.completions.create(
+            model=model,
+            messages=full_messages,
+            temperature=temperature,
+            stream=True,
+        )
+        for chunk in stream:
+            try:
+                d = chunk.choices[0].delta
+            except (AttributeError, IndexError):
+                continue
+            # Hidden reasoning (servers that separate it out): never shown,
+            # only measured, so slow answers can be traced to thinking.
+            reasoning = getattr(d, "reasoning_content", None) or getattr(d, "reasoning", None)
+            if isinstance(reasoning, str):
+                reasoning_chars += len(reasoning)
+            delta = getattr(d, "content", None)
+            if not delta:
+                continue
+            if first_at is None:
+                first_at = time.time()
+            if in_prefix:
+                pending += delta
+                stripped = pending.lstrip()
+                if stripped.startswith("<think>") and "</think>" not in stripped:
+                    continue
+                if not stripped and len(pending) < 20:
+                    continue
+                if "<think>".startswith(stripped):
+                    continue
+                delta, pending, in_prefix = strip_think(pending), "", False
+                if not delta:
+                    continue
+            yield delta
+        if pending:
+            rest = strip_think(pending)
+            if rest and not rest.lstrip().startswith("<think>"):
+                yield rest
+        logger.info("Chat stream (%s): first text after %.1fs, total %.1fs, hidden reasoning %d chars",
+                    label, (first_at or time.time()) - t0, time.time() - t0, reasoning_chars)
+    except Exception as exc:
+        logger.warning("Chat stream failed: %s", exc)
+        yield f"\n\n[Error contacting the model: {exc}]"
+
+
 @router.post("/api/chat/stream")
 def chat_stream(body: dict[str, Any], user: Any = Depends(get_current_user)) -> StreamingResponse:
     """Stream a chat completion as plain-text chunks for a live typing effect."""
     client = _get_openai_client()
     full_messages, model, temperature, info = _assemble_payload(body)
 
-    def _generate() -> Any:
-        t0 = time.time()
-        first_at = None
-        reasoning_chars = 0
-        # Text is held back while it may still be a leading <think> block.
-        pending = ""
-        in_prefix = True
-        try:
-            stream = client.chat.completions.create(
-                model=model,
-                messages=full_messages,
-                temperature=temperature,
-                stream=True,
-            )
-            for chunk in stream:
-                try:
-                    d = chunk.choices[0].delta
-                except (AttributeError, IndexError):
-                    continue
-                # Hidden reasoning (servers that separate it out): never shown,
-                # only measured, so slow answers can be traced to thinking.
-                reasoning = getattr(d, "reasoning_content", None) or getattr(d, "reasoning", None)
-                if isinstance(reasoning, str):
-                    reasoning_chars += len(reasoning)
-                delta = getattr(d, "content", None)
-                if not delta:
-                    continue
-                if first_at is None:
-                    first_at = time.time()
-                if in_prefix:
-                    pending += delta
-                    stripped = pending.lstrip()
-                    if stripped.startswith("<think>") and "</think>" not in stripped:
-                        continue
-                    if not stripped and len(pending) < 20:
-                        continue
-                    if "<think>".startswith(stripped):
-                        continue
-                    delta, pending, in_prefix = strip_think(pending), "", False
-                    if not delta:
-                        continue
-                yield delta
-            if pending:
-                rest = strip_think(pending)
-                if rest and not rest.lstrip().startswith("<think>"):
-                    yield rest
-            logger.info("Chat stream (%s): first text after %.1fs, total %.1fs, hidden reasoning %d chars",
-                        info.get("mode"), (first_at or time.time()) - t0, time.time() - t0, reasoning_chars)
-        except Exception as exc:
-            logger.warning("Chat stream failed: %s", exc)
-            yield f"\n\n[Error contacting the model: {exc}]"
-
     # What went into the context, for the chat's progress display (read before
     # the first token arrives, which can take a while with a large context).
-    return StreamingResponse(_generate(), media_type="text/plain; charset=utf-8",
+    return StreamingResponse(stream_completion(client, model, full_messages, temperature, info.get("mode")),
+                             media_type="text/plain; charset=utf-8",
                              headers={"X-Chat-Context": json.dumps(info)})
 
 

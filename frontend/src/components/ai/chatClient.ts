@@ -20,6 +20,9 @@ export interface ChatMessage {
   // The user opened this answer's Summary tab at least once (Detailed is the
   // default view); stored with the conversation history.
   summaryViewed?: boolean;
+  // Code-explanation sessions: the script lines [first, last] the user had
+  // selected when asking this question.
+  codeLines?: [number, number];
   // The planning round failed (endpoint error or server-side search error):
   // shown as a small note so failures are visible instead of silent.
   searchError?: string;
@@ -526,7 +529,9 @@ export async function generateMappingPair(source: string, target: string): Promi
 // (src/ai_history.py) derives usage metrics. Each user sees their own history;
 // admins can request scope='all'.
 
-export type ArrivalPath = 'chat' | 'intention_cards';
+// 'code_explanation': a session from My DCRs explaining a compute node's script;
+// its entry_context holds {source, dcr_id, dcr_title, node_name}.
+export type ArrivalPath = 'chat' | 'intention_cards' | 'code_explanation';
 
 // A conversation as returned by the list endpoint (metrics + preview, no full
 // transcript). The detail endpoint returns the same shape plus `messages`.
@@ -650,4 +655,83 @@ export async function fetchUsageSummary(scope: 'own' | 'all' = 'own'): Promise<U
   });
   if (!res.ok) throw new Error(`Failed to load usage summary (${res.status})`);
   return await res.json();
+}
+
+// ---- Code explanations (My DCRs) --------------------------------------------
+
+export interface NodeScript {
+  dcr_id: string;
+  dcr_title: string;
+  node_name: string;
+  node_type: string;
+  dependencies: string[];
+  script: string;
+  line_count: number;
+  // Lines that write a file ('output'), print ('print') or pick out rows ('rows').
+  hints: {line: number; kind: 'output' | 'print' | 'rows'}[];
+}
+
+export async function fetchNodeScript(dcrId: string, nodeName: string): Promise<NodeScript> {
+  const res = await fetch(
+    `${apiUrl}/my-dcrs/${encodeURIComponent(dcrId)}/nodes/${encodeURIComponent(nodeName)}/script`,
+    {credentials: 'include'}
+  );
+  if (!res.ok) {
+    let detail = `Could not load the script (${res.status})`;
+    try {
+      detail = (await res.json()).detail || detail;
+    } catch {
+      /* body was not JSON */
+    }
+    throw new Error(detail);
+  }
+  return await res.json();
+}
+
+// Stream an explanation of the node's script. User messages may carry
+// `codeLines: [first, last]` (the lines the reader selected); `selectedLines`
+// is the selection of the latest turn.
+export async function streamCodeExplanation(opts: {
+  dcrId: string;
+  nodeName: string;
+  messages: ChatMessage[];
+  selectedLines?: [number, number] | null;
+  overview?: boolean;
+  onChunk: (delta: string) => void;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const res = await fetch(`${apiUrl}/api/chat/code-explain/stream`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {'Content-Type': 'application/json'},
+    signal: opts.signal,
+    body: JSON.stringify({
+      dcr_id: opts.dcrId,
+      node_name: opts.nodeName,
+      messages: opts.messages.map(m => ({role: m.role, content: m.content, codeLines: m.codeLines})),
+      selected_lines: opts.selectedLines || null,
+      overview: !!opts.overview
+    })
+  });
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`;
+    try {
+      detail = (await res.json()).detail || detail;
+    } catch {
+      /* body was not JSON */
+    }
+    throw new Error(detail);
+  }
+  if (!res.body) {
+    opts.onChunk(await res.text());
+    return;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    opts.onChunk(decoder.decode(value, {stream: true}));
+  }
 }

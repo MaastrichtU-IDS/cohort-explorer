@@ -19,7 +19,8 @@ import {
 
 const PATH_LABELS: Record<string, string> = {
   chat: 'Chat',
-  intention_cards: 'Guided'
+  intention_cards: 'Guided',
+  code_explanation: 'Code explanation'
 };
 
 function pathLabel(p: string): string {
@@ -29,7 +30,14 @@ function pathLabel(p: string): string {
 function pathBadgeClass(p: string): string {
   if (p === 'chat') return 'badge-info';
   if (p === 'intention_cards') return 'badge-secondary';
+  if (p === 'code_explanation') return 'badge-warning';
   return 'badge-ghost';
+}
+
+// Where a code-explanation session came from: the DCR and node it explains.
+function originLabel(c: ConversationSummary): string {
+  const e = c.entry_context || {};
+  return `My DCRs · ${e.dcr_title || e.dcr_id || 'DCR'} · ${e.node_name || 'node'}`;
 }
 
 function fmtDuration(s: number | null): string {
@@ -82,7 +90,7 @@ export default function AiHistoryPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters (not by user — by design, for now).
-  const [path, setPath] = useState<'' | 'chat' | 'intention_cards'>('');
+  const [path, setPath] = useState<'' | 'chat' | 'intention_cards' | 'code_explanation'>('');
   const [minMessages, setMinMessages] = useState<string>('');
   const [search, setSearch] = useState('');
 
@@ -234,11 +242,12 @@ export default function AiHistoryPage() {
           <select
             className="select select-bordered select-sm"
             value={path}
-            onChange={e => setPath(e.target.value as '' | 'chat' | 'intention_cards')}
+            onChange={e => setPath(e.target.value as '' | 'chat' | 'intention_cards' | 'code_explanation')}
           >
             <option value="">All paths</option>
             <option value="chat">Chat</option>
             <option value="intention_cards">Guided (intention cards)</option>
+            <option value="code_explanation">Code explanation (My DCRs)</option>
           </select>
         </div>
 
@@ -300,6 +309,11 @@ export default function AiHistoryPage() {
                   <span className={`badge badge-sm ${pathBadgeClass(c.arrival_path)}`}>
                     {pathLabel(c.arrival_path)}
                   </span>
+                  {c.arrival_path === 'code_explanation' && (
+                    <div className="text-[10px] text-base-content/60 mt-0.5 max-w-[14rem] truncate" title={originLabel(c)}>
+                      {originLabel(c)}
+                    </div>
+                  )}
                 </td>
                 <td className="text-right tabular-nums">{c.message_count}</td>
                 <td className="text-right tabular-nums text-xs">
@@ -360,6 +374,11 @@ export default function AiHistoryPage() {
                   <span>
                     <b>Path:</b> {pathLabel(detail.arrival_path)}
                   </span>
+                  {detail.arrival_path === 'code_explanation' && (
+                    <span>
+                      <b>From:</b> {originLabel(detail)}
+                    </span>
+                  )}
                   <span>
                     <b>Messages:</b> {detail.message_count}
                   </span>

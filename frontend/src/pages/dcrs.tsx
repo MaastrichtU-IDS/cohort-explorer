@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
 import { apiUrl } from '@/utils';
-import { AlertTriangle, Clock, RefreshCw, ExternalLink, Search } from 'react-feather';
+import { AlertTriangle, Clock, Code, RefreshCw, ExternalLink, Search } from 'react-feather';
 import { DcrLogPanel } from '@/components/DcrLogPanel';
 import { DeactivateDcr } from '@/components/DeactivateDcr';
+import { CodeExplainOverlay } from '@/components/CodeExplainOverlay';
 
 /** Shape of a single DCR record returned by the /my-dcrs endpoint. */
 interface DcrRecord {
@@ -28,6 +30,14 @@ interface DcrRecord {
 }
 
 export default function DcrsPage() {
+  // Deep link from the AI history: /dcrs?explain=<dcr id>&node=<node>&conversation=<id>
+  // reopens that code-explanation session on its node.
+  const router = useRouter();
+  const q = router.query;
+  const deepLink =
+    typeof q.explain === 'string' && typeof q.node === 'string'
+      ? { dcrId: q.explain, node: q.node, conversation: typeof q.conversation === 'string' ? q.conversation : null }
+      : null;
   const [dcrs, setDcrs] = useState<DcrRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -221,7 +231,7 @@ export default function DcrsPage() {
         {!isLoading && !error && visibleDcrs.length > 0 && (
           <div className="space-y-3">
             {visibleDcrs.map((dcr, idx) => (
-              <DcrCard key={dcr.id || idx} dcr={dcr} />
+              <DcrCard key={dcr.id || idx} dcr={dcr} deepLink={deepLink && deepLink.dcrId === dcr.id ? deepLink : null} />
             ))}
           </div>
         )}
@@ -265,7 +275,21 @@ function formatTimestamp(iso?: string): string {
   }
 }
 
-function DcrCard({ dcr }: { dcr: DcrRecord }) {
+function DcrCard({
+  dcr,
+  deepLink,
+}: {
+  dcr: DcrRecord;
+  deepLink?: { node: string; conversation: string | null } | null;
+}) {
+  // The compute node whose script is being explained (overlay), and the stored
+  // conversation to continue in it, if any.
+  const [explain, setExplain] = useState<{ node: string; conversation: string | null } | null>(null);
+  const deepLinkNode = deepLink?.node;
+  const deepLinkConversation = deepLink?.conversation ?? null;
+  useEffect(() => {
+    if (deepLinkNode) setExplain({ node: deepLinkNode, conversation: deepLinkConversation });
+  }, [deepLinkNode, deepLinkConversation]);
   const participantCount = dcr.participants?.length ?? 0;
   const creator = dcr.creator?.toLowerCase() || null;
   const isCreator = (email?: string) => !!creator && !!email && email.toLowerCase() === creator;
@@ -376,9 +400,25 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
                 <ul className="list-disc ml-4 mt-1">
                   {dcr.nodes
                     .filter(n => n.type === 'PreviewComputeNodeDefinition' || n.type === 'PythonComputeNodeDefinition')
-                    .map(n => n.name)
-                    .filter(Boolean)
-                    .map((name, idx) => <li key={idx}>{name}</li>)}
+                    .filter(n => n.name)
+                    .map((n, idx) => (
+                      <li key={idx}>
+                        <span className="mr-2">{n.name}</span>
+                        {/* Airlock (preview) nodes hold no code; only Python nodes can be explained. */}
+                        {n.type === 'PythonComputeNodeDefinition' && dcr.id && (
+                          <button
+                            className="btn btn-xs btn-outline btn-primary align-middle"
+                            onClick={() => setExplain({ node: n.name!, conversation: null })}
+                            title="Have the AI explain this node's code and check it for data leaks"
+                          >
+                            <Code size={11} /> Explain
+                          </button>
+                        )}
+                        {n.type === 'PreviewComputeNodeDefinition' && (
+                          <span className="text-xs text-base-content/50">(airlock, no code)</span>
+                        )}
+                      </li>
+                    ))}
                   {dcr.nodes.filter(n => n.type === 'PreviewComputeNodeDefinition' || n.type === 'PythonComputeNodeDefinition').length === 0 && <li>none</li>}
                 </ul>
               </div>
@@ -411,6 +451,15 @@ function DcrCard({ dcr }: { dcr: DcrRecord }) {
           />
         )}
         {dcr.id && <DcrLogPanel dcrId={dcr.id} />}
+        {dcr.id && explain && (
+          <CodeExplainOverlay
+            dcrId={dcr.id}
+            dcrTitle={dcr.title || ''}
+            nodeName={explain.node}
+            resumeConversationId={explain.conversation}
+            onClose={() => setExplain(null)}
+          />
+        )}
       </div>
     </div>
   );
