@@ -14,6 +14,9 @@ export default function AdminSettingsPage() {
   const [timechfTesting, setTimechfTesting] = useState(false);
   const [aiNavEnabled, setAiNavEnabled] = useState(false);
   const [togglingAiNav, setTogglingAiNav] = useState(false);
+  const [codeExplain, setCodeExplain] = useState(true);
+  const [codeExplainStopped, setCodeExplainStopped] = useState(true);
+  const [togglingCodeExplain, setTogglingCodeExplain] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +45,8 @@ export default function AdminSettingsPage() {
         if (data) {
           setTimechfTesting(data.timechf_testing_enabled);
           setAiNavEnabled(!!data.ai_nav_enabled);
+          setCodeExplain(!!data.code_explain_enabled);
+          setCodeExplainStopped(!!data.code_explain_stopped_enabled);
         }
       })
       .catch(err => {
@@ -90,6 +95,25 @@ export default function AdminSettingsPage() {
       setError(err.message);
     } finally {
       setTogglingAiNav(false);
+    }
+  };
+
+  const handleToggleCodeExplain = async (which: 'code-explain' | 'code-explain-stopped') => {
+    setTogglingCodeExplain(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/toggle-${which}`, {method: 'POST', credentials: 'include'});
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || 'Toggle failed');
+      }
+      const data = await res.json();
+      setCodeExplain(!!data.code_explain_enabled);
+      setCodeExplainStopped(!!data.code_explain_stopped_enabled);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setTogglingCodeExplain(false);
     }
   };
 
@@ -177,6 +201,59 @@ export default function AdminSettingsPage() {
                 </p>
               </div>
               {toggling && <span className="loading loading-spinner loading-sm ml-2"></span>}
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {/* AI code explanation (My DCRs) */}
+      <div className="card bg-base-200 shadow-md mt-6">
+        <div className="card-body">
+          <h2 className="card-title text-lg flex items-center gap-2">
+            <SparklesIcon size={18} /> AI - Explain the Code
+          </h2>
+          <p className="text-sm text-base-content/70 mb-4">
+            The button on the My DCRs page that has the local model explain a DCR&apos;s compute nodes. Turning it off also
+            blocks the underlying requests.
+          </p>
+
+          <div className="form-control">
+            <label className="label cursor-pointer justify-start gap-4">
+              <input
+                type="checkbox"
+                className={`toggle toggle-primary toggle-lg ${togglingCodeExplain ? 'opacity-50' : ''}`}
+                checked={codeExplain}
+                onChange={() => handleToggleCodeExplain('code-explain')}
+                disabled={togglingCodeExplain}
+              />
+              <div>
+                <span className="label-text text-base font-medium">Offer the AI code explanation on My DCRs</span>
+                <p className="text-xs text-base-content/50 mt-1">
+                  {codeExplain ? 'Enabled.' : 'Disabled. The button is hidden for everyone.'}
+                </p>
+              </div>
+            </label>
+          </div>
+
+          <div className={`form-control ml-10 ${codeExplain ? '' : 'opacity-50'}`}>
+            <label className="label cursor-pointer justify-start gap-4">
+              <input
+                type="checkbox"
+                className="toggle toggle-primary"
+                checked={codeExplainStopped}
+                onChange={() => handleToggleCodeExplain('code-explain-stopped')}
+                disabled={togglingCodeExplain || !codeExplain}
+              />
+              <div>
+                <span className="label-text font-medium">Also offer it for stopped DCRs</span>
+                <p className="text-xs text-base-content/50 mt-1">
+                  {codeExplainStopped
+                    ? 'Enabled. The button shows on stopped (deactivated) DCRs too.'
+                    : 'Disabled. The button is hidden on stopped DCRs.'}
+                  {!codeExplain && ' Has no effect while the feature above is off.'}
+                </p>
+              </div>
+              {togglingCodeExplain && <span className="loading loading-spinner loading-sm ml-2"></span>}
             </label>
           </div>
         </div>

@@ -175,6 +175,41 @@ def identify_cohort_meta_schema(cohort):
         return metadatadict_cols_schema1
 
 # https://docs.decentriq.com/sdk/python-getting-started
+def _ensure_managers(dcr_definition: Any, emails: list[str]) -> None:
+    """Give each address the 'manager' permission in the DCR definition (adding
+    the participant when missing). Decentriq's recommendation for letting the
+    service account stop DCRs: edit the high-level configuration before publishing."""
+    cfg = next(iter(dcr_definition.high_level.values()))["interactive"]["initialConfiguration"]
+    for email in dict.fromkeys(e.strip().lower() for e in emails if e):
+        entry = next((p for p in cfg["participants"] if (p.get("user") or "").lower() == email), None)
+        if entry is None:
+            cfg["participants"].append({"user": email, "permissions": [{"manager": {}}]})
+        elif {"manager": {}} not in entry["permissions"]:
+            entry["permissions"].append({"manager": {}})
+
+
+def publish_with_managers(client: Any, dcr_definition: Any, user_email: str) -> Any:
+    """Publish a DCR with BOTH the service account and the creating user as
+    managers. The user is already a manager through .with_owner(); the open
+    question is whether Decentriq accepts two managers. If publishing is
+    rejected with them, the definition is restored and published as before (user
+    as the only manager), so creating a DCR never fails because of this."""
+    cfg = next(iter(dcr_definition.high_level.values()))["interactive"]["initialConfiguration"]
+    original = deepcopy(cfg["participants"])
+    try:
+        _ensure_managers(dcr_definition, [settings.decentriq_email, user_email])
+        dcr = client.publish_analytics_dcr(dcr_definition)
+        logging.info("MANAGERS: DCR %s published with managers %s", dcr.id, [settings.decentriq_email, user_email])
+        return dcr
+    except Exception as exc:
+        logging.warning("MANAGERS: publishing with the service account and %s as managers failed (%s: %s); "
+                        "publishing with the owner only", user_email, type(exc).__name__, exc)
+        cfg["participants"][:] = original
+        dcr = client.publish_analytics_dcr(dcr_definition)
+        logging.info("MANAGERS: DCR %s published with the owner only (fallback)", dcr.id)
+        return dcr
+
+
 def create_provision_dcr(
     user: Any,
     cohort: Cohort,
@@ -345,7 +380,7 @@ def create_provision_dcr(
         json.dump({ "dataScienceDataRoom": dcr_definition._get_high_level_representation() }, f)
     
     t0 = time.time()
-    dcr = client.publish_analytics_dcr(dcr_definition)
+    dcr = publish_with_managers(client, dcr_definition, user["email"])
     logging.info(f"[TIMING] Publishing DCR to Decentriq took {time.time() - t0:.2f}s")
     dcr_url = f"https://platform.decentriq.com/datarooms/p/{dcr.id}"
 
@@ -1480,7 +1515,7 @@ async def create_live_compute_dcr(
         time.sleep(retry_delay_seconds)
         try:
             # Attempt to publish the DCR
-            dcr = client.publish_analytics_dcr(dcr_definition)
+            dcr = publish_with_managers(client, dcr_definition, user["email"])
             # If successful, break the loop
             logging.info(f"DCR published successfully on attempt {attempt + 1}")
             break
@@ -2973,7 +3008,10 @@ def _dcr_managers(record: dict[str, Any]) -> list[str]:
 def _dcr_creator(record: dict[str, Any]) -> str | None:
     """The DCR's creator: its owner (manager) on Decentriq, or None if unknown."""
     managers = _dcr_managers(record)
-    return managers[0] if managers else None
+    # DCRs published with the service account as an extra manager: the creator
+    # is the other manager (list order is not reliable).
+    users = [m for m in managers if not _is_service_account(m)]
+    return users[0] if users else (managers[0] if managers else None)
 
 
 def _is_service_account(email: str | None) -> bool:

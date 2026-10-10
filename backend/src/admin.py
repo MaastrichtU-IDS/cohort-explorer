@@ -27,6 +27,10 @@ APP_SETTINGS_FILE = os.path.join(settings.data_folder, "app_settings.json")
 APP_SETTINGS_DEFAULTS = {
     # Whether the "iCARE-AI" nav button is shown to users.
     "ai_nav_enabled": False,
+    # Whether My DCRs offers the "AI - Explain the Code" button, and, as a
+    # second switch, whether it is offered for stopped (deactivated) DCRs.
+    "code_explain_enabled": True,
+    "code_explain_stopped_enabled": True,
     # Off = the traditional wizard opens directly.
 }
 
@@ -85,6 +89,8 @@ def get_admin_settings(user: Any = Depends(get_current_user)) -> dict:
     return {
         "timechf_testing_enabled": timechf_testing,
         "ai_nav_enabled": _load_app_settings()["ai_nav_enabled"],
+        "code_explain_enabled": _load_app_settings()["code_explain_enabled"],
+        "code_explain_stopped_enabled": _load_app_settings()["code_explain_stopped_enabled"],
     }
 
 
@@ -96,7 +102,32 @@ def get_admin_settings(user: Any = Depends(get_current_user)) -> dict:
 @router.get("/public-settings")
 def get_public_settings() -> dict:
     values = _load_app_settings()
-    return {"ai_nav_enabled": values["ai_nav_enabled"]}
+    return {
+        "ai_nav_enabled": values["ai_nav_enabled"],
+        "code_explain_enabled": values["code_explain_enabled"],
+        "code_explain_stopped_enabled": values["code_explain_stopped_enabled"],
+    }
+
+
+def _toggle_setting(key: str, user: Any) -> dict:
+    admin_email = _require_admin(user)
+    values = _load_app_settings()
+    values[key] = not values[key]
+    _save_app_settings(values)
+    logging.info("Admin %s set %s=%s", admin_email, key, values[key])
+    return {k: values[k] for k in ("code_explain_enabled", "code_explain_stopped_enabled")}
+
+
+# POST /admin/toggle-code-explain — AI code explanation on My DCRs on/off
+@router.post("/toggle-code-explain")
+def toggle_code_explain(user: Any = Depends(get_current_user)) -> dict:
+    return _toggle_setting("code_explain_enabled", user)
+
+
+# POST /admin/toggle-code-explain-stopped — the same, for stopped DCRs only
+@router.post("/toggle-code-explain-stopped")
+def toggle_code_explain_stopped(user: Any = Depends(get_current_user)) -> dict:
+    return _toggle_setting("code_explain_stopped_enabled", user)
 
 
 # ------------------------------------------------------------------

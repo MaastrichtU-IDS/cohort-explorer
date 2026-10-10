@@ -802,20 +802,23 @@ function ICareAI() {
         )}
       </div>
 
-      {/* Mode switcher */}
-      <div className="flex justify-center items-center gap-4 py-5">
+      {/* Mode switcher: Chat / Guided stay centered; Past conversations sits at
+          the far left of the same row (above the modes on narrow screens). */}
+      <div className="relative flex flex-wrap justify-center items-center gap-4 py-5 px-6">
+        {userEmail && chat.model && (
+          <div className="basis-full md:basis-auto flex justify-center md:absolute md:left-6 md:top-1/2 md:-translate-y-1/2">
+            <PastConversations
+              model={chat.model}
+              disabled={blocked}
+              onResume={detail => {
+                chat.loadConversation(detail);
+                setMode('chat');
+              }}
+            />
+          </div>
+        )}
         {modeButton('chat', 'Chat', MessageCircle)}
         {modeButton('guided', 'Guided Exploration', Compass)}
-        {userEmail && chat.model && (
-          <PastConversations
-            model={chat.model}
-            disabled={blocked}
-            onResume={detail => {
-              chat.loadConversation(detail);
-              setMode('chat');
-            }}
-          />
-        )}
       </div>
 
       {/* Temporary service notice for the model switch; hides itself after

@@ -315,8 +315,23 @@ def _participant_record(dcr_id: str, user: Any) -> dict[str, Any]:
     pool = get_all_dcrs() if email in settings.admins_list else get_dcrs_for_participant(email)
     for record in pool:
         if record.get("id") == dcr_id:
+            _require_enabled(record)
             return record
     raise HTTPException(status_code=404, detail="Data clean room not found among your DCRs")
+
+
+def _require_enabled(record: dict[str, Any]) -> None:
+    """The admin switches (admin settings page): the feature as a whole, and for stopped DCRs."""
+    from src.admin import _load_app_settings
+    from src.decentriq import _load_deactivated
+
+    values = _load_app_settings()
+    if not values["code_explain_enabled"]:
+        raise HTTPException(status_code=403, detail="The AI code explanation is switched off.")
+    if not values["code_explain_stopped_enabled"] and (
+        record.get("isStopped") or (record.get("id") or "") in _load_deactivated()
+    ):
+        raise HTTPException(status_code=403, detail="The AI code explanation is switched off for stopped DCRs.")
 
 
 def _load_node(dcr_id: str, node_name: str, user: Any) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:

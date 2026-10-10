@@ -38,6 +38,14 @@ export default function DcrsPage() {
     typeof q.explain === 'string' && typeof q.node === 'string'
       ? { dcrId: q.explain, node: q.node, conversation: typeof q.conversation === 'string' ? q.conversation : null }
       : null;
+  // Admin switches for the AI code explanation (admin settings page).
+  const [codeExplain, setCodeExplain] = useState({ enabled: false, stopped: false });
+  useEffect(() => {
+    fetch(`${apiUrl}/admin/public-settings`, { credentials: 'include' })
+      .then(res => (res.ok ? res.json() : null))
+      .then(d => d && setCodeExplain({ enabled: !!d.code_explain_enabled, stopped: !!d.code_explain_stopped_enabled }))
+      .catch(() => {});
+  }, []);
   const [dcrs, setDcrs] = useState<DcrRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -231,7 +239,8 @@ export default function DcrsPage() {
         {!isLoading && !error && visibleDcrs.length > 0 && (
           <div className="space-y-3">
             {visibleDcrs.map((dcr, idx) => (
-              <DcrCard key={dcr.id || idx} dcr={dcr} deepLink={deepLink && deepLink.dcrId === dcr.id ? deepLink : null} />
+              <DcrCard key={dcr.id || idx} dcr={dcr} deepLink={deepLink && deepLink.dcrId === dcr.id ? deepLink : null}
+                explainAllowed={codeExplain.enabled && (codeExplain.stopped || !dcr.deactivated)} />
             ))}
           </div>
         )}
@@ -278,8 +287,10 @@ function formatTimestamp(iso?: string): string {
 function DcrCard({
   dcr,
   deepLink,
+  explainAllowed,
 }: {
   dcr: DcrRecord;
+  explainAllowed: boolean;
   deepLink?: { node: string; conversation: string | null } | null;
 }) {
   // The compute node whose script is being explained (overlay), and the stored
@@ -291,7 +302,7 @@ function DcrCard({
     if (deepLinkNode) setExplain({ node: deepLinkNode, conversation: deepLinkConversation });
   }, [deepLinkNode, deepLinkConversation]);
   // Python compute nodes are the ones with code (airlock nodes have none).
-  const explainableNodes = (dcr.nodes || [])
+  const explainableNodes = (!explainAllowed ? [] : dcr.nodes || [])
     .filter(n => n.type === 'PythonComputeNodeDefinition' && n.name)
     .map(n => n.name as string);
   const participantCount = dcr.participants?.length ?? 0;
