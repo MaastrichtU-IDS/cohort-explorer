@@ -920,7 +920,21 @@ export function Nav() {
       {showModal && (
         <div className="modal modal-open">
           <div className={`modal-box ${wizardMode === 'nocode' ? 'max-w-7xl w-[96vw] max-h-[92vh]' : 'max-w-4xl max-h-[85vh]'}`}>
-            {!userEmail ? (
+            {userEmail === '' ? (
+              /* ========== SESSION / COHORT DATA STILL LOADING ==========
+                 userEmail is '' until the first cohort fetch answers (see
+                 CohortsContext), and only null means "no valid session": do
+                 not ask a signed-in user to log in while that is pending. */
+              <>
+                <div className="flex justify-end mb-2">
+                  <button className="btn btn-sm btn-ghost" onClick={closeWizard}>✕</button>
+                </div>
+                <div className="min-h-[200px] flex flex-col items-center justify-center gap-4" role="status" aria-live="polite">
+                  <span className="loading loading-spinner loading-lg text-primary"></span>
+                  <p className="text-base-content/70">Loading the Data Clean Room wizard…</p>
+                </div>
+              </>
+            ) : !userEmail ? (
               /* ========== NOT LOGGED IN ========== */
               <>
                 <div className="flex justify-end mb-2">
