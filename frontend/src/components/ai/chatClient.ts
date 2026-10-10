@@ -618,6 +618,8 @@ export async function saveConversation(payload: SaveConversationPayload): Promis
 export async function fetchHistory(params?: {
   scope?: 'own' | 'all';
   path?: string;
+  // Leave out conversations that arrived by this path.
+  excludePath?: string;
   // Only conversations held with this exact model (e.g. the currently
   // configured one, so the list matches what the user would resume into).
   model?: string;
@@ -630,6 +632,7 @@ export async function fetchHistory(params?: {
   const q = new URLSearchParams();
   if (params?.scope) q.set('scope', params.scope);
   if (params?.path) q.set('path', params.path);
+  if (params?.excludePath) q.set('exclude_path', params.excludePath);
   if (params?.model) q.set('model', params.model);
   if (params?.search) q.set('search', params.search);
   if (params?.minMessages != null) q.set('min_messages', String(params.minMessages));

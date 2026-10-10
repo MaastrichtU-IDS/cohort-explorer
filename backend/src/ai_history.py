@@ -267,6 +267,7 @@ def list_conversations(
     is_admin: bool,
     scope: str = "own",
     path: Optional[str] = None,
+    exclude_path: Optional[str] = None,
     model: Optional[str] = None,
     search: Optional[str] = None,
     min_messages: Optional[int] = None,
@@ -286,6 +287,9 @@ def list_conversations(
     if path:
         where.append("arrival_path = ?")
         params.append(path)
+    if exclude_path:
+        where.append("COALESCE(arrival_path, '') != ?")
+        params.append(exclude_path)
     if model:
         where.append("model = ?")
         params.append(model)

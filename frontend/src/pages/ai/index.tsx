@@ -522,12 +522,6 @@ function fmtWhen(iso: string): string {
   }
 }
 
-// Code-explanation sessions come from the My DCRs page: "<DCR> · <node>".
-function codeOrigin(c: ConversationSummary): string {
-  const e = c.entry_context || {};
-  return `${e.dcr_title || e.dcr_id || 'DCR'} · ${e.node_name || 'node'}`;
-}
-
 function PastConversations({
   model,
   disabled,
@@ -550,7 +544,8 @@ function PastConversations({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchHistory({model, limit: 100})
+    // Code-explanation sessions belong to My DCRs, not to the chat.
+    fetchHistory({model, excludePath: 'code_explanation', limit: 100})
       .then(page => {
         if (!cancelled) setItems(page.items);
       })
@@ -642,12 +637,6 @@ function PastConversations({
                         className="w-full text-left rounded-xl px-3 py-2.5 hover:bg-base-200 transition-colors"
                         onClick={() => openDetail(c.id)}
                       >
-                        {c.arrival_path === 'code_explanation' && (
-                          <div className="flex items-center gap-1.5 mb-0.5">
-                            <span className="badge badge-warning badge-sm">Code explanation</span>
-                            <span className="text-[11px] text-base-content/60 truncate">{codeOrigin(c)}</span>
-                          </div>
-                        )}
                         <div className="text-sm text-base-content/80 truncate">{c.preview || '(empty)'}</div>
                         <div className="text-[11px] text-base-content/50 mt-0.5">
                           {fmtWhen(c.updated_at)} · {c.message_count} message{c.message_count === 1 ? '' : 's'}
@@ -681,18 +670,6 @@ function PastConversations({
                   ))}
                 </div>
                 <div className="px-5 py-4 border-t border-base-300">
-                  {detail.arrival_path === 'code_explanation' ? (
-                    // The chat has no script to ground such a conversation: it
-                    // continues in the My DCRs overlay, on the same node.
-                    <a
-                      className="btn w-full gap-2 bg-yellow-100 text-yellow-900 hover:bg-yellow-200 border-yellow-300"
-                      href={`/dcrs?explain=${encodeURIComponent(detail.entry_context?.dcr_id || '')}&node=${encodeURIComponent(
-                        detail.entry_context?.node_name || ''
-                      )}&conversation=${encodeURIComponent(detail.id)}`}
-                    >
-                      <MessageCircle size={15} /> Continue in My DCRs ({codeOrigin(detail)})
-                    </a>
-                  ) : (
                     <button
                       className="btn w-full gap-2 bg-blue-100 text-blue-900 hover:bg-blue-200 border-blue-300"
                       disabled={disabled}
@@ -703,7 +680,6 @@ function PastConversations({
                     >
                       <MessageCircle size={15} /> Resume Conversation
                     </button>
-                  )}
                 </div>
               </>
             )}
@@ -803,10 +779,11 @@ function ICareAI() {
       </div>
 
       {/* Mode switcher: Chat / Guided stay centered; Past conversations sits at
-          the far left of the same row (above the modes on narrow screens). */}
+          the far left of the same row (above the modes on narrow screens). No CSS
+          transform on its wrapper: it would trap the panel's `fixed` positioning. */}
       <div className="relative flex flex-wrap justify-center items-center gap-4 py-5 px-6">
         {userEmail && chat.model && (
-          <div className="basis-full md:basis-auto flex justify-center md:absolute md:left-6 md:top-1/2 md:-translate-y-1/2">
+          <div className="basis-full md:basis-auto flex justify-center md:absolute md:left-6 md:inset-y-0 md:items-center">
             <PastConversations
               model={chat.model}
               disabled={blocked}
