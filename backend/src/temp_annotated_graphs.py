@@ -32,9 +32,9 @@ cohort graph) and after the triplestore is rebuilt from scratch.
 """
 
 import glob
+import json
 import logging
 import os
-import threading
 import time
 from datetime import datetime
 from typing import Any, Optional
@@ -47,11 +47,29 @@ from src.config import settings
 
 router = APIRouter()
 
-_lock = threading.Lock()
-_status: dict[str, Any] = {"running": False, "started": None, "finished": None,
-                           "done": [], "failed": {}, "pending": []}
-
 CMEO = "https://w3id.org/CMEO/"
+
+# Status is kept in a file, not in memory: the API runs several uvicorn
+# workers, and the GET would otherwise land on a worker that knows nothing
+# about the job another one is running.
+_STATUS_FILE = os.path.join(settings.data_folder, "temp_annotated_graphs_status.json")
+_EMPTY_STATUS = {"running": False, "started": None, "finished": None,
+                 "done": [], "failed": {}, "pending": []}
+
+
+def _read_status() -> dict[str, Any]:
+    try:
+        with open(_STATUS_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return dict(_EMPTY_STATUS)
+
+
+def _write_status(status: dict[str, Any]) -> None:
+    tmp = f"{_STATUS_FILE}.tmp{os.getpid()}"
+    with open(tmp, "w") as f:
+        json.dump(status, f, indent=2)
+    os.replace(tmp, _STATUS_FILE)
 
 
 def _cohort_folders() -> list[str]:
@@ -128,19 +146,20 @@ def rebuild_one(folder: str) -> int:
 
 def rebuild_annotated_graphs() -> dict[str, Any]:
     folders = _cohort_folders()
-    with _lock:
-        _status.update(running=True, started=datetime.now().isoformat(), finished=None,
-                       done=[], failed={}, pending=list(folders))
+    status = {**_EMPTY_STATUS, "running": True, "started": datetime.now().isoformat(),
+              "done": [], "failed": {}, "pending": list(folders)}
+    _write_status(status)
     for folder in folders:
         t0 = time.time()
         try:
             n = rebuild_one(folder)
             logging.info("[temp_annotated_graphs] %s: %d triples in %.0fs", folder, n, time.time() - t0)
-            _status["done"].append(folder)
+            status["done"].append(folder)
         except Exception as e:
             logging.exception("[temp_annotated_graphs] %s failed", folder)
-            _status["failed"][folder] = str(e)
-        _status["pending"].remove(folder)
+            status["failed"][folder] = str(e)
+        status["pending"].remove(folder)
+        _write_status(status)
     # The mapping code caches the list of graph names; forget it so a cohort
     # published for the first time here is found by the next mapping run.
     try:
@@ -149,16 +168,16 @@ def rebuild_annotated_graphs() -> dict[str, Any]:
             query_builder._graph_names.clear()
     except Exception:
         pass
-    with _lock:
-        _status.update(running=False, finished=datetime.now().isoformat())
-    return dict(_status)
+    status.update(running=False, finished=datetime.now().isoformat())
+    _write_status(status)
+    return status
 
 
 @router.post("/temp/rebuild-annotated-graphs")
 async def start_rebuild(background: BackgroundTasks, user: Any = Depends(get_current_user)):
     if user["email"] not in settings.admins_list:
         raise HTTPException(status_code=403, detail="Admins only.")
-    if _status["running"]:
+    if _read_status().get("running"):
         raise HTTPException(status_code=409, detail="A rebuild is already running.")
     background.add_task(rebuild_annotated_graphs)
     return {"started": True, "cohorts": _cohort_folders()}
@@ -166,7 +185,7 @@ async def start_rebuild(background: BackgroundTasks, user: Any = Depends(get_cur
 
 @router.get("/temp/rebuild-annotated-graphs/status")
 async def rebuild_status(user: Any = Depends(get_current_user)):
-    return dict(_status)
+    return _read_status()
 
 
 if __name__ == "__main__":
