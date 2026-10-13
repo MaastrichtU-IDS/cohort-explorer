@@ -666,6 +666,15 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                     f"Row {i+2} (Variable: '{var_name_for_error}'): Visit concept fields are provided, but VISITS field is empty."
                 )
         
+        # Comma-separated categories: parse_categorical_string accepts "0=no, 1=yes",
+        # but CohortVarLinker splits CATEGORICAL on '|' only, sees one category, and
+        # then silently drops every category concept of the variable. Require '|'.
+        raw_categorical = str(row.get("CATEGORICAL", "")).strip() if "CATEGORICAL" in df.columns else ""
+        if raw_categorical and "|" not in raw_categorical and raw_categorical.count("=") > 1:
+            errors.append(
+                f"Row {i+2} (Variable: '{var_name_for_error}'): CATEGORICAL lists several categories without the '|' separator: '{raw_categorical}'. Separate categories with '|' (e.g. '0=no | 1=yes')."
+            )
+
         # Category Concept Validation
         current_categories = row.get("categories")
         
