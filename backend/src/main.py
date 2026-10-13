@@ -94,6 +94,10 @@ app.include_router(docs_router, prefix="/docs-api", tags=["documents"])
 app.include_router(chat_router, tags=["chat"])
 app.include_router(code_explain_router, tags=["chat"])
 app.include_router(nocode_router, tags=["nocode"])
+# TEMPORARY (see src/temp_annotated_graphs.py): manual rebuild of the graphs the
+# cross-study mapping reads. Delete these two lines together with that file.
+from src.temp_annotated_graphs import router as temp_annotated_graphs_router
+app.include_router(temp_annotated_graphs_router, prefix="/api", tags=["temp"])
 
 
 app.add_middleware(
