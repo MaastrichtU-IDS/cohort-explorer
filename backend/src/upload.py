@@ -215,6 +215,45 @@ def get_latest_datadictionary(cohort_folder_path: str) -> str | None:
     return max(csv_candidates, key=os.path.getmtime)
 
 
+def build_variables_graph(g: Dataset, dict_path: str, cohort_id: str, cohort_graph_uri: URIRef) -> int:
+    """Add a dictionary's variables to `g` under `cohort_graph_uri`, in the shape
+    CohortVarLinker's mapping queries expect. Returns the number of triples added.
+
+    Delegates to CohortVarLinker's own builder (process_variables_metadata_file)
+    so the triplestore holds exactly what the mapping was written against:
+    data_element -> skos:closeMatch -> code set -> cmeo:omop_id, statistical
+    type, unit/visit/category concepts, EDA statistics when the cohort has a DCR
+    output. The explorer itself reads variables from the CSV cache, not from the
+    triplestore, so nothing else depends on the shape.
+
+    The builder writes its quads under its own lower-cased graph IRI; they are
+    re-homed into the cohort's graph so there is one graph per cohort. Revisit
+    this function when CohortVarLinker changes its builder.
+    """
+    from CohortVarLinker.src.variables_kg import process_variables_metadata_file
+
+    graphs_dir = os.path.join(settings.data_folder, "graphs")
+    os.makedirs(graphs_dir, exist_ok=True)
+    eda_candidates = glob.glob(os.path.join(settings.data_folder, f"dcr_output_{cohort_id}", "eda*.json"))
+    result = process_variables_metadata_file(
+        dict_path,
+        cohort_name=cohort_id,
+        eda_file_path=max(eda_candidates, key=os.path.getmtime) if eda_candidates else None,
+        study_metadata_graph_file_path=os.path.join(graphs_dir, "studies_metadata.trig"),
+    )
+    # The builder returns the exception object, rather than raising, on some malformed rows.
+    if not isinstance(result, tuple):
+        raise RuntimeError(f"CohortVarLinker variables builder failed for {cohort_id}: {result!r}")
+    built, _ = result
+    if built is None:
+        raise RuntimeError(f"CohortVarLinker variables builder produced no graph for {cohort_id} (empty dictionary?)")
+    n = 0
+    for s, p, o, _ in built.quads():
+        g.add((s, p, o, cohort_graph_uri))
+        n += 1
+    return n
+
+
 PREVIOUS_VERSIONS_FOLDER = "previous_versions_metadata"
 
 
@@ -1007,123 +1046,21 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
                 detail="\n\n".join(errors),
             )
 
-        # If no errors, proceed to create the graph (RDF triples)
-        # CRITICAL: Use CMEO graph namespace to match query expectations
+        # If no errors, build the cohort graph: the cohort node, plus the
+        # variables in the shape the cross-study mapping reads (see
+        # build_variables_graph). The upload used to write its own node per
+        # variable with the OMOP columns as flat literals; the mapping never
+        # read those, and once the annotated nodes were published next to them
+        # every variable counted twice.
         cohort_uri = get_cohort_uri(cohort_id)
         cohort_graph_uri = get_cohort_graph_uri(cohort_id)
         g = init_graph()
-        # Use CMEO ontology: cmeo:study instead of icare:Cohort
         g.add((cohort_uri, RDF.type, OntologyNamespaces.CMEO.value.study, cohort_graph_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_graph_uri))
         g.add((cohort_uri, RDFS.label, Literal(cohort_id), cohort_graph_uri))
+        n_variable_triples = build_variables_graph(g, dict_path, cohort_id, cohort_graph_uri)
 
-        i = 0
-        for i, row in df.iterrows():
-            try:
-                # Skip rows with empty/whitespace variable names
-                var_name = str(row["VARIABLENAME"]).strip() if pd.notna(row["VARIABLENAME"]) else ""
-                if not var_name:
-                    logging.warning(f"Skipping row {i+2} in cohort {cohort_id}: empty or whitespace-only variable name")
-                    continue
-                
-                variable_uri = get_var_uri(cohort_id, var_name)
-                # Use CMEO ontology: cmeo:data_element instead of icare:Variable
-                # Note: CMEO model doesn't use hasVariable relationship, variables are just in the same graph
-                g.add((variable_uri, RDF.type, OntologyNamespaces.CMEO.value.data_element, cohort_graph_uri))
-                g.add((variable_uri, DC.identifier, Literal(var_name), cohort_graph_uri))
-                var_label = str(row["VARIABLELABEL"]).strip() if pd.notna(row["VARIABLELABEL"]) else var_name
-                g.add((variable_uri, RDFS.label, Literal(var_label), cohort_graph_uri))
-
-                # Get categories code if provided (re-fetch for graph generation phase)
-                categories_codes = []
-                if "CATEGORICAL VALUE CONCEPT CODE" in df.columns and str(row.get("CATEGORICAL VALUE CONCEPT CODE","")).strip():
-                     categories_codes = str(row["CATEGORICAL VALUE CONCEPT CODE"]).split("|")
-
-                for column_name_from_df, col_value in row.items():
-                    #print("in load_cohort_dict_file -- column_name_from_df value:", column_name_from_df)
-                    # Use the already normalized column_name_from_df
-                    if column_name_from_df not in ["categories"] and col_value: # Exclude our temporary 'categories' column
-                        # Use CMEO namespace for properties
-                        property_uri = OntologyNamespaces.CMEO.value[to_camelcase(column_name_from_df)]
-                        if (
-                            isinstance(col_value, str)
-                            and (col_value.startswith("http://") or col_value.startswith("https://"))
-                            and " " not in col_value
-                        ):
-                            g.add((variable_uri, property_uri, URIRef(col_value), cohort_graph_uri))
-                        else:
-                            g.add((variable_uri, property_uri, Literal(col_value), cohort_graph_uri))
-                    
-                    if column_name_from_df == "categories" and isinstance(col_value, list): # 'categories' is our parsed list
-                        for index, category in enumerate(col_value):
-                            # Skip categories with empty labels to prevent Invalid IRI errors
-                            normalized_label = normalize_text(category['label'])
-                            if not normalized_label:
-                                continue
-                            # Use CMEO model: obi:categorical_value_specification
-                            cat_uri = URIRef(f"{variable_uri}/categorical_value_specification/{normalized_label}")
-                            g.add((cat_uri, RDF.type, OntologyNamespaces.OBI.value.categorical_value_specification, cohort_graph_uri))
-                            g.add((cat_uri, OntologyNamespaces.OBI.value.specifies_value_of, variable_uri, cohort_graph_uri))
-                            g.add((cat_uri, OntologyNamespaces.CMEO.value.has_value, Literal(category["value"]), cohort_graph_uri))
-                            g.add((cat_uri, RDFS.label, Literal(category["label"]), cohort_graph_uri))
-                            
-                            if index < len(categories_codes):
-                                code_to_check = categories_codes[index].strip()
-                                if code_to_check and code_to_check.lower() != "na":
-                                    #code_to_check = code_to_check.lower().replace("ucum:%", "ucum:percent").replace("[", "").replace("]", "")
-                                    try:
-                                        cat_code_uri = curie_converter.expand(code_to_check)
-                                        if cat_code_uri: # Only add if valid and expanded
-                                            #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}")
-                                            # Another temp fix just for TIM-HF!!
-                                            # cat_code_uri = cat_code_uri.lower().replace("ucum/%", "ucum/percent").replace("[", "").replace("]", "")
-                                            #print(f"Adding category code {cat_code_uri} for category {category['value']} in cohort {cohort_id}, line {i}, cat_uri: {cat_uri}")
-                                            # Store concept code using CMEO model (will be added via standardization process)
-                                            g.add((cat_uri, OntologyNamespaces.CMEO.value.conceptId, URIRef(cat_code_uri), cohort_graph_uri))
-                                    except Exception as curie_exc:
-                                        error_msg = str(curie_exc)
-                                        var_name = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
-                                        # Check if it's a missing delimiter error
-                                        if "missing a delimiter" in error_msg.lower():
-                                            if ":" not in code_to_check:
-                                                errors.append(
-                                                    f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): The category concept code '{code_to_check}' is missing a colon (:) separator. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
-                                                )
-                                            else:
-                                                errors.append(
-                                                    f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): The category concept code '{code_to_check}' is missing a valid prefix before the colon. Expected format: 'prefix:code' (e.g., 'snomed:12345')."
-                                                )
-                                        else:
-                                            errors.append(
-                                                f"Row {i+2} (Variable: '{var_name}', Category: '{category['value']}'): Error expanding CURIE '{code_to_check}': {str(curie_exc)}."
-                                            )
-            
-            except Exception as row_exc:
-                # Catch any error during row processing and provide detailed context
-                var_name = row.get("VARIABLENAME", f"UNKNOWN_VAR_ROW_{i+2}")
-                error_msg = str(row_exc)
-                
-                # Try to identify which column/value caused the issue
-                detailed_msg = f"Row {i+2} (Variable: '{var_name}'): Error processing row - {error_msg}"
-                
-                # If it's an IRI error, try to find the problematic value
-                if "Invalid IRI" in error_msg or "code point" in error_msg:
-                    # Log all non-empty values in the row to help identify the issue
-                    problematic_values = []
-                    for col_name, col_val in row.items():
-                        if col_val and str(col_val).strip():
-                            val_str = str(col_val)
-                            # Check if value contains problematic characters
-                            if any(ord(c) < 32 or ord(c) == 127 for c in val_str):
-                                problematic_values.append(f"{col_name}='{val_str}' (contains invalid characters)")
-                    
-                    if problematic_values:
-                        detailed_msg += f"\nProblematic values found: {'; '.join(problematic_values)}"
-                
-                errors.append(detailed_msg)
-                logging.error(f"Error processing row {i+2} for cohort {cohort_id}: {error_msg}", exc_info=True)
-
-        print(f"Finished processing cohort dictionary: {cohort_id}")
+        print(f"Finished processing cohort dictionary: {cohort_id} ({n_variable_triples} variable triples)")
         
 
     except HTTPException as http_exc: # Re-raise specific HTTPExceptions (ours or from parse_categorical_string)
