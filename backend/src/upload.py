@@ -215,6 +215,56 @@ def get_latest_datadictionary(cohort_folder_path: str) -> str | None:
     return max(csv_candidates, key=os.path.getmtime)
 
 
+PREVIOUS_VERSIONS_FOLDER = "previous_versions_metadata"
+
+
+def current_datadictionary(cohort_folder_path: str) -> str | None:
+    """The dictionary a cohort folder is considered to hold right now: the
+    newest plain *_datadictionary.csv (the name uploads write and the DCR code
+    looks for), else the newest dictionary of any name."""
+    plain = [
+        f for f in glob.glob(os.path.join(cohort_folder_path, "*_datadictionary.csv"))
+        if "noheader" not in os.path.basename(f).lower()
+    ]
+    if plain:
+        return max(plain, key=os.path.getmtime)
+    return get_latest_datadictionary(cohort_folder_path)
+
+
+def archive_previous_dictionaries(cohort_folder_path: str, dry_run: bool = False) -> dict:
+    """Move every data dictionary except the current one (and its _noHeader
+    twin) into <cohort>/previous_versions_metadata/.
+
+    Old versions used to pile up next to the live file; several places pick
+    "the newest dictionary", and CohortVarLinker's vector indexing takes the
+    first CSV it finds, so keeping only one per folder removes that ambiguity.
+    Returns {"kept": current file name, "moved": [file names]}.
+    """
+    current = current_datadictionary(cohort_folder_path)
+    if not current:
+        return {"kept": None, "moved": []}
+    keep = {os.path.basename(current),
+            f"{os.path.splitext(os.path.basename(current))[0]}_noHeader.csv"}
+    archive_dir = os.path.join(cohort_folder_path, PREVIOUS_VERSIONS_FOLDER)
+    moved = []
+    for path in glob.glob(os.path.join(cohort_folder_path, "*.csv")):
+        name = os.path.basename(path)
+        if name in keep or "datadictionary" not in name.lower():
+            continue
+        moved.append(name)
+        if dry_run:
+            continue
+        os.makedirs(archive_dir, exist_ok=True)
+        target = os.path.join(archive_dir, name)
+        if os.path.exists(target):  # same name archived before: keep both
+            stem, ext = os.path.splitext(name)
+            target = os.path.join(archive_dir, f"{stem}_{int(os.path.getmtime(path))}{ext}")
+        shutil.move(path, target)
+    if moved and not dry_run:
+        logging.info(f"Archived {len(moved)} previous dictionary file(s) in {archive_dir}")
+    return {"kept": os.path.basename(current), "moved": moved}
+
+
 # TODO
 @router.post(
     "/insert-triples",
@@ -1877,6 +1927,13 @@ async def upload_cohort(
             os.rename(backed_up_to_path, backed_up_original_path)
             logging.info(f"Restored original dictionary for cohort {cohort_id} after failed upload")
         raise e
+
+    # The new dictionary is in place and published: the timestamped backup of
+    # the previous one (and any older leftovers) go to previous_versions_metadata/.
+    try:
+        archive_previous_dictionaries(cohort_info.folder_path)
+    except Exception as archive_exc:
+        logging.warning(f"Could not archive previous dictionaries for {cohort_id}: {archive_exc}")
 
     # return {
     #     "message": f"Metadata for cohort {cohort_id} have been successfully uploaded. The variables are being mapped to standard codes and will be available in the Cohort Explorer in a few minutes.",
