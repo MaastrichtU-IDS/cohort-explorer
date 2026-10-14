@@ -4,6 +4,7 @@ Keep this module free of heavy imports — backend/src/mapping.py imports it on
 the cache-check path, which must answer immediately.
 """
 
+import os
 from typing import Optional
 
 from .src.data_model import EmbeddingType, MappingType
@@ -11,7 +12,12 @@ from .src.data_model import EmbeddingType, MappingType
 DEFAULT_EMBED_MODEL = "biolord"
 DEFAULT_EMBEDDING_MODE = EmbeddingType.EH.value
 DEFAULT_MAPPING_MODE = MappingType.OEH.value
-DEFAULT_LLM_MODEL = "litellm/gpt-oss:120b"
+# The mapping's LLM is the same model the app's AI chat uses: LITELLM_MODEL in
+# the .env (served by the LiteLLM proxy at LITELLM_BASE_URL, which llm_call.py
+# reads through the same settings as backend/src/chat.py). The "litellm/"
+# prefix selects that backend in llm_call.py. The hard-coded fallback is only
+# for a .env without LITELLM_MODEL.
+DEFAULT_LLM_MODEL = "litellm/" + (os.getenv("LITELLM_MODEL") or "gpt-oss:120b")
 
 # "{embed_model}+{llm_tag}" and "{mapping_mode}"
 _CONFIG_FIELDS = 2

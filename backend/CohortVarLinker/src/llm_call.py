@@ -1055,6 +1055,73 @@ def _parse_single(text: str) -> Tuple[Optional[bool], str, float, str]:
     )
 
 
+
+# ── Readable per-pair log of what the LLM was asked and what it answered ──────
+
+def _short(x: Any, n: int = 160) -> str:
+    """Single-line, length-capped rendering of any value (dicts as compact JSON)."""
+    if isinstance(x, (dict, list)):
+        x = json.dumps(x, ensure_ascii=False, separators=(",", ":"))
+    x = " ".join(str(x or "").split())
+    return x if len(x) <= n else x[: n - 1] + "…"
+
+
+def _format_side(label: str, desc: Any, concepts: Any, cats: Any, unit: Any) -> str:
+    """One line describing the source or the target as the model sees it; empty
+    fields are left out."""
+    parts = [_short(desc) or "-"]
+    if concepts:
+        parts.append(f"concepts: {_short(concepts, 100)}")
+    if cats:
+        parts.append(f"cats: {_short(cats, 100)}")
+    if unit:
+        parts.append(f"unit: {_short(unit, 30)}")
+    return f"      {label}: " + " | ".join(parts)
+
+
+def _format_verdict(r) -> List[str]:
+    """The model's answer for one pair: MATCH / NO MATCH / PENDING with the
+    verdict label (COMPLETE, COMPATIBLE, PARTIAL, IMPOSSIBLE) and confidence,
+    then the transform (if any) and the model's reason; for a failed call the
+    failure status instead."""
+    if r is None:
+        return ["      =>  no result"]
+    matched, ctx_type, conf, reason_json = r
+    head = "PENDING" if matched is None else ("MATCH" if matched else "NO MATCH")
+    d: Dict[str, Any] = {}
+    try:
+        d = json.loads(reason_json) if isinstance(reason_json, str) else {}
+    except Exception:
+        d = {"status": reason_json}
+    if not isinstance(d, dict):
+        d = {"status": str(d)}
+    status = d.get("status") or ctx_type
+    lines = [f"      =>  {head} | {_short(status, 60)} | conf {conf:.2f}"]
+    transform = d.get("transform")
+    if transform:
+        direction = d.get("transform_direction")
+        lines.append(f"          transform: {_short(transform, 300)}"
+                     + (f" ({direction})" if direction else ""))
+    reason = d.get("reason")
+    if reason:
+        lines.append(f"          reason: {_short(reason, 400)}")
+    return lines
+
+
+def format_pair_block(g: Dict, t: Dict, r, done: int, total: int, round_idx: int = 0) -> str:
+    """Multi-line block for one (source, target) pair: inputs, then the verdict."""
+    tag = "" if round_idx == 0 else f"  (retry {round_idx})"
+    block = [
+        f"  🤖 LLM pair {done}/{total}{tag}",
+        _format_side("SRC", g.get("src_desc"), g.get("src_concepts"), g.get("src_cats"), g.get("src_unit")),
+        _format_side("TGT", t.get("desc"), t.get("tgt_concepts"), t.get("tgt_cats"), t.get("tgt_unit")),
+    ]
+    if t.get("evidence"):
+        block.append(f"      evidence: {_short(t['evidence'], 200)}")
+    block.extend(_format_verdict(r))
+    return "\n".join(block)
+
+
 @dataclass
 class LLMConceptMatcher:
     models: List[str] = field(default_factory=list)
@@ -1118,9 +1185,14 @@ class LLMConceptMatcher:
                 timeout=self.timeout,
             )
         elif self.backend == "litellm":
+            if not settings.LITELLM_BASE_URL:
+                raise ValueError(
+                    "LiteLLM backend selected but LITELLM_BASE_URL is not set "
+                    "(the same .env variable the AI chat uses)."
+                )
             from openai import OpenAI
             self._clients["litellm"] = OpenAI(
-                api_key=settings.LITELLM_API_KEY,
+                api_key=settings.LITELLM_API_KEY or "sk-no-key",
                 base_url=settings.LITELLM_BASE_URL,
                 timeout=self.timeout,
             )
@@ -1469,9 +1541,13 @@ class LLMConceptMatcher:
             else:
                 result = ""
         except Exception as e:
-            # print(f"[{mname}] call failed: {e}")
+            # Visible in the container log: a dead endpoint otherwise looks like
+            # a slow one, since the caller only sees an empty response.
+            logger.warning(f"  🤖 LLM call failed ({type(e).__name__}): {str(e)[:300]}")
             return "", {}
-        logger.info (f"LLM={model}, prompt={prompt}, result ={result}, logprob_dist ={logprob_evidence}")
+        # Full prompt and raw reply: debug only, the per-pair block in assess() is
+        # the readable record of each call.
+        logger.debug(f"LLM={model}, prompt={prompt}, result ={result}, logprob_dist ={logprob_evidence}")
         return result, logprob_evidence
 
    
@@ -1573,11 +1649,12 @@ class LLMConceptMatcher:
 
             model = self.models[0]
 
-            flat_meta, prompts = [], []
+            flat_meta, prompts, pairs = [], [], []
 
             for g_idx, g in enumerate(groups):
                 for t_idx, t in enumerate(g["targets"]):
                     flat_meta.append((g_idx, t_idx))
+                    pairs.append((g, t))
                    
                     pair_prompt =  _build_pair_prompt(
                             g.get("src_concepts", ""),
@@ -1599,6 +1676,11 @@ class LLMConceptMatcher:
 
 
             results = [None] * len(prompts)
+            total = len(prompts)
+
+            def _log_pair(i: int, done: int, round_idx: int) -> None:
+                g, t = pairs[i]
+                logger.info(format_pair_block(g, t, results[i], done, total, round_idx))
 
             # Initially all prompts are active.
             active_indices = list(range(len(prompts)))
@@ -1613,6 +1695,7 @@ class LLMConceptMatcher:
 
                 pending_rounds_used = round_idx
 
+                done = 0
                 if len(active_indices) == 1:
                     # Single prompt — call directly, no pool overhead
                     i = active_indices[0]
@@ -1630,6 +1713,8 @@ class LLMConceptMatcher:
                                 "transform_direction": "",
                             }),
                         )
+                    done += 1
+                    _log_pair(i, done, round_idx)
                 else:
                     with ThreadPoolExecutor(max_workers=3) as pool:
                         futures = {
@@ -1652,12 +1737,16 @@ class LLMConceptMatcher:
                                         "transform_direction": "",
                                     }),
                                 )
+                            done += 1
+                            _log_pair(i, done, round_idx)
 
                 total_calls += len(active_indices)
                 active_indices = [
                     i for i in active_indices
                     if self._is_pending_llm_result(results[i])
                 ]
+                logger.info(f"  🤖 LLM round {round_idx + 1}: {done} pairs assessed, "
+                            f"{len(active_indices)} still pending")
 
             # After all retry rounds, unresolved items remain as technical failures.
             unresolved_indices = [

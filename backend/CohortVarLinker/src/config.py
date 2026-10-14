@@ -17,8 +17,11 @@ class Settings:
     OPENROUTER_API_KEY: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
     FIREWORKS_API_KEY: str = field(default_factory=lambda: os.getenv("FIREWORKS_API_KEY"))
     FIREWORKS_BASE_URL: str = "https://api.fireworks.ai/inference/v1"
-    LITELLM_BASE_URL: str = field(default_factory=lambda: os.getenv("LITELLM_BASE_URL", "https://litellm.137.120.31.164.nip.io/v1"))
-    LITELLM_API_KEY: str = field(default_factory=lambda: os.getenv("LITELLM_API_KEY", "sk-noauth"))
+    # The LiteLLM proxy the app's AI chat uses (backend/src/config.py reads the
+    # same variables). No built-in URL: an unset LITELLM_BASE_URL fails loudly
+    # in llm_call.py instead of silently calling a stale server.
+    LITELLM_BASE_URL: str = field(default_factory=lambda: os.getenv("LITELLM_BASE_URL", ""))
+    LITELLM_API_KEY: str = field(default_factory=lambda: os.getenv("LITELLM_API_KEY", ""))
     OLLAMA_URL = "localhost:11434"
     CROSS_CATS: Set[str] = field(default_factory=lambda: {
         "measurement", "observation", "condition_occurrence", 

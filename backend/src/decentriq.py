@@ -27,7 +27,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
-from src.analysisDCR_scripts import data_fragment_script, visualization_script, exploration_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script
+from src.analysisDCR_scripts import data_fragment_script, visualization_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script
 from src.mapping import resolve_selected_mapping_files
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata, split_emails
@@ -669,8 +669,12 @@ async def get_compute_dcr_definition(
     nocode_analyses: list[dict] = None,
     include_merge_chain: bool = True,
 ) -> Any:
-    # The creator must never be excluded from their own DCR.
-    excluded_data_owners = [e for e in (excluded_data_owners or []) if e != user["email"]]
+    # Request emails trimmed and lower-cased like everywhere else (split_emails,
+    # build_dcr_participants), so a casing difference between the session email
+    # and the cohort metadata cannot exclude the creator from their own DCR.
+    creator_email = (user["email"] or "").strip().lower()
+    additional_analysts = [e for e in split_emails(additional_analysts) if e != creator_email]
+    excluded_data_owners = [e for e in split_emails(excluded_data_owners) if e != creator_email]
     # A no-code room contains only its data/dictionary nodes (plus shuffled
     # samples if chosen) and the generated analysis node(s): none of the
     # programmer furniture (starter visualization scripts, the merge/pooling
@@ -782,6 +786,12 @@ async def get_compute_dcr_definition(
         additional_analysts,
         excluded_data_owners
     )
+    # Invited analysts get exactly the creator's access: every node the creator
+    # is granted as the room's requester is granted to them too. What they do
+    # NOT get is anything the creator holds as a cohort owner (ownership of a
+    # raw data node), which build_dcr_participants assigns from the cohort
+    # metadata alone.
+    requesters = [creator_email] + [a for a in additional_analysts if a in participants]
     preview_nodes = []
     # Convert cohort variables to decentriq schema
     for cohort_id, cohort in selected_cohorts.items():
@@ -805,8 +815,9 @@ async def get_compute_dcr_definition(
             )
         metadata_nodes.append(metadata_node_id)
         
-        # Add the requester as data owner of the metadata dictionary node
-        participants[user["email"]]["data_owner_of"].add(metadata_node_id)
+        # Add the requester and invited analysts as data owners of the metadata dictionary node
+        for r_email in requesters:
+            participants[r_email]["data_owner_of"].add(metadata_node_id)
         
         # Add service account as data owner of metadata node so it can upload files
         if settings.decentriq_email and settings.decentriq_email in participants:
@@ -839,8 +850,9 @@ async def get_compute_dcr_definition(
                 shuffled_nodes[cohort_id] = shuffled_node_id
                 
                 # Add data owners for shuffled sample node (participants already have base nodes from build_dcr_participants)
-                # Add requester as data owner
-                participants[user["email"]]["data_owner_of"].add(shuffled_node_id)
+                # Add requester and invited analysts as data owners
+                for r_email in requesters:
+                    participants[r_email]["data_owner_of"].add(shuffled_node_id)
                 
                 # Add service account as data owner of shuffled sample node so it can upload files
                 if settings.decentriq_email and settings.decentriq_email in participants:
@@ -888,48 +900,6 @@ async def get_compute_dcr_definition(
                 participants[p_email]["analyst_of"].add(shuffled_viz_node_name)
             logging.info(f"Added shuffled-sample visualization node: {shuffled_viz_node_name}")
 
-        # # Add pandas preparation script - COMMENTED OUT Nov 2025
-        # pandas_script = "import pandas as pd\nimport decentriq_util\n\n"
-        # df_var = f"df_{cohort_id.replace('-', '_')}"
-        # requested_vars = cohorts_request["cohorts"][cohort_id].copy() if isinstance(cohorts_request["cohorts"][cohort_id], list) else cohorts_request["cohorts"][cohort_id]
-
-        # cohort_id_var = find_variable_by_omop_id(cohort_id, "4086934")
-
-        # if cohort_id_var is None:
-        #     pandas_script += f"#No cohort ID variable (i.e. no variable with OMOP ID 4086934) found for cohort {cohort_id}\n"
-        #     pandas_script += f"#No modifications will be done on the dataframe\n"
-        
-        # elif cohort_id_var not in requested_vars:
-        #     pandas_script += f"#Cohort ID variable ({cohort_id_var}) not in requested variables list for cohort {cohort_id}\n"
-        #     pandas_script += f"#No modifications will be done on the dataframe\n"
-        # else:
-        #     pandas_script += f"#Cohort ID variable ({cohort_id_var}) in among requested variables list for cohort {cohort_id}\n"
-        #     pandas_script += f"#The Cohort ID variable will be dropped from the dataframe\n"
-        #     requested_vars.remove(cohort_id_var)
-        
-        # # Direct cohort variables list
-        # if isinstance(requested_vars, list):
-        #     pandas_script += f'{df_var} = decentriq_util.read_tabular_data("/input/{cohort_id}")\n'
-        #     if len(requested_vars) <= len(cohort.variables):
-        #         # Add filter variables to pandas script
-        #         pandas_script += f"{df_var} = {df_var}[{requested_vars}]\n"
-
-        # # TODO: Merge operation, need to be implemented on the frontend?
-        # elif isinstance(requested_vars, dict):
-        #     pandas_script += pandas_script_merge_cohorts(requested_vars, all_cohorts)
-        #     # TODO: add merged cohorts schema to selected_cohorts
-        # else:
-        #     raise HTTPException(status_code=400, detail=f"Invalid structure for cohort {cohort_id}")
-        # pandas_script += f'\n#The following line commented out - Sept 2025\n'
-        # pandas_script += f'#{df_var}.to_csv("/output/{cohort_id}.csv", index=False, header=True)\n\n'
-
-        # # Add python data preparation script
-        # builder.add_node_definition(
-        #     PythonComputeNodeDefinition(name=f"prepare-{cohort_id}", script=pandas_script, dependencies=[data_node_id])
-        # )
-        # # Add the requester as analyst of prepare script
-        # participants[user["email"]]["analyst_of"].add(f"prepare-{cohort_id}")
-
         # Get the airlock percentage for this cohort (default to 0 if not specified)
         # A value of 0 means no airlock is requested for this cohort
         airlock_percentage = 0
@@ -969,8 +939,9 @@ async def get_compute_dcr_definition(
                     quota_bytes=10000000  # 10 MB quota
                 )
             )
-            # Add the requester as analyst of the preview node
-            participants[user["email"]]["analyst_of"].add(preview_node_name)
+            # Add the requester and invited analysts as analysts of the preview node
+            for r_email in requesters:
+                participants[r_email]["analyst_of"].add(preview_node_name)
             # Track the preview node for additional analysts
             preview_nodes.append(preview_node_name)
             logging.info(f"Created airlock nodes for {cohort_id} with {airlock_percentage}% airlock")
@@ -1009,27 +980,6 @@ async def get_compute_dcr_definition(
                 participants[p_email]["analyst_of"].add(visualization_node_name)
 
 
-
-    # Define exploration script (will be added to builder first, after cohort loop)
-    # Get the exploration script from the analysisDCR_scripts module
-    explore_script = exploration_script()
-    
-    # Add the exploration script FIRST (before other nodes) with dependencies on all metadata nodes
-    # COMMENTED OUT - Keeping script definition but not adding to DCR
-    # builder.add_node_definition(
-    #     PythonComputeNodeDefinition(
-    #         name="optional-basic-data-exploration",
-    #         script=explore_script,
-    #         dependencies=metadata_nodes
-    #     )
-    # )
-    # # Add the requester as analyst of the exploration script
-    # participants[user["email"]]["analyst_of"].add("optional-basic-data-exploration")
-    # 
-    # # Add service account as analyst of the exploration script
-    # if settings.decentriq_email and settings.decentriq_email in participants:
-    #     participants[settings.decentriq_email]["analyst_of"].add("optional-basic-data-exploration")
-
     # Add mapping file nodes if any are selected
     mapping_nodes = []
     selected_mapping_files = selected_mapping_files or []
@@ -1057,8 +1007,9 @@ async def get_compute_dcr_definition(
                 'cohorts': mapping_file.get('cohorts', [])
             })
             
-            # Add requester as data owner
-            participants[user["email"]]["data_owner_of"].add(node_name)
+            # Add requester and invited analysts as data owners
+            for r_email in requesters:
+                participants[r_email]["data_owner_of"].add(node_name)
             
             # Add service account as data owner so it can upload files
             if settings.decentriq_email and settings.decentriq_email in participants:
@@ -1076,7 +1027,8 @@ async def get_compute_dcr_definition(
         builder.add_node_definition(
             RawDataNodeDefinition(name="CrossStudyMappings", is_required=False)
         )
-        participants[user["email"]]["data_owner_of"].add("CrossStudyMappings")
+        for r_email in requesters:
+            participants[r_email]["data_owner_of"].add("CrossStudyMappings")
         
         # Add service account as data owner of CrossStudyMappings so it can upload files
         if settings.decentriq_email and settings.decentriq_email in participants:
@@ -1370,19 +1322,6 @@ async def get_compute_dcr_definition(
         logging.warning(msg)
         merge_warnings.append(msg)
 
-    # Add users permissions for previews
-    # for prev_node in preview_nodes:
-    #     participants[user["email"]]["analyst_of"].add(prev_node)
-
-    # Add analyst_of roles for additional analysts (they're already in participants from build_dcr_participants)
-    # COMMENTED OUT - exploration script permissions
-    # if additional_analysts:
-    #     for analyst_email in additional_analysts:
-    #         if analyst_email and analyst_email != user["email"] and analyst_email in participants:
-    #             # Add as analyst of the exploration script
-    #             participants[analyst_email]["analyst_of"].add("optional-basic-data-exploration")
-    #             logging.info(f"Added {analyst_email} as additional analyst")
-
     # Grant all participants (data owners and analysts) access to preview fragment nodes
     for p_email in participants.keys():
         for preview_node in preview_nodes:
@@ -1403,7 +1342,7 @@ async def get_compute_dcr_definition(
         perm = participants[p_email]
         perm["data_owner_of"] = {n for n in perm["data_owner_of"] if n in defined_nodes}
         perm["analyst_of"] = {n for n in perm["analyst_of"] if n in defined_nodes}
-        if not perm["data_owner_of"] and not perm["analyst_of"] and p_email not in (user["email"], settings.decentriq_email):
+        if not perm["data_owner_of"] and not perm["analyst_of"] and p_email not in (creator_email, settings.decentriq_email):
             logging.info(f"Participant {p_email} has no role in this room; not invited")
             del participants[p_email]
     for p_email, p_perm in participants.items():
@@ -1427,7 +1366,6 @@ async def get_compute_dcr_definition(
     logging.info(f"Total DCR definition creation completed in {total_time.total_seconds():.3f}s for {len(cohorts_request['cohorts'])} cohorts")
     
     return dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, nocode_node_names
-
 
 
 async def create_live_compute_dcr(
@@ -2111,7 +2049,6 @@ def get_dcr_log(dcr_id: str,  user: Any = Depends(get_current_user)):
     #formatted_log = pformat(events_j, indent=2, width=80)
     #return formatted_log
     return events_j
-
 
 
 @router.get("/dcr-log-main/{dcr_id}", 
