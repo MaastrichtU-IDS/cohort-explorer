@@ -1391,7 +1391,9 @@ export default function MappingPage() {
     uncached_pairs: Array<{source: string, target: string}>,
     outdated_pairs: Array<{source: string, target: string, timestamp: number, outdated_cohort: string}>,
     dictionary_timestamps: Record<string, number>,
-    will_recreate_graph?: boolean
+    graph_timestamps?: Record<string, number>,
+    vector_index_timestamp?: number | null,
+    maintenance_running?: {graphs: boolean, vector_index: boolean}
   } | null>(null);
   const [showCacheInfo, setShowCacheInfo] = useState(true);
 
@@ -1979,10 +1981,10 @@ export default function MappingPage() {
             disabled={!sourceCohort || selectedTargets.length === 0 || loading}
           >
 {loading 
-              ? (cacheInfo && cacheInfo.uncached_pairs.length > 0 
-                  ? (cacheInfo.will_recreate_graph
-                      ? 'Recreating graphs from updated dictionaries... (may take up to 30 minutes)'
-                      : 'Finding concept mappings... (may take 5-10 minutes)')
+              ? (cacheInfo && cacheInfo.uncached_pairs.length > 0
+                  ? ((cacheInfo.maintenance_running?.graphs || cacheInfo.maintenance_running?.vector_index)
+                      ? 'Waiting for a graph / index rebuild, then finding concept mappings... (may take 30 minutes or more)'
+                      : 'Finding concept mappings... (may take 15-30 minutes)')
                   : 'Mapping...')
               : 'Map Concepts & Download File'
             }
@@ -2079,9 +2081,9 @@ export default function MappingPage() {
             {/* Summary message */}
             {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) && (
               <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
-                {cacheInfo.will_recreate_graph
-                  ? '⏳ Graphs will be recreated from updated cohort dictionaries before computing mappings. This may take up to 30 minutes. If this page times out, please revisit later. The computed mappings will be cached.'
-                  : '⏳ Uncached and outdated mappings will be computed. This may take 5-10 minutes. If this page times out, please revisit later. The computed mappings will be cached.'}
+                {(cacheInfo.maintenance_running?.graphs || cacheInfo.maintenance_running?.vector_index)
+                  ? '⏳ A cohort graph or vector index rebuild is in progress (after a dictionary upload or new EDA output); the mapping waits for it before computing. This may take 30 minutes or more. If this page times out, please revisit later. The computed mappings will be cached.'
+                  : '⏳ Uncached and outdated mappings will be computed. This may take 15-30 minutes. If this page times out, please revisit later. The computed mappings will be cached.'}
               </div>
             )}
             

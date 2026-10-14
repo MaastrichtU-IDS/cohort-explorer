@@ -925,10 +925,16 @@ def get_athena_validation_errors(dict_path: str) -> list[str]:
     return error_messages
 
 
-def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user_email: str = None, filename: str = None) -> Dataset:
+def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user_email: str = None, filename: str = None,
+                          build_variables: bool = True) -> Dataset:
     """Parse the cohort dictionary uploaded as excel or CSV spreadsheet, and load it to the triplestore
-    
+
     Also updates the cohort cache with the new data.
+
+    build_variables=False returns the graph with the cohort node only: the
+    upload endpoint uses it, and builds and publishes the full graph in the
+    background (mapping_maintenance.publish_cohort_graph) so the request does
+    not wait for CohortVarLinker's builder.
     """
     # Initialize logging variables
     start_time = datetime.now()
@@ -1058,7 +1064,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         g.add((cohort_uri, RDF.type, OntologyNamespaces.CMEO.value.study, cohort_graph_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_graph_uri))
         g.add((cohort_uri, RDFS.label, Literal(cohort_id), cohort_graph_uri))
-        n_variable_triples = build_variables_graph(g, dict_path, cohort_id, cohort_graph_uri)
+        n_variable_triples = build_variables_graph(g, dict_path, cohort_id, cohort_graph_uri) if build_variables else 0
 
         print(f"Finished processing cohort dictionary: {cohort_id} ({n_variable_triples} variable triples)")
         
@@ -1839,31 +1845,12 @@ async def upload_cohort(
         f.write(file_content)
 
     try:
-        g = load_cohort_dict_file(metadata_path, cohort_id, source="upload_dict", user_email=user_email, filename=metadata_filename)
-        # Airlock preview setting goes to mapping graph because it is defined in the explorer UI
-        # g.add(
-        #     (
-        #         get_cohort_uri(cohort_id),
-        #         ICARE.previewEnabled,
-        #         Literal(str(airlock).lower(), datatype=XSD.boolean),
-        #         get_cohort_mapping_uri(cohort_id),
-        #     )
-        # )
-
-        # TODO: waiting for more tests before sending to production
-        # if settings.dev_mode:
-        if False:
-            background_tasks.add_task(generate_mappings, cohort_id, metadata_path, g)
-        else:
-            # Delete previous graph for this file from triplestore
-            # TODO: remove these lines once we move to generating mapping through the background task
-            # delete_existing_triples(
-            #     get_cohort_mapping_uri(cohort_id), f"<{get_cohort_uri(cohort_id)!s}>", "icare:previewEnabled"
-            # )
-            delete_existing_triples(get_cohort_graph_uri(cohort_id))
-            if publish_graph_to_endpoint(g):
-                # Cache was already updated directly from the graph in load_cohort_dict_file
-                logging.info(f"Cohort {cohort_id} published to triplestore and cache updated")
+        # Validates the file and refreshes the cohort cache from it. The
+        # triplestore graph and the vector index are rebuilt after the response
+        # (see mapping_maintenance): CohortVarLinker's builder and the embedding
+        # of every cohort take minutes, and the explorer reads from the cache.
+        load_cohort_dict_file(metadata_path, cohort_id, source="upload_dict", user_email=user_email,
+                              filename=metadata_filename, build_variables=False)
     except Exception as e:
         # Remove the newly written (invalid) file
         if os.path.exists(metadata_path):
@@ -1880,6 +1867,11 @@ async def upload_cohort(
         archive_previous_dictionaries(cohort_info.folder_path)
     except Exception as archive_exc:
         logging.warning(f"Could not archive previous dictionaries for {cohort_id}: {archive_exc}")
+
+    from src.mapping_maintenance import publish_cohort_graph, request_vector_index_rebuild
+    background_tasks.add_task(publish_cohort_graph, cohort_id)
+    index_rebuild = request_vector_index_rebuild(background_tasks)
+    logging.info(f"Cohort {cohort_id}: graph publish scheduled, vector index rebuild {index_rebuild}")
 
     # return {
     #     "message": f"Metadata for cohort {cohort_id} have been successfully uploaded. The variables are being mapped to standard codes and will be available in the Cohort Explorer in a few minutes.",
@@ -2767,6 +2759,8 @@ def _perform_triplestore_initialization():
                     # g.serialize(f"{settings.data_folder}/cohort_explorer_triplestore.trig", format="trig")
                     if publish_graph_to_endpoint(g):
                         print(f"💾 Triplestore initialization: added {len(g)} triples for cohort {folder}.")
+                        from src.mapping_maintenance import record_graph_published
+                        record_graph_published(folder, len(g))
                     else:
                         print(f"❌ Failed to publish graph to triplestore for cohort {folder}")
                 else:

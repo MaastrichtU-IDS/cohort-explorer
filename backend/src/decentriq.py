@@ -20,7 +20,7 @@ from decentriq_platform.analytics import (
     TableDataNodeDefinition,
     RawDataNodeDefinition
 )
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from src.auth import get_current_user
@@ -2145,7 +2145,7 @@ def _provision_dcr_cohort_id(dcr: Any, required_node: str) -> str:
 
 @router.get("/compute-get-output/{dcr_id}", 
             name = "run the scripts for a given DCR and download the output")
-def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_user)):
+def run_computation_get_output(dcr_id: str, background_tasks: BackgroundTasks, user: Any = Depends(get_current_user)):
     """Run the scripts for a given DCR and download the output. Admins only."""
     _require_admin(user)
     #example id = "9e2715f4b32a646d2da3d8952b7fa7ca48537ee6731627417f735d15fa17d4f6"
@@ -2201,6 +2201,11 @@ def run_computation_get_output(dcr_id: str,  user: Any = Depends(get_current_use
         refresh_cohort_eda_status(cohort_id)
     except Exception as e:
         logging.warning(f"Could not refresh EDA markers for cohort {cohort_id}: {e}")
+
+    # The cohort graph the cross-study mapping reads carries the EDA statistics
+    # (min/max per variable); republish it with the new output, after the response.
+    from src.mapping_maintenance import publish_cohort_graph
+    background_tasks.add_task(publish_cohort_graph, cohort_id)
 
     return {"status": "success", "saved_path": str(storage_dir)}
 

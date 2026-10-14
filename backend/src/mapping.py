@@ -133,14 +133,21 @@ async def check_mapping_cache(
             new_studies.extend(member_studies)
     target_studies_names.extend(new_studies)
     
-    # Get dictionary timestamps for all involved cohorts
+    # Timestamps of everything a mapping reads: the dictionaries, the cohort
+    # graphs built from them, and the shared vector index.
+    from src.mapping_maintenance import graph_published_at, maintenance_running, vector_index_built_at
     all_cohorts = set([source_study] + target_studies_names)
     dictionary_timestamps = {}
+    graph_timestamps = {}
     for cohort in all_cohorts:
         dict_timestamp = get_latest_dictionary_timestamp(cohort)
         if dict_timestamp:
             dictionary_timestamps[cohort] = dict_timestamp
-    
+        graph_timestamp = graph_published_at(cohort)
+        if graph_timestamp:
+            graph_timestamps[cohort] = graph_timestamp
+    index_timestamp = vector_index_built_at()
+
     # Check cache status for each mapping pair
     cached_pairs = []
     uncached_pairs = []
@@ -148,32 +155,28 @@ async def check_mapping_cache(
 
     for tstudy in target_studies_names:
         cached_path = find_cached_csv(source_study, tstudy, output_dir)
-        
+
         if cached_path:
-            # Get file modification time
             cache_timestamp = os.path.getmtime(cached_path)
-            
-            # Check if cache is outdated compared to dictionaries
-            source_dict_time = dictionary_timestamps.get(source_study)
-            target_dict_time = dictionary_timestamps.get(tstudy)
-            
-            is_outdated = False
-            outdated_cohort = None
-            
-            if source_dict_time and source_dict_time > cache_timestamp:
-                is_outdated = True
-                outdated_cohort = source_study
-            elif target_dict_time and target_dict_time > cache_timestamp:
-                is_outdated = True
-                outdated_cohort = tstudy
-            
+
+            # Outdated when any input is newer than the cached CSV. The first
+            # match names what changed, for the UI.
+            inputs = [
+                (source_study, dictionary_timestamps.get(source_study)),
+                (tstudy, dictionary_timestamps.get(tstudy)),
+                (f"{source_study} (graph)", graph_timestamps.get(source_study)),
+                (f"{tstudy} (graph)", graph_timestamps.get(tstudy)),
+                ("vector index", index_timestamp),
+            ]
+            outdated_cohort = next((name for name, ts in inputs if ts and ts > cache_timestamp), None)
+
             pair_info = {
                 'source': source_study,
                 'target': tstudy,
                 'timestamp': cache_timestamp
             }
-            
-            if is_outdated:
+
+            if outdated_cohort:
                 pair_info['outdated_cohort'] = outdated_cohort
                 outdated_pairs.append(pair_info)
             else:
@@ -183,17 +186,17 @@ async def check_mapping_cache(
                 'source': source_study,
                 'target': tstudy
             })
-    
-    # Check if any cohort dictionaries are newer than their existing graph files
-    from CohortVarLinker.main import _check_graphs_need_recreate
-    will_recreate_graph = _check_graphs_need_recreate(all_cohorts, cohort_linker_settings.cohort_folder)
 
     return JSONResponse(content={
         'cached_pairs': cached_pairs,
         'uncached_pairs': uncached_pairs,
         'outdated_pairs': outdated_pairs,
         'dictionary_timestamps': dictionary_timestamps,
-        'will_recreate_graph': will_recreate_graph
+        'graph_timestamps': graph_timestamps,
+        'vector_index_timestamp': index_timestamp,
+        # A graph or index rebuild in progress: the mapping waits for it (it
+        # holds the mapping lock) and its result is used.
+        'maintenance_running': maintenance_running(),
     })
 
 
@@ -415,6 +418,11 @@ async def generate_mapping(
     
     target_studies = sorted(target_studies, key=lambda x: x[0])
     target_names = [t[0] for t in target_studies]
+
+    # generate_mapping_csv only compares cached CSVs against the dictionaries;
+    # drop the ones that predate a graph or vector-index rebuild so it recomputes them.
+    from src.mapping_maintenance import invalidate_stale_mapping_caches
+    invalidate_stale_mapping_caches(source_study, target_names)
 
     with MappingRun(PROCESS_CVL, source=source_study, targets=target_names,
                     user=user.get("email", "unknown")):

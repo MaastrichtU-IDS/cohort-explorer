@@ -21,6 +21,7 @@ from src.decentriq import refresh_dcr_history
 from src.eda_counts import router as eda_counts_router
 from src.explore import router as explore_router
 from src.mapping import router as mapping_router
+from src.mapping_maintenance import router as mapping_maintenance_router
 from src.upload import init_triplestore
 from src.upload import router as upload_router
 from src.monitoring import run_periodic_monitoring
@@ -94,10 +95,7 @@ app.include_router(docs_router, prefix="/docs-api", tags=["documents"])
 app.include_router(chat_router, tags=["chat"])
 app.include_router(code_explain_router, tags=["chat"])
 app.include_router(nocode_router, tags=["nocode"])
-# TEMPORARY (see src/temp_mapping_tools.py): manual rebuild of the vector index the
-# cross-study mapping searches. Delete these two lines together with that file.
-from src.temp_mapping_tools import router as temp_mapping_tools_router
-app.include_router(temp_mapping_tools_router, prefix="/api", tags=["temp"])
+app.include_router(mapping_maintenance_router, prefix="/api", tags=["mapping"])
 
 
 app.add_middleware(
