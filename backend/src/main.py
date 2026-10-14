@@ -22,6 +22,7 @@ from src.eda_counts import router as eda_counts_router
 from src.explore import router as explore_router
 from src.mapping import router as mapping_router
 from src.mapping_maintenance import router as mapping_maintenance_router
+from src.metadata_clustering import router as metadata_clustering_router
 from src.upload import init_triplestore
 from src.upload import router as upload_router
 from src.monitoring import run_periodic_monitoring
@@ -96,6 +97,7 @@ app.include_router(chat_router, tags=["chat"])
 app.include_router(code_explain_router, tags=["chat"])
 app.include_router(nocode_router, tags=["nocode"])
 app.include_router(mapping_maintenance_router, prefix="/api", tags=["mapping"])
+app.include_router(metadata_clustering_router, prefix="/api", tags=["metadata-clustering"])
 
 
 app.add_middleware(
