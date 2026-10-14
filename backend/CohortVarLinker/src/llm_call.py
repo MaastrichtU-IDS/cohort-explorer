@@ -7,6 +7,7 @@ from .utils import setup_logger
 from .config import settings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from .data_model import ContextMatchType, MappingType
+from . import llm_decisions
 
 import hashlib
 from pathlib import Path
@@ -1479,13 +1480,16 @@ class LLMConceptMatcher:
                         {"role": "system", "content": sys_prompt},
                         {"role": "user", "content": prompt},
                     ],
-                     "extra_body": {
-                        "reasoning_effort": "high",
-                        "allowed_openai_params": ["reasoning_effort"],
-                        "drop_params": True,
-                    },
                     **self._fireworks_generation_params(),
                 }
+                # Only when configured: a reasoning_effort the model group does
+                # not accept is a 400 on every call (see settings).
+                if settings.LITELLM_REASONING_EFFORT:
+                    kwargs["extra_body"] = {
+                        "reasoning_effort": settings.LITELLM_REASONING_EFFORT,
+                        "allowed_openai_params": ["reasoning_effort"],
+                        "drop_params": True,
+                    }
                 if not force_freeform:
                     kwargs["response_format"] = {"type": "json_schema",
                         "json_schema": {"name": "HarmonizationVerdict", "schema": VERDICT_JSON_SCHEMA}}
@@ -1552,18 +1556,21 @@ class LLMConceptMatcher:
 
    
 
-    def _eval_pair(self, model: str, prompt: str) -> Tuple[Optional[bool], str, float, str]:
+    def _eval_pair(self, model: str, prompt: str) -> Tuple[Tuple[Optional[bool], str, float, str], Dict[str, Any]]:
+        """The verdict tuple for one pair plus a record of how it was obtained
+        (for the decision store): raw reply, cached?, attempts, duration_ms, error."""
+        t0 = time.time()
         cache_mode = self._cache_mode()
         cached = self._cache.get_record(model, prompt, mode=cache_mode)
         # cached = None
         if cached and cached.get("r"):
             v = _parse_single(cached["r"])
             if v[0] is not None:
-                return _apply_logprob_confidence(
-                    v,
-                    cached.get("logprob_dist") or {},
-                )
+                v = _apply_logprob_confidence(v, cached.get("logprob_dist") or {})
+                return v, {"raw": cached["r"], "cached": True, "attempts": 0,
+                           "duration_ms": int((time.time() - t0) * 1000), "error": None}
 
+        text = ""
         for attempt in range(self.max_retries):
             text, logprob_dist = self._call_one(
                 model,
@@ -1584,7 +1591,8 @@ class LLMConceptMatcher:
                     logprob_dist=logprob_dist,
                 )
 
-                return v
+                return v, {"raw": text, "cached": False, "attempts": attempt + 1,
+                           "duration_ms": int((time.time() - t0) * 1000), "error": None}
 
             time.sleep(1 + attempt)
 
@@ -1599,7 +1607,9 @@ class LLMConceptMatcher:
                 "logprob_confidence": 0.0,
                 "confidence_source": "unavailable_logprob",
             }),
-        )
+        ), {"raw": text, "cached": False, "attempts": self.max_retries,
+            "duration_ms": int((time.time() - t0) * 1000),
+            "error": "parse_failed_after_retries" if text else "empty_response_after_retries"}
         
  
 
@@ -1678,9 +1688,15 @@ class LLMConceptMatcher:
             results = [None] * len(prompts)
             total = len(prompts)
 
+            metas: Dict[int, Dict[str, Any]] = {}
+
             def _log_pair(i: int, done: int, round_idx: int) -> None:
                 g, t = pairs[i]
                 logger.info(format_pair_block(g, t, results[i], done, total, round_idx))
+                # Durable record of the decision (input and output), see llm_decisions.py.
+                llm_decisions.record_decision(
+                    g=g, t=t, prompt=prompts[i], system_prompt=self._system_prompt, model=model,
+                    mode=self.mode, verdict=results[i], meta=metas.get(i), round_idx=round_idx)
 
             # Initially all prompts are active.
             active_indices = list(range(len(prompts)))
@@ -1700,8 +1716,9 @@ class LLMConceptMatcher:
                     # Single prompt — call directly, no pool overhead
                     i = active_indices[0]
                     try:
-                        results[i] = self._eval_pair(model, prompts[i])
+                        results[i], metas[i] = self._eval_pair(model, prompts[i])
                     except Exception as e:
+                        metas[i] = {"error": f"{type(e).__name__}: {e}"}
                         results[i] = (
                             None,
                             ContextMatchType.PENDING.value,
@@ -1724,8 +1741,9 @@ class LLMConceptMatcher:
                         for fut in as_completed(futures):
                             i = futures[fut]
                             try:
-                                results[i] = fut.result()
+                                results[i], metas[i] = fut.result()
                             except Exception as e:
+                                metas[i] = {"error": f"{type(e).__name__}: {e}"}
                                 results[i] = (
                                     None,
                                     ContextMatchType.PENDING.value,

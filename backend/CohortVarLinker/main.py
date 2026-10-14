@@ -41,6 +41,7 @@ from .src.utils import (
     OntologyNamespaces,
 )
 from .src.vector_db import _embed_cache, generate_studies_embeddings
+from .src import llm_decisions
 
 _BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
@@ -418,6 +419,8 @@ def generate_mapping_csv(source_study: str, target_studies: list,
             mapper = _get_mapper(embed_model, embedding_mode, mapping_mode, llm_model)
             clear_all_caches()
 
+            # Every LLM decision of this run goes to the decision store under one run id.
+            decisions_run_id = llm_decisions.begin_run(source_study, to_compute, embed_model, mapping_mode, llm_model)
             for tgt in to_compute:
                 # Re-check under the lock. If we queued behind a request that
                 # wanted the same pair — in this worker or any other — its CSV is
@@ -431,9 +434,17 @@ def generate_mapping_csv(source_study: str, target_studies: list,
                         reused_after_wait.append(tgt)
                         continue
 
-                _write_pair_csv(mapper, source_study, source_family, tgt,
-                                embed_model, mapping_mode, cfg)
+                llm_decisions.set_pair(source_study, tgt)
+                try:
+                    _write_pair_csv(mapper, source_study, source_family, tgt,
+                                    embed_model, mapping_mode, cfg)
+                except Exception as exc:
+                    llm_decisions.end_run(decisions_run_id, status="failed", error=f"{type(exc).__name__}: {exc}")
+                    raise
+                finally:
+                    llm_decisions.set_pair(None, None)
                 computed.append(tgt)
+            llm_decisions.end_run(decisions_run_id, status="done")
 
     out_name = json_name(source_study, requested, cfg)
     n_source_vars = _combine_cross_mapping_json(

@@ -426,6 +426,8 @@ async def generate_mapping(
 
     with MappingRun(PROCESS_CVL, source=source_study, targets=target_names,
                     user=user.get("email", "unknown")):
+        from CohortVarLinker.src import llm_decisions
+        llm_decisions.set_context(requested_by=user.get("email"))
         cache_info = generate_mapping_csv(source_study, target_studies)
 
     if not cache_info.get("source_variables"):

@@ -22,6 +22,11 @@ class Settings:
     # in llm_call.py instead of silently calling a stale server.
     LITELLM_BASE_URL: str = field(default_factory=lambda: os.getenv("LITELLM_BASE_URL", ""))
     LITELLM_API_KEY: str = field(default_factory=lambda: os.getenv("LITELLM_API_KEY", ""))
+    # reasoning_effort sent with every mapping LLM call through LiteLLM. Empty
+    # (the default) sends none: the proxy applies the model's own default, and a
+    # value the model group does not accept makes LiteLLM reject every call
+    # with a 400 (qwen3.8-g2 accepts low / medium / xhigh, not "high").
+    LITELLM_REASONING_EFFORT: str = field(default_factory=lambda: os.getenv("LITELLM_REASONING_EFFORT", "").strip())
     OLLAMA_URL = "localhost:11434"
     CROSS_CATS: Set[str] = field(default_factory=lambda: {
         "measurement", "observation", "condition_occurrence", 
