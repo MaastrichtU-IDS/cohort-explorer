@@ -37,7 +37,8 @@ function pathBadgeClass(p: string): string {
 // Where a code-explanation session came from: the DCR and node it explains.
 function originLabel(c: ConversationSummary): string {
   const e = c.entry_context || {};
-  return `My DCRs · ${e.dcr_title || e.dcr_id || 'DCR'} · ${e.node_name || 'node'}`;
+  const where = !e.node_name || e.node_name === '__room__' ? 'whole room' : e.node_name;
+  return `My DCRs · ${e.dcr_title || e.dcr_id || 'DCR'} · ${where}`;
 }
 
 function fmtDuration(s: number | null): string {

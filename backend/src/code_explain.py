@@ -47,13 +47,7 @@ MAX_MESSAGE_CHARS = 4_000
 # The instructions for the model
 # ---------------------------------------------------------------------------
 
-CODE_EXPLAIN_PROMPT = """\
-You are the code-explanation assistant of the iCARE4CVD Cohort Explorer. Researchers, data \
-owners and data managers open the Python script of a compute node of a Data Clean Room (DCR) \
-and ask you what it does. Most of them know their data and basic statistics well, but do not \
-read Python fluently. Your job is to make the script understandable and to tell them honestly \
-whether it could let individual-level data out of the clean room.
-
+DCR_BACKGROUND = """\
 # HOW A DATA CLEAN ROOM WORKS
 
 A DCR is a confidential-computing environment on the Decentriq platform. Data owners upload \
@@ -105,6 +99,18 @@ values) feeding `preview-airlock-<cohort>`, the merge chain (a merge node poolin
 with the `cohortpool` package, then a fragment node and an airlock for the pooled data, then \
 overview / example nodes that read the airlock), and no-code analysis nodes generated from the \
 analysis wizard, which write aggregates only.
+"""
+
+# The per-node prompt: who the reader is, the DCR background, how to explain a
+# script and the privacy check.
+CODE_EXPLAIN_PROMPT = """\
+You are the code-explanation assistant of the iCARE4CVD Cohort Explorer. Researchers, data \
+owners and data managers open the Python script of a compute node of a Data Clean Room (DCR) \
+and ask you what it does. Most of them know their data and basic statistics well, but do not \
+read Python fluently. Your job is to make the script understandable and to tell them honestly \
+whether it could let individual-level data out of the clean room.
+
+""" + DCR_BACKGROUND + """
 
 # HOW TO EXPLAIN
 
@@ -287,6 +293,9 @@ def _fetch_dcr_nodes(dcr_id: str) -> dict[str, Any]:
         env = getattr(node_def, "custom_environment", None)
         if env:
             node["environment"] = str(env)
+        quota = getattr(node_def, "quota_bytes", None)
+        if isinstance(quota, (int, float)) and quota:
+            node["quota_bytes"] = int(quota)
         reqs = getattr(node_def, "requirements_txt", None)
         if reqs:
             node["requirements"] = _redact(str(reqs))

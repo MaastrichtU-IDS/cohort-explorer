@@ -417,10 +417,10 @@ function DcrCard({
                   {explainableNodes.length > 0 && dcr.id && (
                     <button
                       className="btn btn-xs btn-outline btn-primary"
-                      onClick={() => setExplain({ node: explainableNodes[0], conversation: null })}
-                      title="Have the AI explain the code of this DCR's compute nodes and check it for data leaks"
+                      onClick={() => setExplain({ node: '', conversation: null })}
+                      title="Have the AI explain what happens in this DCR, how the data flows between its nodes and what analysts can see; each compute node's code is one click away"
                     >
-                      <Code size={11} /> AI - Explain the Code
+                      <Code size={11} /> AI - Explain this DCR
                     </button>
                   )}
                 </div>

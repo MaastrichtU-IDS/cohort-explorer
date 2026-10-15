@@ -12,6 +12,7 @@ from src.announcements import router as announcements_router
 from src.auth import router as auth_router
 from src.chat import router as chat_router
 from src.code_explain import router as code_explain_router
+from src.code_explain_room import router as code_explain_room_router
 from src.config import settings
 from src.data_analysis import router as data_analysis_router
 from src.data_analysis import bare_router as data_analysis_bare_router
@@ -96,6 +97,7 @@ app.include_router(announcements_router, tags=["announcements"])
 app.include_router(docs_router, prefix="/docs-api", tags=["documents"])
 app.include_router(chat_router, tags=["chat"])
 app.include_router(code_explain_router, tags=["chat"])
+app.include_router(code_explain_room_router, tags=["chat"])
 app.include_router(nocode_router, tags=["nocode"])
 app.include_router(mapping_maintenance_router, prefix="/api", tags=["mapping"])
 app.include_router(metadata_clustering_router, prefix="/api", tags=["metadata-clustering"])

@@ -748,3 +748,116 @@ export async function streamCodeExplanation(opts: {
     opts.onChunk(decoder.decode(value, {stream: true}));
   }
 }
+
+
+// ---- Room-level explanation (backend: src/code_explain_room.py) ----
+
+export type RoomNodeKind =
+  | 'cohort_data'
+  | 'dictionary'
+  | 'shuffled'
+  | 'mapping'
+  | 'python'
+  | 'airlock'
+  | 'environment'
+  | 'other';
+
+export interface RoomNode {
+  name: string;
+  type: string;
+  kind: RoomNodeKind;
+  dependencies: string[];
+  runners: number;
+  logs: string[];
+  environment?: string;
+  quota_bytes?: number;
+  external_packages?: string[];
+  writes?: number;
+  prints?: boolean;
+  // Output file names the script mentions (f-string parts shown as {...}); directories end with '/'.
+  outputs?: string[];
+  // External code was handed an output folder: it may write files not listed above.
+  external_writes?: boolean;
+  // Data nodes only: whether a dataset has been published to the node; null when unknown.
+  provisioned?: boolean | null;
+  provisioned_by?: string | null;
+  provisioned_at?: number | null;
+}
+
+export interface RoomExit {
+  node: string;
+  kind: 'airlock' | 'runnable';
+  shows_output_of?: string | null;
+  quota_bytes?: number | null;
+  viewers?: number;
+  runners?: number;
+  logs?: string[];
+  feeds?: string[];
+}
+
+export interface RoomOverview {
+  dcr_id: string;
+  title: string;
+  description: string;
+  cohorts: string[];
+  participants: number;
+  nodes: RoomNode[];
+  edges: {from: string; to: string}[];
+  exits: RoomExit[];
+  provisioning: {known: boolean; data_nodes: number; provisioned: number};
+}
+
+export async function fetchRoomOverview(dcrId: string): Promise<RoomOverview> {
+  const res = await fetch(`${apiUrl}/my-dcrs/${encodeURIComponent(dcrId)}/overview`, {credentials: 'include'});
+  if (!res.ok) {
+    let detail = `Could not load the room structure (${res.status})`;
+    try {
+      detail = (await res.json()).detail || detail;
+    } catch {
+      /* body was not JSON */
+    }
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+export async function streamRoomExplanation(opts: {
+  dcrId: string;
+  messages: ChatMessage[];
+  overview?: boolean;
+  onChunk: (delta: string) => void;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const res = await fetch(`${apiUrl}/api/chat/code-explain/room/stream`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {'Content-Type': 'application/json'},
+    signal: opts.signal,
+    body: JSON.stringify({
+      dcr_id: opts.dcrId,
+      messages: opts.messages.map(m => ({role: m.role, content: m.content})),
+      overview: !!opts.overview
+    })
+  });
+  if (!res.ok) {
+    let detail = `Request failed (${res.status})`;
+    try {
+      detail = (await res.json()).detail || detail;
+    } catch {
+      /* body was not JSON */
+    }
+    throw new Error(detail);
+  }
+  if (!res.body) {
+    opts.onChunk(await res.text());
+    return;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    opts.onChunk(decoder.decode(value, {stream: true}));
+  }
+}

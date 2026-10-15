@@ -7,6 +7,10 @@ services:
       FRONTEND_URL: http://localhost:3001
       SPARQL_ENDPOINT: "http://db:7878"
       DATA_FOLDER: /data
+      # A worker killed by a native crash (segfault in torch/faiss/qdrant) prints
+      # the Python stack of every thread before dying instead of just
+      # "Child process died".
+      PYTHONFAULTHANDLER: "1"
     volumes:
       - ./data:/data
  #     - /data/deploy-services/cohort-explorer/cohortVarLinker/data/:/app/CohortVarLinker/data/
