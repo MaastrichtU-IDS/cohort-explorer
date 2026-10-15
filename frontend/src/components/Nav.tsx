@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Layers, Database} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings} from 'react-feather';
 import NocodeWizard from '@/components/nocode/NocodeWizard';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon, SparklesIcon} from '@/components/Icons';
@@ -847,24 +847,6 @@ export function Nav() {
               <span className="text-base">Documents</span>
             </Link>
           </li>
-          {isAdmin && (
-            <li>
-              <Link href="/metadata-clustering" className={pathname === '/metadata-clustering' ? 'active' : ''}
-                    title="Admin: match study metadata across studies">
-                <Layers size={24} />
-                <span className="text-base">Metadata clustering</span>
-              </Link>
-            </li>
-          )}
-          {isAdmin && (
-            <li>
-              <Link href="/llm-decisions" className={pathname === '/llm-decisions' ? 'active' : ''}
-                    title="Admin: every LLM mapping decision with its input and output">
-                <Database size={24} />
-                <span className="text-base">LLM decisions</span>
-              </Link>
-            </li>
-          )}
         </ul>
         <div className="dropdown lg:hidden">
           <div tabIndex={0} role="button" className="btn btn-ghost lg:hidden">
@@ -877,8 +859,6 @@ export function Nav() {
             <li><Link href="/dcrs">My DCRs</Link></li>
             {aiNavEnabled && <li><Link href="/ai">iCARE-AI</Link></li>}
             <li><Link href="/docs_store">Documents</Link></li>
-            {isAdmin && <li><Link href="/metadata-clustering">Metadata clustering</Link></li>}
-            {isAdmin && <li><Link href="/llm-decisions">LLM decisions</Link></li>}
           </ul>
         </div>
       </div>
