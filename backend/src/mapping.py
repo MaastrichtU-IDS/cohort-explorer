@@ -321,6 +321,13 @@ async def get_available_mapping_files(
                 logger.info(f"[DEBUG] Skipping '{filename}': 0 total mappings")
                 continue
 
+            # Compute time and LLM counts of the run that produced the pair, from
+            # the LLM decision store (None for pairs computed before the store).
+            try:
+                from CohortVarLinker.src import llm_decisions
+                compute = llm_decisions.pair_stats(file_cohorts[0], file_cohorts[1])
+            except Exception:
+                compute = None
             available_mappings.append({
                 'cohorts': file_cohorts,
                 'filename': filename,
@@ -329,6 +336,7 @@ async def get_available_mapping_files(
                 'timestamp': mtime,
                 'display_name': display_name,
                 'stats': stats,
+                'compute': compute,
             })
     
     # De-duplicate: for each unique cohort set, keep only the most recent file

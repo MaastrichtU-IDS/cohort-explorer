@@ -83,6 +83,16 @@ class Cohort:
     administrator_email: Optional[str] = None
     study_contact_person: Optional[str] = None
     study_contact_person_email: Optional[str] = None
+    # The cohorts spreadsheet's current contact columns: "PI" / "PI Email
+    # Address" and "Data provider" / "Data provider email address". The legacy
+    # fields above mirror them (administrator = PI, study contact person = data
+    # provider) so older code and spreadsheets keep working. cohort_email is the
+    # union of both email columns: everyone in it may edit/upload for the
+    # cohort; only the data providers are invited into DCRs as data owners.
+    pi: Optional[str] = None
+    pi_email: Optional[str] = None
+    data_provider: Optional[str] = None
+    data_provider_email: Optional[str] = None
     references: list[str] = field(default_factory=list)
     # Additional metadata fields
     population_location: Optional[str] = None

@@ -308,6 +308,10 @@ def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
         "administrator_email": cohort.administrator_email,
         "study_contact_person": cohort.study_contact_person,
         "study_contact_person_email": cohort.study_contact_person_email,
+        "pi": cohort.pi,
+        "pi_email": cohort.pi_email,
+        "data_provider": cohort.data_provider,
+        "data_provider_email": cohort.data_provider_email,
         "references": cohort.references,
         "population_location": cohort.population_location,
         "language": cohort.language,
@@ -621,6 +625,10 @@ def create_cohort_from_metadata_graph(cohort_id: str, cohort_uri: URIRef, g: Dat
                 data_owner_emails.append(cohort.administrator_email.lower())
             cohort.cohort_email = data_owner_emails
             cohort.study_contact_person_email = data_owner_emails[0] if data_owner_emails else None
+        # The graph only knows the legacy roles: PI = administrator, data
+        # provider = study contact person.
+        cohort.pi, cohort.pi_email = cohort.administrator, cohort.administrator_email
+        cohort.data_provider, cohort.data_provider_email = cohort.study_contact_person, cohort.study_contact_person_email
         
         # References - try CMEO first, then ICARE
         cohort.references = get_literal_values(CMEO.references) or get_literal_values(ICARE.references)
@@ -1541,21 +1549,35 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
                 
                 cohort.age_distribution = age_groups
             
-            # Contact information
-            cohort.administrator = str(row.get("administrator", "")).strip() if pd.notna(row.get("administrator")) else None
-            cohort.administrator_email = str(row.get("administrator email address", "")).strip().lower() if pd.notna(row.get("administrator email address")) else None
-            cohort.study_contact_person = str(row.get("study contact person", "")).strip() if pd.notna(row.get("study contact person")) else None
-            cohort.study_contact_person_email = str(row.get("study contact person email address", "")).strip().lower() if pd.notna(row.get("study contact person email address")) else None
+            # Contact information. Current column names first ("PI", "PI Email
+            # Address", "Data provider", "Data provider email address"), the
+            # previous ones ("Administrator ...", "Study Contact Person ...") as
+            # fallback for older spreadsheets.
+            def _cell(*names: str, lower: bool = False) -> Optional[str]:
+                for name in names:
+                    v = row.get(name)
+                    if pd.notna(v) and str(v).strip():
+                        v = str(v).strip()
+                        return v.lower() if lower else v
+                return None
+            cohort.pi = _cell("pi", "administrator")
+            cohort.pi_email = _cell("pi email address", "administrator email address", lower=True)
+            cohort.data_provider = _cell("data provider", "study contact person")
+            cohort.data_provider_email = _cell("data provider email address", "study contact person email address", lower=True)
+            # Legacy mirrors, kept for older code and the triplestore builders.
+            cohort.administrator = cohort.pi
+            cohort.administrator_email = cohort.pi_email
+            cohort.study_contact_person = cohort.data_provider
+            cohort.study_contact_person_email = cohort.data_provider_email
             
-            # Build cohort_email list from all available emails
+            # cohort_email: the union of both email columns (';'-separated cells
+            # allowed). Everyone in it has the cohort's edit/upload privileges.
             emails = []
-            if cohort.administrator_email:
-                for email in cohort.administrator_email.split(";"):
-                    emails.append(email.strip().lower())
-            if cohort.study_contact_person_email:
-                for email in cohort.study_contact_person_email.split(";"):
-                    if email.strip().lower() not in emails:
-                        emails.append(email.strip().lower())
+            for cell in (cohort.pi_email, cohort.data_provider_email):
+                for email in (cell or "").split(";"):
+                    email = email.strip().lower()
+                    if email and email not in emails:
+                        emails.append(email)
             cohort.cohort_email = emails
             
             # References

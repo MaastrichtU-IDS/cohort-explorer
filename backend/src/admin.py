@@ -167,13 +167,19 @@ def toggle_timechf_testing(user: Any = Depends(get_current_user)) -> dict:
         timechf.cohort_email = [
             e for e in timechf.cohort_email if e.lower() != TIMECHF_TEST_EMAIL
         ]
+        timechf.data_provider_email = ";".join(
+            e for e in (timechf.data_provider_email or "").split(";") if e.strip() and e.strip().lower() != TIMECHF_TEST_EMAIL
+        ) or None
         logging.info(
             "Admin %s DISABLED TIME-CHF testing capacity (removed %s)",
             admin_email, TIMECHF_TEST_EMAIL,
         )
     else:
-        # Add
+        # Add (as a data provider too, so the test account is invited into DCRs)
         timechf.cohort_email.append(TIMECHF_TEST_EMAIL)
+        timechf.data_provider_email = ";".join(
+            [e for e in (timechf.data_provider_email or "").split(";") if e.strip()] + [TIMECHF_TEST_EMAIL]
+        )
         logging.info(
             "Admin %s ENABLED TIME-CHF testing capacity (added %s)",
             admin_email, TIMECHF_TEST_EMAIL,

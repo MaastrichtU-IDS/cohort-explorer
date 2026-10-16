@@ -1374,6 +1374,15 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
   );
 }
 
+// "1 h 12 min" / "45 min" / "50 s" for the cached-pairs table.
+function formatComputeTime(seconds: number): string {
+  const s = Math.round(seconds);
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
 export default function MappingPage() {
   const { cohortsData, userEmail } = useCohorts();
   const [sourceCohort, setSourceCohort] = useState('');
@@ -1903,6 +1912,8 @@ export default function MappingPage() {
                       <th className="bg-base-300 text-center whitespace-nowrap">Source Vars</th>
                       <th className="bg-base-300 text-center whitespace-nowrap">Target Vars</th>
                       <th className="bg-base-300 text-center">Mappings</th>
+                      <th className="bg-base-300 text-center whitespace-nowrap" title="Wall-clock time of the run that computed this pair">Compute time</th>
+                      <th className="bg-base-300 text-center whitespace-nowrap" title="LLM calls made / variable pairs the LLM assessed">LLM calls</th>
                       <th className="bg-base-300">Actions</th>
                     </tr>
                   </thead>
@@ -1937,6 +1948,12 @@ export default function MappingPage() {
                         </td>
                         <td className="text-xs text-center">
                           {file.stats?.total_mappings ?? '—'}
+                        </td>
+                        <td className="text-xs text-center whitespace-nowrap" title={file.compute?.approximate ? 'Approximate: span of the LLM calls (the run predates per-pair timing)' : undefined}>
+                          {file.compute?.compute_seconds != null ? `${file.compute.approximate ? '≈ ' : ''}${formatComputeTime(file.compute.compute_seconds)}` : '—'}
+                        </td>
+                        <td className="text-xs text-center whitespace-nowrap" title={file.compute ? `${file.compute.llm_calls} calls to ${file.compute.model || 'the LLM'} for ${file.compute.llm_pairs} variable pairs${file.compute.llm_cached ? ` (${file.compute.llm_cached} answered from the response cache)` : ''}` : undefined}>
+                          {file.compute ? <>{file.compute.llm_calls} <span className="text-gray-400">/ {file.compute.llm_pairs} pairs</span></> : '—'}
                         </td>
                         <td className="text-xs">
                           <div className="flex gap-1">

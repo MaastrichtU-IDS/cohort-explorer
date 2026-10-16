@@ -27,7 +27,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from .config import settings
@@ -90,7 +90,28 @@ CREATE INDEX IF NOT EXISTS ix_decisions_run ON decisions(run_id);
 CREATE INDEX IF NOT EXISTS ix_decisions_pair ON decisions(pair_key);
 CREATE INDEX IF NOT EXISTS ix_decisions_status ON decisions(status);
 CREATE INDEX IF NOT EXISTS ix_decisions_studies ON decisions(source_study, target_study);
+CREATE TABLE IF NOT EXISTS pairs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id        TEXT,
+    source_study  TEXT,
+    target_study  TEXT,
+    started       TEXT NOT NULL,
+    finished      TEXT,
+    status        TEXT,               -- running / done / failed / crashed
+    compute_seconds REAL,
+    n_decisions   INTEGER,            -- pairs of variables the LLM assessed
+    n_calls       INTEGER,            -- HTTP calls actually made (cache hits excluded, retries included)
+    n_cached      INTEGER,
+    error         TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_pairs_studies ON pairs(source_study, target_study);
 """
+
+# A run (or a pair) still "running" after this long did not finish: the worker
+# died or was restarted, so end_run() was never called.
+STALE_RUN_HOURS = 3
+STALE_STATUS = "crashed"
+STALE_ERROR = f"did not finish: no completion recorded within {STALE_RUN_HOURS} hours (worker crashed or restarted)"
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +172,7 @@ def set_context(**fields: Any) -> None:
 @_safe
 def begin_run(source_study: str, target_studies: list[str], embed_model: str,
               mapping_mode: str, llm_model: Optional[str]) -> str:
+    mark_stale_runs()
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
     _ctx.update(run_id=run_id, source_study=source_study, target_study=None,
                 mapping_mode=mapping_mode, llm_model=llm_model)
@@ -169,9 +191,44 @@ def set_pair(source_study: Optional[str], target_study: Optional[str]) -> None:
 
 
 @_safe
+def begin_pair(source_study: str, target_study: str) -> Optional[int]:
+    """One (source, target) mapping starts: sets the context for record_decision
+    and opens a row in `pairs` whose timing and LLM counts end_pair() fills."""
+    set_pair(source_study, target_study)
+    with _lock, _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO pairs (run_id, source_study, target_study, started, status) VALUES (?,?,?,?,?)",
+            (_ctx.get("run_id"), source_study, target_study, _now(), "running"))
+        pair_id = cur.lastrowid
+    _ctx["pair_id"] = pair_id
+    _ctx["pair_t0"] = time.time()
+    return pair_id
+
+
+@_safe
+def end_pair(status: str = "done", error: Optional[str] = None) -> None:
+    pair_id = _ctx.pop("pair_id", None)
+    t0 = _ctx.pop("pair_t0", None)
+    source, target, run_id = _ctx.get("source_study"), _ctx.get("target_study"), _ctx.get("run_id")
+    set_pair(None, None)
+    if pair_id is None:
+        return
+    with _lock, _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN cached=0 THEN COALESCE(attempts, 1) ELSE 0 END),0) calls, "
+            "COALESCE(SUM(cached),0) c FROM decisions WHERE run_id IS ? AND source_study IS ? AND target_study IS ?",
+            (run_id, source, target)).fetchone()
+        conn.execute(
+            "UPDATE pairs SET finished=?, status=?, compute_seconds=?, n_decisions=?, n_calls=?, n_cached=?, error=? WHERE id=?",
+            (_now(), status, round(time.time() - t0, 1) if t0 else None, row["n"], row["calls"], row["c"], error, pair_id))
+
+
+@_safe
 def end_run(run_id: Optional[str], status: str = "done", error: Optional[str] = None) -> None:
     if not run_id:
         return
+    if _ctx.get("pair_id") is not None:
+        end_pair(status=status if status != "done" else "failed", error=error or "run ended before the pair finished")
     with _lock, _connect() as conn:
         row = conn.execute(
             "SELECT COUNT(*) AS n, COALESCE(SUM(cached),0) AS c, "
@@ -240,6 +297,65 @@ def record_decision(*, g: dict, t: dict, prompt: str, system_prompt: str, model:
             "VALUES (" + ",".join("?" * 32) + ")", row)
 
 
+@_safe
+def mark_stale_runs(max_hours: float = STALE_RUN_HOURS) -> int:
+    """Runs and pairs still 'running' but started more than max_hours ago are
+    marked crashed. Called before listing and before every new run, so the
+    store never shows a dead run as in progress for long."""
+    cutoff = (datetime.now() - timedelta(hours=max_hours)).isoformat(timespec="seconds")
+    with _lock, _connect() as conn:
+        n = conn.execute("UPDATE runs SET status=?, error=? WHERE status='running' AND started < ?",
+                         (STALE_STATUS, STALE_ERROR, cutoff)).rowcount
+        conn.execute("UPDATE pairs SET status=?, error=? WHERE status='running' AND started < ?",
+                     (STALE_STATUS, STALE_ERROR, cutoff))
+        # Counts for a crashed run, so its row shows what was done before it died.
+        for r in conn.execute("SELECT run_id FROM runs WHERE status=? AND n_decisions=0", (STALE_STATUS,)).fetchall():
+            c = conn.execute(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(cached),0) AS c, "
+                "COALESCE(SUM(CASE WHEN matched IS NULL THEN 1 ELSE 0 END),0) AS f FROM decisions WHERE run_id=?",
+                (r["run_id"],)).fetchone()
+            conn.execute("UPDATE runs SET n_decisions=?, n_cached=?, n_failed=? WHERE run_id=?",
+                         (c["n"], c["c"], c["f"], r["run_id"]))
+    return n or 0
+
+
+def pair_stats(source_study: str, target_study: str) -> Optional[dict]:
+    """Compute time and LLM counts of the most recent finished mapping of this
+    pair. From the `pairs` table when the mapping ran with it; for runs that
+    predate it, the LLM counts come from the decisions and the time is the span
+    of their timestamps (the LLM phase only, flagged approximate)."""
+    src, tgt = (source_study or "").lower(), (target_study or "").lower()
+    try:
+        with _connect() as conn:
+            row = conn.execute(
+                "SELECT finished, compute_seconds, n_decisions, n_calls, n_cached, status, run_id FROM pairs "
+                "WHERE LOWER(source_study)=? AND LOWER(target_study)=? AND status='done' ORDER BY id DESC LIMIT 1",
+                (src, tgt)).fetchone()
+            if row:
+                run = conn.execute("SELECT llm_model FROM runs WHERE run_id=?", (row["run_id"],)).fetchone()
+                return {"finished": row["finished"], "compute_seconds": row["compute_seconds"], "approximate": False,
+                        "llm_calls": row["n_calls"], "llm_pairs": row["n_decisions"], "llm_cached": row["n_cached"],
+                        "model": run["llm_model"] if run else None, "run_id": row["run_id"]}
+            # Fallback: the latest run that has decisions for this pair.
+            # Only runs that finished: a crashed run's decisions never produced a file.
+            d = conn.execute(
+                "SELECT d.run_id, MIN(d.created_at) t0, MAX(d.created_at) t1, COUNT(*) n, "
+                "COALESCE(SUM(CASE WHEN d.cached=0 THEN COALESCE(d.attempts,1) ELSE 0 END),0) calls, "
+                "COALESCE(SUM(d.cached),0) c, MIN(d.model) model "
+                "FROM decisions d JOIN runs r ON r.run_id = d.run_id "
+                "WHERE LOWER(d.source_study)=? AND LOWER(d.target_study)=? AND r.status='done' "
+                "GROUP BY d.run_id ORDER BY t1 DESC LIMIT 1",
+                (src, tgt)).fetchone()
+            if not d:
+                return None
+            span = (datetime.fromisoformat(d["t1"]) - datetime.fromisoformat(d["t0"])).total_seconds()
+            return {"finished": d["t1"], "compute_seconds": round(span, 1), "approximate": True,
+                    "llm_calls": d["calls"], "llm_pairs": d["n"], "llm_cached": d["c"], "model": d["model"], "run_id": d["run_id"]}
+    except Exception as exc:
+        logger.warning("[llm_decisions] pair_stats failed: %s", exc)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Queries (for the admin API)
 # ---------------------------------------------------------------------------
@@ -251,6 +367,7 @@ _LIST_COLUMNS = ("id, run_id, created_at, model, mapping_mode, source_study, tar
 
 
 def list_runs(limit: int = 200) -> list[dict]:
+    mark_stale_runs()
     with _connect() as conn:
         rows = conn.execute("SELECT * FROM runs ORDER BY started DESC LIMIT ?", (limit,)).fetchall()
     out = []
@@ -265,6 +382,7 @@ def list_runs(limit: int = 200) -> list[dict]:
 
 
 def stats() -> dict:
+    mark_stale_runs()
     with _connect() as conn:
         tot = conn.execute("SELECT COUNT(*) n, COALESCE(SUM(cached),0) c FROM decisions").fetchone()
         by_status = conn.execute("SELECT status, COUNT(*) n FROM decisions GROUP BY status ORDER BY n DESC").fetchall()

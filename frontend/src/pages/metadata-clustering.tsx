@@ -2,7 +2,6 @@
 
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {Layers, Play, RefreshCw} from 'react-feather';
-import {useCohorts} from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
 import {MatchList, MetadataElement, MetadataMatch, SourceBadge} from '@/components/MetadataMatches';
 
@@ -50,7 +49,6 @@ interface Results {
 type View = 'study' | 'field' | 'ai';
 
 export default function MetadataClusteringPage() {
-  const {userEmail} = useCohorts();
   const [job, setJob] = useState<JobState | null>(null);
   const [results, setResults] = useState<Results | null>(null);
   const [instructions, setInstructions] = useState('');
@@ -84,8 +82,9 @@ export default function MetadataClusteringPage() {
   }, [instructions]);
 
   // Initial load, then poll while a run is in progress.
+  // Status needs only the session cookie: fetch at once rather than waiting for
+  // the cohorts context (its user email arrives with the full cohorts payload).
   useEffect(() => {
-    if (!userEmail) return;
     let timer: any;
     const tick = async () => {
       const s = await loadStatus();
@@ -95,7 +94,7 @@ export default function MetadataClusteringPage() {
     tick();
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userEmail, job?.running]);
+  }, [job?.running]);
 
   const startRun = async () => {
     setStarting(true);
@@ -158,6 +157,13 @@ export default function MetadataClusteringPage() {
     return (
       <div className="container mx-auto p-6">
         <div className="alert alert-warning">This page is for administrators only.</div>
+      </div>
+    );
+  }
+  if (!job && !error) {
+    return (
+      <div className="container mx-auto p-6 flex items-center gap-3 text-base-content/70">
+        <span className="loading loading-spinner loading-md" /> <span>Loading…</span>
       </div>
     );
   }

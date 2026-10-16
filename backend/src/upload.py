@@ -2092,9 +2092,16 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             # Also keep the simple predicate for backward compatibility
             g.add((cohort_uri, OntologyNamespaces.CMEO.value.institution, Literal(row["institute"]), metadata_graph))
             
-            # Study contact person - create OBI structure matching study_kg.py
-            if is_valid_value(row.get("study contact person", "")):
-                contact_person_name = row["study contact person"]
+            # Contact columns: current names first, previous ones as fallback.
+            def _col(*names: str) -> str:
+                for name in names:
+                    v = row.get(name, "")
+                    if is_valid_value(v):
+                        return str(v)
+                return ""
+            # Data provider (previously "study contact person") - OBI structure matching study_kg.py
+            if _col("data provider", "study contact person"):
+                contact_person_name = _col("data provider", "study contact person")
                 contact_uri = URIRef(cohort_uri + "/" + normalize_text(contact_person_name))
                 study_contact_person_role_uri = URIRef(cohort_uri + "/study_contact_person_role")
                 
@@ -2111,8 +2118,8 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
                 g.add((study_contact_person_role_uri, OntologyNamespaces.CMEO.value.has_value, Literal(contact_person_name, datatype=XSD.string), metadata_graph))
                 
                 # Email entity for contact person
-                if is_valid_value(row.get("study contact person email address", "")):
-                    contact_email = row["study contact person email address"].strip()
+                if _col("data provider email address", "study contact person email address"):
+                    contact_email = _col("data provider email address", "study contact person email address").strip()
                     email_uri = URIRef(study_contact_person_role_uri + "/email_address")
                     g.add((email_uri, RDF.type, OntologyNamespaces.OBI.value.email_address, metadata_graph))
                     g.add((email_uri, OntologyNamespaces.IAO.value.is_about, contact_uri, metadata_graph))
@@ -2121,9 +2128,9 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
                     for email in contact_email.split(";"):
                         g.add((cohort_uri, OntologyNamespaces.CMEO.value.email, Literal(email.strip().lower()), metadata_graph))
             
-            # Administrator - create OBI structure matching study_kg.py
-            if is_valid_value(row.get("administrator", "")):
-                admin_name = row["administrator"]
+            # PI (previously "administrator") - OBI structure matching study_kg.py
+            if _col("pi", "administrator"):
+                admin_name = _col("pi", "administrator")
                 administrator_person_uri = URIRef(cohort_uri + "/" + normalize_text(admin_name))
                 
                 # Person entity
@@ -2139,8 +2146,8 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
                 g.add((administrator_role_uri, OntologyNamespaces.CMEO.value.has_value, Literal(admin_name, datatype=XSD.string), metadata_graph))
                 
                 # Email entity for administrator
-                if is_valid_value(row.get("administrator email address", "")):
-                    admin_email = row["administrator email address"].strip()
+                if _col("pi email address", "administrator email address"):
+                    admin_email = _col("pi email address", "administrator email address").strip()
                     email_uri = URIRef(administrator_person_uri + "/email_address")
                     g.add((email_uri, RDF.type, OntologyNamespaces.OBI.value.email_address, metadata_graph))
                     g.add((email_uri, OntologyNamespaces.IAO.value.is_about, administrator_person_uri, metadata_graph))
@@ -2266,6 +2273,9 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
         # "morbidity": {"ns": "OBI", "type": "morbidity", "target": "protocol"},
         "administrator": {"ns": "NCBI", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
         "study contact person": {"ns": "NCBI", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
+        # Current spreadsheet names of the same two people
+        "pi": {"ns": "NCBI", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
+        "data provider": {"ns": "NCBI", "type": "homo_sapiens", "target": "execution", "rel": "has_participant"},
         # Additional fields to match CohortVarLinker
         "frequency of data collection": {"ns": "CMEO", "type": "timeline_specification", "target": "protocol"},
         "interventions": {"ns": "CMEO", "type": "intervention_specification", "target": "protocol", "label": True},

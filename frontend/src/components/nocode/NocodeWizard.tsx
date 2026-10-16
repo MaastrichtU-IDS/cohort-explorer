@@ -481,7 +481,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
                   </div>
                   <div className="rounded-xl bg-base-200 text-base-content/80 p-3 text-sm">
                     Shuffled samples are uploaded by the platform itself, so using them requires neither the permission nor the
-                    participation of the data owners. The analysis can be run right after the room is created.
+                    participation of the data providers. The analysis can be run right after the room is created.
                   </div>
                 </div>
               )}
@@ -490,15 +490,15 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
           <p className="text-sm font-semibold mb-1">Participants</p>
           <p className="text-sm text-base-content/70 mb-4">
             {dataSource === 'shuffled'
-              ? 'With shuffled samples the data owners need not take part; you may still invite them or additional analysts.'
-              : 'The data owners of the selected cohorts are invited to the room and asked to provision their data; you can also invite additional analysts.'}
+              ? 'With shuffled samples the data providers need not take part; you may still invite them or additional analysts.'
+              : 'The data providers of the selected cohorts are invited to the room as data owners and asked to provision their data; you can also invite additional analysts.'}
           </p>
           <button className="btn btn-outline gap-2" onClick={() => setShowParticipantsModal(true)}>
             <Users size={16} /> Edit participants list
           </button>
           <div className="mt-4 p-3 bg-base-200 rounded-lg text-sm space-y-1">
             <p>
-              <strong>Data owners invited:</strong> {loadingParticipants ? 'loading…' : manuallyIncludedOwners.length > 0 ? manuallyIncludedOwners.join(', ') : 'none (open the participants list to include them)'}
+              <strong>Data providers invited:</strong> {loadingParticipants ? 'loading…' : manuallyIncludedOwners.length > 0 ? manuallyIncludedOwners.join(', ') : 'none (open the participants list to include them)'}
             </p>
             {excludedDataOwners.length > 0 && (
               <p>

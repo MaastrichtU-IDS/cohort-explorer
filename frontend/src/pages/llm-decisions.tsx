@@ -2,7 +2,6 @@
 
 import React, {useCallback, useEffect, useState} from 'react';
 import {Database, RefreshCw, Search} from 'react-feather';
-import {useCohorts} from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
 
 interface Run {
@@ -103,8 +102,9 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 export default function LlmDecisionsPage() {
-  const {userEmail} = useCohorts();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  // True until the first runs/stats load has completed (or failed).
+  const [loadingOverview, setLoadingOverview] = useState(true);
   const [tab, setTab] = useState<Tab>('runs');
   const [stats, setStats] = useState<any>(null);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -122,22 +122,27 @@ export default function LlmDecisionsPage() {
   const [consistency, setConsistency] = useState<{repeated_pairs: number; conflicting_pairs: number; items: ConsistencyItem[]} | null>(null);
   const [pairHistory, setPairHistory] = useState<Record<string, Decision[] | 'loading'>>({});
 
+  // The admin check needs only the session cookie: do it at once, instead of
+  // waiting for the cohorts context (whose user email arrives with the full
+  // cohorts payload, several seconds later).
   useEffect(() => {
-    if (!userEmail) return;
     fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
       .then(r => (r.ok ? r.json() : {is_admin: false}))
       .then(d => setIsAdmin(!!d.is_admin))
       .catch(() => setIsAdmin(false));
-  }, [userEmail]);
+  }, []);
 
   const loadOverview = useCallback(async () => {
     setError(null);
+    setLoadingOverview(true);
     try {
       const [s, r] = await Promise.all([getJson<any>('/api/llm-decisions/stats'), getJson<{items: Run[]}>('/api/llm-decisions/runs')]);
       setStats(s);
       setRuns(r.items);
     } catch (e: any) {
       setError(e.message);
+    } finally {
+      setLoadingOverview(false);
     }
   }, []);
 
@@ -202,6 +207,13 @@ export default function LlmDecisionsPage() {
   if (isAdmin === false) {
     return <div className="container mx-auto p-6"><div className="alert alert-warning">This page is for administrators only.</div></div>;
   }
+  if (isAdmin === null) {
+    return (
+      <div className="container mx-auto p-6 flex items-center gap-3 text-base-content/70">
+        <span className="loading loading-spinner loading-md" /> <span>Loading…</span>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6 max-w-7xl">
@@ -244,8 +256,13 @@ export default function LlmDecisionsPage() {
       {/* ---------------- Runs ---------------- */}
       {tab === 'runs' && (
         <div className="overflow-x-auto">
-          {runs.length === 0 && <p className="italic text-base-content/60">No mapping runs recorded yet.</p>}
-          {runs.length > 0 && (
+          {loadingOverview && (
+            <div className="flex items-center gap-3 py-6 text-base-content/70">
+              <span className="loading loading-spinner loading-md" /> <span>Loading runs…</span>
+            </div>
+          )}
+          {!loadingOverview && runs.length === 0 && <p className="italic text-base-content/60">No mapping runs recorded yet.</p>}
+          {!loadingOverview && runs.length > 0 && (
             <table className="table table-sm">
               <thead><tr><th>Started</th><th>Source → targets</th><th>Model</th><th>Mode</th><th>Decisions</th><th>Cached</th><th>Failed</th><th>Status</th><th>By</th><th></th></tr></thead>
               <tbody>
@@ -258,7 +275,7 @@ export default function LlmDecisionsPage() {
                     <td>{r.n_decisions}</td>
                     <td>{r.n_cached}</td>
                     <td className={r.n_failed ? 'text-error' : ''}>{r.n_failed}</td>
-                    <td><span className={`badge badge-sm ${r.status === 'done' ? 'badge-success' : r.status === 'running' ? 'badge-info' : 'badge-error'}`}>{r.status}</span>{r.error && <div className="text-xs text-error">{r.error}</div>}</td>
+                    <td><span className={`badge badge-sm ${r.status === 'done' ? 'badge-success' : r.status === 'running' ? 'badge-info' : r.status === 'crashed' ? 'badge-warning' : 'badge-error'}`} title={r.status === 'crashed' ? 'No completion was recorded within 3 hours of the start: the worker crashed or was restarted' : undefined}>{r.status}</span>{r.error && <div className="text-xs text-error">{r.error}</div>}</td>
                     <td className="text-xs">{r.requested_by || ''}</td>
                     <td><button className="btn btn-xs" onClick={() => showRunDecisions(r.run_id)}>decisions</button></td>
                   </tr>

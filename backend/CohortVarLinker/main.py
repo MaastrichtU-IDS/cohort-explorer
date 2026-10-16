@@ -434,15 +434,15 @@ def generate_mapping_csv(source_study: str, target_studies: list,
                         reused_after_wait.append(tgt)
                         continue
 
-                llm_decisions.set_pair(source_study, tgt)
+                llm_decisions.begin_pair(source_study, tgt)
                 try:
                     _write_pair_csv(mapper, source_study, source_family, tgt,
                                     embed_model, mapping_mode, cfg)
                 except Exception as exc:
+                    llm_decisions.end_pair(status="failed", error=f"{type(exc).__name__}: {exc}")
                     llm_decisions.end_run(decisions_run_id, status="failed", error=f"{type(exc).__name__}: {exc}")
                     raise
-                finally:
-                    llm_decisions.set_pair(None, None)
+                llm_decisions.end_pair(status="done")
                 computed.append(tgt)
             llm_decisions.end_run(decisions_run_id, status="done")
 

@@ -2071,10 +2071,10 @@ export default function CohortsList() {
                       { label: 'Part of Study', value: (cohortData as any).part_of_study },
                       // Contacts / organisation
                       { label: 'Institute', value: cohortData.institution },
-                      { label: 'Administrator', value: cohortData.administrator },
-                      { label: 'Administrator Email', value: cohortData.administrator_email },
-                      { label: 'Study Contact Person', value: cohortData.study_contact_person },
-                      { label: 'Study Contact Person Email', value: cohortData.study_contact_person_email },
+                      { label: 'Principal Investigator', value: cohortData.pi ?? cohortData.administrator },
+                      { label: 'PI Email', value: cohortData.pi_email ?? cohortData.administrator_email },
+                      { label: 'Data Provider', value: cohortData.data_provider ?? cohortData.study_contact_person },
+                      { label: 'Data Provider Email', value: cohortData.data_provider_email ?? cohortData.study_contact_person_email },
                       // Population demographics
                       { label: 'Population Location', value: cohortData.population_location },
                       { label: 'Language', value: cohortData.language },
@@ -2184,6 +2184,10 @@ export default function CohortsList() {
                    !cohortData.administrator_email && 
                    !cohortData.study_contact_person && 
                    !cohortData.study_contact_person_email && 
+                   !cohortData.pi && 
+                   !cohortData.pi_email && 
+                   !cohortData.data_provider && 
+                   !cohortData.data_provider_email && 
                    !cohortData.study_start && 
                    !cohortData.study_end && 
                    (!cohortData.references || cohortData.references.length === 0) && 

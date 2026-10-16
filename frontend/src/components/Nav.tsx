@@ -1085,7 +1085,7 @@ export function Nav() {
                           )}
                           {excludedDataOwners.length > 0 && (
                             <p className="text-sm mt-1">
-                              <strong>Excluded data owners:</strong> {excludedDataOwners.join(', ')}
+                              <strong>Excluded data providers:</strong> {excludedDataOwners.join(', ')}
                             </p>
                           )}
                         </div>

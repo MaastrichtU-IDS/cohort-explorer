@@ -129,8 +129,20 @@ def generate_studies_kg(filepath: str) -> Graph:
             g.add((study_design_execution_uri, OntologyNamespaces.RO.value.has_participant, organization_uri,metadata_graph))
             g.add((organization_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["institute"], datatype=XSD.string),metadata_graph))
         
-            if pd.notna(row["study contact person"]):
-                contact_uri = URIRef(study_uri + "/" + normalize_text(row["study contact person"]))
+            # Contact columns: current spreadsheet names ("PI", "Data provider")
+            # first, the previous ones as fallback; empty string when absent.
+            def _col(*names):
+                for name in names:
+                    v = row.get(name)
+                    if v is not None and pd.notna(v) and str(v).strip():
+                        return str(v)
+                return ""
+            contact_person = _col("data provider", "study contact person")
+            contact_email = _col("data provider email address", "study contact person email address")
+            administrator = _col("pi", "administrator")
+            administrator_email = _col("pi email address", "administrator email address")
+            if contact_person:
+                contact_uri = URIRef(study_uri + "/" + normalize_text(contact_person))
                  # contact_uri = URIRef(study_uri + "/contact_person")
                 study_contact_person_role_uri = URIRef(study_uri + "/study_contact_person_role")
                 
@@ -138,37 +150,37 @@ def generate_studies_kg(filepath: str) -> Graph:
                 g.add((organization_uri, OntologyNamespaces.OBI.value.has_member, contact_uri,metadata_graph))
                 g.add((contact_uri, OntologyNamespaces.OBI.value.member_of, organization_uri,metadata_graph))
 
-                g.add((contact_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["study contact person"], datatype=XSD.string),metadata_graph))
+                g.add((contact_uri, OntologyNamespaces.CMEO.value.has_value, Literal(contact_person, datatype=XSD.string),metadata_graph))
                 
                 g.add((study_contact_person_role_uri, RDF.type, OntologyNamespaces.CMEO.value.study_contact_person_role,metadata_graph))
                 g.add((contact_uri, OntologyNamespaces.RO.value.has_role, study_contact_person_role_uri,metadata_graph))
                 g.add((study_contact_person_role_uri, OntologyNamespaces.RO.value.role_of, contact_uri,metadata_graph))
 
-                g.add((study_contact_person_role_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["study contact person"], datatype=XSD.string),metadata_graph))
+                g.add((study_contact_person_role_uri, OntologyNamespaces.CMEO.value.has_value, Literal(contact_person, datatype=XSD.string),metadata_graph))
 
-                if pd.notna(row["study contact person email address"]):
+                if contact_email:
                     email_uri = URIRef(study_contact_person_role_uri + "/email_address")
                     g.add((email_uri, RDF.type, OntologyNamespaces.OBI.value.email_address,metadata_graph))
                     g.add((email_uri, OntologyNamespaces.IAO.value.is_about, contact_uri,metadata_graph))
-                    g.add((email_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["study contact person email address"], datatype=XSD.string),metadata_graph))
+                    g.add((email_uri, OntologyNamespaces.CMEO.value.has_value, Literal(contact_email, datatype=XSD.string),metadata_graph))
             
-            if pd.notna(row["administrator"]):
-                administrator_person_uri = URIRef(study_uri + "/" + normalize_text(row["administrator"]))
+            if administrator:
+                administrator_person_uri = URIRef(study_uri + "/" + normalize_text(administrator))
                 g.add((administrator_person_uri, RDF.type, OntologyNamespaces.NCBI.value.homo_sapiens,metadata_graph))
                 g.add((contact_uri, OntologyNamespaces.OBI.value.member_of, organization_uri,metadata_graph))
             
-                g.add((administrator_person_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["administrator"], datatype=XSD.string),metadata_graph))
+                g.add((administrator_person_uri, OntologyNamespaces.CMEO.value.has_value, Literal(administrator, datatype=XSD.string),metadata_graph))
                 administrator_role_uri =  URIRef(study_uri + "/administrator_role")
                 g.add((administrator_role_uri, RDF.type, OntologyNamespaces.CMEO.value.administrator_role,metadata_graph))
                 g.add((administrator_person_uri, OntologyNamespaces.RO.value.has_role, administrator_role_uri,metadata_graph))
                 g.add((administrator_role_uri, OntologyNamespaces.RO.value.role_of, administrator_person_uri,metadata_graph))
-                g.add((administrator_role_uri, OntologyNamespaces.CMEO.value.has_value,  Literal(row["administrator"], datatype=XSD.string),metadata_graph))
+                g.add((administrator_role_uri, OntologyNamespaces.CMEO.value.has_value,  Literal(administrator, datatype=XSD.string),metadata_graph))
             
-                if pd.notna(row["administrator email address"]):
+                if administrator_email:
                     email_uri = URIRef(administrator_person_uri + "/email_address")
                     g.add((email_uri, RDF.type, OntologyNamespaces.OBI.value.email_address,metadata_graph))
                     g.add((email_uri, OntologyNamespaces.IAO.value.is_about, administrator_person_uri,metadata_graph))
-                    g.add((email_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["administrator"], datatype=XSD.string),metadata_graph))
+                    g.add((email_uri, OntologyNamespaces.CMEO.value.has_value, Literal(administrator, datatype=XSD.string),metadata_graph))
                     
         if pd.notna(row["number of participants"]):  #number of participants
             try:

@@ -80,11 +80,14 @@ export const ParticipantsModal = React.memo(({
         <div className="space-y-4 overflow-y-auto flex-1">
           {/* Data owners */}
           <div>
-            <h4 className="font-semibold mb-2">Data Owners</h4>
+            <h4 className="font-semibold mb-2">Data providers</h4>
+            <p className="text-xs text-base-content/60 mb-2">
+              The data providers of the selected cohorts (the &quot;Data provider&quot; column of the cohorts sheet). They are invited as the data owners of their cohort&apos;s data in the room.
+            </p>
             {isLoading ? (
               <div className="bg-base-200 p-3 rounded-lg mb-2">
                 <p className="text-sm text-gray-500">
-                  Retrieving list of data owners for the selected cohorts...
+                  Retrieving the data providers of the selected cohorts...
                 </p>
               </div>
             ) : dataOwners.length === 0 ? (
@@ -108,7 +111,7 @@ export const ParticipantsModal = React.memo(({
                       {owner.email === userEmail && <span className="ml-2 text-xs badge badge-primary">You</span>}
                     </p>
                     <p className="text-sm text-gray-500">
-                      Data Owner for: {owner.cohorts.join(', ')}
+                      Data provider for: {owner.cohorts.join(', ')}
                     </p>
                   </div>
                 </div>
@@ -125,7 +128,7 @@ export const ParticipantsModal = React.memo(({
                 <p className="font-semibold">{userEmail}</p>
                 <p className="text-sm text-gray-500">
                   Analyst (You)
-                  {dataOwners.some(owner => owner.email === userEmail) && ' • Also Data Owner'}
+                  {dataOwners.some(owner => owner.email === userEmail) && ' • Also data provider'}
                 </p>
               </div>
             </div>

@@ -88,6 +88,16 @@ MERGE_NODE_NAME = "merge-datasets"
 MERGED_AIRLOCK_PERCENTAGE = 20
 
 
+def dcr_data_owner_emails(cohort: Cohort) -> list[str]:
+    """Who is invited into a DCR as the cohort's data owner: the data
+    providers (the spreadsheet's "Data provider email address" column), not
+    the PI. The PI keeps every other privilege (editing, uploads) through
+    cohort_email. A cohort with no data provider listed falls back to all its
+    owner emails, so no room is created without a data owner for a cohort."""
+    providers = split_emails(getattr(cohort, "data_provider_email", None))
+    return providers or split_emails(cohort.cohort_email, cohort.administrator_email)
+
+
 def get_cohort_schema(cohort_dict: Cohort) -> list[Column]:
     """Convert cohort variables to Decentriq schema"""
     schema = []
@@ -276,9 +286,8 @@ def create_provision_dcr(
     )
     logging.info(f"[TIMING] Adding 5 EDA script nodes took {time.time() - t0:.2f}s")
 
-    # Determine the formal data owners from the cohort metadata (split_emails:
-    # a field may hold several ';'-joined addresses).
-    formal_owners = set(split_emails(cohort.cohort_email, cohort.administrator_email))
+    # The formal data owners: the cohort's data providers (see dcr_data_owner_emails).
+    formal_owners = set(dcr_data_owner_emails(cohort))
 
     # Track all participants already added to the builder to avoid duplicates
     added_participants: set[str] = set()
@@ -2273,11 +2282,8 @@ def build_dcr_participants(
         
         # Add data owners (in non-dev mode)
         if not settings.dev_mode:
-            # All cohort_email owners plus administrator_email (unless excluded).
-            # split_emails: a metadata field may hold several ';'-joined
-            # addresses (and the cohort cache can still carry such combined
-            # strings), so normalize to one participant per person here.
-            for owner in split_emails(cohort.cohort_email, cohort.administrator_email):
+            # The cohort's data providers (unless excluded); see dcr_data_owner_emails.
+            for owner in dcr_data_owner_emails(cohort):
                 if owner in excluded_data_owners:
                     continue
                 if owner not in participants:

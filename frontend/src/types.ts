@@ -20,10 +20,16 @@ export interface Cohort {
   female_percentage: number | null;
   age_distribution?: {[key: string]: number};  // e.g., {"18-39": 25, "40-64": 50, "65+": 25}
   // Contact information fields
+  // Legacy names (administrator = PI, study contact person = data provider)
   administrator?: string;
   administrator_email?: string;
   study_contact_person?: string;
   study_contact_person_email?: string;
+  // Current spreadsheet columns: PI / PI Email Address, Data provider / Data provider email address
+  pi?: string;
+  pi_email?: string;
+  data_provider?: string;
+  data_provider_email?: string;
   references?: string[];
   // EDA output markers derived on the backend from the cohort's DCR output
   // folder. eda_version is "v2" when the structured v2 EDA JSON exists, "v1"
