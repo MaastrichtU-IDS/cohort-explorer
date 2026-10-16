@@ -1633,9 +1633,9 @@ export default function MappingPage() {
       }
       
       // Then proceed with mapping generation
-      // Use AbortController with 35-minute timeout to prevent premature timeout
-      // (new mappings can take up to 30 minutes to compute)
-      timeoutId = setTimeout(() => controller.abort(), 35 * 60 * 1000); // 35 minutes
+      // Use AbortController with a 50-minute timeout to prevent premature timeout
+      // (a new mapping can take up to 45 minutes per pair to compute)
+      timeoutId = setTimeout(() => controller.abort(), 50 * 60 * 1000); // 50 minutes
       
       const response = await fetch(`${apiUrl}/api/generate-mapping`, {
         method: 'POST',
@@ -1724,7 +1724,7 @@ export default function MappingPage() {
       if (timeoutId) clearTimeout(timeoutId);
       // Handle abort errors specifically
       if (err.name === 'AbortError') {
-        setError('Request timed out after 35 minutes. The mapping computation may still be running on the server.');
+        setError('Request timed out after 50 minutes. The mapping computation may still be running on the server; the computed mappings are cached, so please revisit this page later.');
       } else {
         setError(
           typeof err.message === 'string' && err.message.endsWith("metadata has not been added yet!")
@@ -1983,8 +1983,8 @@ export default function MappingPage() {
 {loading 
               ? (cacheInfo && cacheInfo.uncached_pairs.length > 0
                   ? ((cacheInfo.maintenance_running?.graphs || cacheInfo.maintenance_running?.vector_index)
-                      ? 'Waiting for a graph / index rebuild, then finding concept mappings... (may take 30 minutes or more)'
-                      : 'Finding concept mappings... (may take 15-30 minutes)')
+                      ? 'Waiting for a graph / index rebuild, then finding concept mappings... (may take up to 45 minutes per pair, plus the rebuild)'
+                      : 'Finding concept mappings... (may take up to 45 minutes per pair)')
                   : 'Mapping...')
               : 'Map Concepts & Download File'
             }
@@ -2082,8 +2082,8 @@ export default function MappingPage() {
             {(cacheInfo.uncached_pairs.length > 0 || (cacheInfo.outdated_pairs && cacheInfo.outdated_pairs.length > 0)) && (
               <div className="mt-3 p-2 bg-blue-100 rounded text-sm text-blue-800">
                 {(cacheInfo.maintenance_running?.graphs || cacheInfo.maintenance_running?.vector_index)
-                  ? '⏳ A cohort graph or vector index rebuild is in progress (after a dictionary upload or new EDA output); the mapping waits for it before computing. This may take 30 minutes or more. If this page times out, please revisit later. The computed mappings will be cached.'
-                  : '⏳ Uncached and outdated mappings will be computed. This may take 15-30 minutes. If this page times out, please revisit later. The computed mappings will be cached.'}
+                  ? '⏳ A cohort graph or vector index rebuild is in progress (after a dictionary upload or new EDA output); the mapping waits for it before computing. Each uncached pair may then take up to 45 minutes. If this page times out, please revisit later. The computed mappings will be cached.'
+                  : '⏳ Uncached and outdated mappings will be computed. This may take up to 45 minutes per pair. If this page times out, please revisit later. The computed mappings will be cached.'}
               </div>
             )}
             

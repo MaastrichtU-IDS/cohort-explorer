@@ -1206,7 +1206,7 @@ async def get_compute_dcr_definition(
         # output holds the pooled dataset and cohortpool's patient-level files,
         # so it runs only as a dependency and the platform hides it. Its files
         # reach participants only through "run-the-merge-and-create-airlock",
-        # which copies the .png figures and MERGE_EXPORT_ALLOWLIST alone. The
+        # which copies its .pdf report(s) alone (MERGE_EXPORT_EXTENSIONS). The
         # two cases differ only in their inputs and in the node's name, which
         # says when it pools the shuffled samples.
         merge_node_name = "merge-shuffled-samples" if merge_use_shuffled else MERGE_NODE_NAME
@@ -1273,10 +1273,11 @@ async def get_compute_dcr_definition(
         # reports. It also depends on the fragment node so that running it
         # computes the fragment and thereby populates the airlock for
         # Development-mode use. Every participant can run it.
-        # Of the merge node's files it exports only every .png and the files on
-        # MERGE_EXPORT_ALLOWLIST (analysisDCR_scripts.py), regardless of whether
-        # the merge pools the full cohort data or the shuffled samples; the
-        # pooled dataset and all patient-level files are never on that list.
+        # Of the merge node's files it exports only the .pdf report(s)
+        # (MERGE_EXPORT_EXTENSIONS in analysisDCR_scripts.py), regardless of
+        # whether the merge pools the full cohort data or the shuffled samples;
+        # the pooled dataset, the patient-level files and every other file type
+        # stay inside the enclave.
         merge_check_node_name = "run-the-merge-and-create-airlock"
         builder.add_node_definition(
             PythonComputeNodeDefinition(
