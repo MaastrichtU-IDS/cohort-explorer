@@ -776,7 +776,9 @@ export interface RoomNode {
   prints?: boolean;
   // Output file names the script mentions (f-string parts shown as {...}); directories end with '/'.
   outputs?: string[];
-  // External code was handed an output folder: it may write files not listed above.
+  // Kinds of files the script writes, from its write calls (names may be computed at run time).
+  output_kinds?: string[];
+  // The script calls an external package, which writes its own files into the output folder.
   external_writes?: boolean;
   // Data nodes only: whether a dataset has been published to the node; null when unknown.
   provisioned?: boolean | null;

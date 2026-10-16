@@ -732,7 +732,7 @@ function NodeIoExplainer({
         <span className="font-mono text-xs">{n.name}</span>
       )}
       <span className="text-xs text-base-content/60">{kindLabel(n)}</span>
-      {n.provisioned === false && <span className="badge badge-error badge-xs gap-1"><AlertTriangle size={9} /> no data yet</span>}
+      {n.provisioned === false && <span className="badge badge-ghost badge-xs">no data yet</span>}
       {n.kind === 'airlock' && n.quota_bytes ? <span className="text-xs text-base-content/60">quota {Math.round(n.quota_bytes / 1e6)} MB</span> : null}
     </li>
   );
@@ -758,23 +758,28 @@ function NodeIoExplainer({
                 <div className="text-xs font-semibold uppercase text-base-content/60 mb-1">Reads ({inputs.length})</div>
                 {inputs.length === 0 ? <p className="text-sm text-base-content/50 italic">No inputs.</p> : <ul className="space-y-1">{inputs.map(n => <Chip key={n.name} n={n} />)}</ul>}
                 {inputs.some(n => n.provisioned === false) && (
-                  <p className="text-xs text-error mt-1">An input has no data yet: this node cannot run until it is provisioned.</p>
+                  <p className="text-xs text-base-content/60 mt-1">An input has no data yet; the node can run once it is provisioned.</p>
                 )}
               </div>
               <div>
                 <div className="text-xs font-semibold uppercase text-base-content/60 mb-1">Writes</div>
-                {node.outputs && node.outputs.length > 0 ? (
-                  <ul className="flex flex-wrap gap-1">
+                {node.outputs && node.outputs.length > 0 && (
+                  <ul className="flex flex-wrap gap-1 mb-1">
                     {node.outputs.map(o => (
                       <li key={o} className="badge badge-outline font-mono text-[11px]">{o}</li>
                     ))}
                   </ul>
+                )}
+                {node.output_kinds && node.output_kinds.length > 0 ? (
+                  <p className="text-xs text-base-content/60">
+                    Writes {node.output_kinds.join(', ')}{node.outputs && node.outputs.length > 0 ? ' (file names above; some may be computed at run time)' : ' (file names are computed at run time)'}.
+                  </p>
                 ) : (
-                  <p className="text-sm text-base-content/50 italic">{node.writes ? 'Writes files whose names are not literal in the script.' : 'No file output found in the script.'}</p>
+                  !(node.outputs && node.outputs.length > 0) && <p className="text-sm text-base-content/50 italic">No file output found in the script.</p>
                 )}
                 {node.external_writes && (
-                  <p className="text-xs text-error mt-1">
-                    Calls external code ({(node.external_packages || []).join(', ')}) with an output folder: it may write files not listed here.
+                  <p className="text-xs text-base-content/60 mt-1">
+                    Also uses the package {(node.external_packages || []).join(', ')}, which writes its own files into the output folder; they are not listed here, so check the node&apos;s output folder for the full set.
                   </p>
                 )}
                 {node.prints && <p className="text-xs text-base-content/60 mt-1">Also prints or logs text{node.logs.length ? ` (logs shown ${node.logs.join(' and ').replace(/_/g, ' ')})` : ''}.</p>}

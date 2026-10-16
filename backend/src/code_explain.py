@@ -483,11 +483,10 @@ def external_notice(report: dict[str, Any]) -> str:
              if src else " It is installed into a custom environment" + (f" (`{report['environment']}`)" if report["environment"] else "") + ".")
     names = ", ".join(f"`{m}`" for m in (mods or [p["name"] for p in report["packages"]]))
     return (
-        f"⚠️ **External code.** This script imports {names}, which is not part of the standard "
-        f"analysis environment.{where} Its source code is **not shown here and was not reviewed**: "
-        "it can write files into `/output/` on its own. We recommend that the user test this node on "
-        "shuffled or synthetic data and examine the files in the output to determine whether row level "
-        "data is being written.\n\n"
+        f"**Uses an external package.** This script calls {names}, which is not part of the standard "
+        f"analysis environment.{where} Its source is not shown here, and the files it writes into the "
+        "output folder are not listed in this script. The simplest check is to look at the node's output "
+        "folder yourself, ideally after a run on shuffled or synthetic data, to see what it produces.\n\n"
     )
 
 

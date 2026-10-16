@@ -5,7 +5,6 @@
 // plain longest-path layering (a node sits one stage after the last of its
 // dependencies), drawn as SVG, left-to-right by default or top-to-bottom.
 import React, {useMemo, useState} from 'react';
-import {AlertTriangle} from 'react-feather';
 import {RoomNode, RoomNodeKind, RoomOverview} from '@/components/ai/chatClient';
 
 // Clearly distinct hues per kind: the four data kinds are the ones readers
@@ -16,7 +15,7 @@ export const KIND_STYLE: Record<RoomNodeKind, {fill: string; stroke: string; lab
   shuffled: {fill: '#ede9fe', stroke: '#6d28d9', label: 'shuffled sample (synthetic rows)'},
   mapping: {fill: '#ffedd5', stroke: '#c2410c', label: 'cross-study mapping file'},
   python: {fill: '#fefce8', stroke: '#a16207', label: 'python compute node'},
-  airlock: {fill: '#fee2e2', stroke: '#b91c1c', label: 'airlock (controlled exit for row-level data)'},
+  airlock: {fill: '#fee2e2', stroke: '#f87171', label: 'airlock (controlled exit for row-level data)'},
   environment: {fill: '#f5f5f4', stroke: '#78716c', label: 'custom python environment'},
   other: {fill: '#f5f5f4', stroke: '#78716c', label: 'other'}
 };
@@ -38,11 +37,17 @@ function boxHeight(n: RoomNode): number {
 /** Second line of a python node: its output files, abbreviated. */
 function outputsLabel(n: RoomNode): string {
   const outs = n.outputs || [];
-  if (outs.length === 0) return n.external_writes ? '→ files written by external code' : n.writes ? '→ writes files (names not literal)' : '→ no file output found';
-  const shown = outs.slice(0, 2).join(', ');
-  const more = outs.length > 2 ? ` +${outs.length - 2}` : '';
-  const ext = n.external_writes ? ' +external' : '';
-  const text = `→ ${shown}${more}${ext}`;
+  const kinds = n.output_kinds || [];
+  let text: string;
+  if (outs.length > 0) {
+    const more = outs.length > 2 ? ` +${outs.length - 2}` : '';
+    text = `→ ${outs.slice(0, 2).join(', ')}${more}`;
+  } else if (kinds.length > 0) {
+    text = `→ ${kinds.map(k => k.replace(/ \(.*\)$/, '')).join(', ')}`;
+  } else {
+    text = n.writes ? '→ writes files' : '→ no file output found';
+  }
+  if (n.external_writes) text += ' + package files';
   return text.length > 36 ? text.slice(0, 35) + '…' : text;
 }
 
@@ -154,8 +159,8 @@ export function DcrGraph({
           <span className="inline-block w-3 h-3 rounded-sm border-2 border-dashed border-base-content/60" /> exit: analysts see its output
         </span>
         {room.provisioning?.known && (
-          <span className="inline-flex items-center gap-1 text-error">
-            <AlertTriangle size={11} /> no data provisioned yet
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block w-3 h-3 rounded-sm border border-dashed" style={{borderColor: '#9ca3af', background: '#f9fafb'}} /> no data provisioned yet
           </span>
         )}
         {/* Orientation: deliberately unobtrusive. */}
@@ -189,10 +194,6 @@ export function DcrGraph({
             <marker id="dcr-arrow-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#1d4ed8" />
             </marker>
-            <pattern id="dcr-nodata" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <rect width="8" height="8" fill="#f3f4f6" />
-              <line x1="0" y1="0" x2="0" y2="8" stroke="#d1d5db" strokeWidth="3" />
-            </pattern>
           </defs>
           {room.edges.map((e, i) => {
             const a = positions.get(e.from);
@@ -239,11 +240,11 @@ export function DcrGraph({
             const label = n.name.length > maxChars ? n.name.slice(0, maxChars - 1) + '…' : n.name;
             const title =
               `${n.name}\n${st.label}` +
-              (noData ? '\nNO DATA PROVISIONED YET' : n.provisioned === true ? `\ndata provisioned${n.provisioned_by ? ` by ${n.provisioned_by}` : ''}` : '') +
+              (noData ? '\nno data provisioned yet' : n.provisioned === true ? `\ndata provisioned${n.provisioned_by ? ` by ${n.provisioned_by}` : ''}` : '') +
               (n.dependencies.length ? `\nreads: ${n.dependencies.join(', ')}` : '') +
               (n.kind === 'python' ? `\nrunnable by ${n.runners} participant(s)` : '') +
-              (n.outputs?.length ? `\nwrites: ${n.outputs.join(', ')}` : '') +
-              (n.external_writes ? '\nexternal code may write further files' : '') +
+              (n.outputs?.length ? `\nwrites: ${n.outputs.join(', ')}` : n.output_kinds?.length ? `\nwrites: ${n.output_kinds.join(', ')}` : '') +
+              (n.external_writes ? `\nalso the files of ${(n.external_packages || []).join(', ') || 'its package'}: see the output folder` : '') +
               (n.prints ? '\nprints or logs text' : '') +
               (n.kind === 'airlock' && n.quota_bytes ? `\nquota ${Math.round(n.quota_bytes / 1e6)} MB` : '') +
               (n.external_packages?.length ? `\nexternal code: ${n.external_packages.join(', ')}` : '') +
@@ -263,31 +264,31 @@ export function DcrGraph({
                   width={BOX_W}
                   height={h}
                   rx={6}
-                  fill={noData ? 'url(#dcr-nodata)' : st.fill}
-                  stroke={selected === n.name ? '#1d4ed8' : noData ? '#dc2626' : st.stroke}
-                  strokeWidth={selected === n.name ? 2.5 : noData ? 2 : isExit ? 2 : 1.2}
-                  strokeDasharray={isExit ? '5 3' : undefined}
+                  fill={noData ? '#f9fafb' : st.fill}
+                  stroke={selected === n.name ? '#1d4ed8' : noData ? '#9ca3af' : st.stroke}
+                  strokeWidth={selected === n.name ? 2.5 : isExit ? 2 : 1.2}
+                  strokeDasharray={noData ? '4 3' : isExit ? '5 3' : undefined}
                 />
-                {/* Unprovisioned data node: warning triangle, red label, hatched box. Provisioned ones carry no mark. */}
+                {/* Unprovisioned data node: dashed grey box, an empty-tray icon and a quiet "no data yet" tag; a normal state until the owner uploads. Provisioned ones carry no mark. */}
                 {noData && (
-                  <g transform="translate(8, 8)">
-                    <path d="M 7 0 L 14 13 L 0 13 Z" fill="#dc2626" />
-                    <rect x="6.2" y="4" width="1.6" height="5" fill="#fff" />
-                    <rect x="6.2" y="10.3" width="1.6" height="1.6" fill="#fff" />
+                  <g transform="translate(8, 9)" fill="none" stroke="#9ca3af" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M 1 6 L 1 11 L 13 11 L 13 6" />
+                    <path d="M 1 6 L 3.5 1 L 10.5 1 L 13 6" />
+                    <path d="M 1 6 L 4.5 6 L 5.5 8 L 8.5 8 L 9.5 6 L 13 6" />
                   </g>
                 )}
                 <text
-                  x={noData ? 28 : 10}
+                  x={noData ? 26 : 10}
                   y={BOX_H / 2 + 4}
                   fontSize={11}
                   fontFamily="ui-monospace, monospace"
-                  fill={noData ? '#991b1b' : '#111827'}
+                  fill={noData ? '#6b7280' : '#111827'}
                 >
                   {label}
                 </text>
                 {noData && (
-                  <text x={BOX_W - 8} y={BOX_H / 2 + 4} fontSize={9} fill="#dc2626" fontWeight={700} textAnchor="end">
-                    NO DATA
+                  <text x={BOX_W - 8} y={BOX_H / 2 + 4} fontSize={9} fill="#9ca3af" textAnchor="end">
+                    no data yet
                   </text>
                 )}
                 {n.kind === 'python' && (

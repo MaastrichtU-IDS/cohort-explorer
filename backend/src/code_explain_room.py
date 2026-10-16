@@ -88,10 +88,11 @@ fragment node drops identifiers, keeps a stated percentage of rows and caps extr
 the airlock shows that fragment up to its quota; the shuffled samples are synthetic rows \
 (columns shuffled independently). Say plainly which exits carry aggregates only, which carry \
 deliberately limited row-level fragments and under which safeguards, and whether anything else \
-could carry individual-level data. External packages whose code is not visible (listed per node) \
-can write files the digest does not show: name them and say that their output cannot be verified \
-from here. Be calibrated: "looks aggregate-only", "cannot be verified", "would export rows" - \
-never "guaranteed safe".
+could carry individual-level data. Where a node uses an external package (listed per node), say \
+in one neutral sentence that the package writes its own files into the output folder, that they \
+are not listed here, and that the reader can check the node's output folder to see them; do not \
+dramatise it. Be calibrated: "looks aggregate-only", "not visible from here", "would export rows" \
+- never "guaranteed safe".
 """
 
 ROOM_OVERVIEW_TASK = (
@@ -129,7 +130,8 @@ NODE_IO_TASK = (
     "**Who can see the output** (from the EXITS: run directly by participants? feeds an airlock? only "
     "read by other nodes? - name them).\n"
     "**Safeguards** (two or three sentences: does any individual-level data reach an analyst-accessible "
-    "output through this node; external code caveat if any).\n"
+    "output through this node; if it uses an external package, one neutral sentence that the package's "
+    "own files are not listed here and the reader can check the output folder).\n"
     "Keep it short and concrete; the reader can switch to the code view for a step-by-step explanation."
 )
 NODE_IO_FOLLOWUP_TASK = (
@@ -207,19 +209,62 @@ _OUT_JOIN_RE = re.compile(
 _OUT_FSTRING_RE = re.compile(r"\{(?:output_dir|OUTPUT_DIR|out_dir|OUT_DIR|output_path|outdir)\}/([A-Za-z0-9_\-./{}]+)")
 
 
+# What kind of output a write call produces, from the call itself: names may be
+# computed at run time (fig.savefig(output_path)), the kind never is.
+_OUT_KIND_RES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\.savefig\(|plt\.imsave\(|\.save\([^)]*\.(?:png|jpg|svg|pdf)"), "figures (.png / image files)"),
+    (re.compile(r"\.to_csv\("), "CSV tables"),
+    (re.compile(r"\bjson\.dump\(|\.to_json\("), "JSON files"),
+    (re.compile(r"\.to_excel\("), "Excel files"),
+    (re.compile(r"\.to_parquet\(|\.to_pickle\(|\bpickle\.dump\("), "Parquet / pickle files"),
+    (re.compile(r"\bopen\([^)\n]*['\"][wax]b?\+?['\"]|\.write\("), "text / other files"),
+    (re.compile(r"\bshutil\.(?:copy|move)\w*\("), "copied files"),
+]
+_EXT_LITERAL_RE = re.compile(r"['\"]([A-Za-z0-9_\-{}. ]*\.(?:png|jpg|jpeg|svg|pdf|csv|json|txt|xlsx|parquet|html|md))['\"]")
+
+
+def output_kinds(lines: list[str]) -> list[str]:
+    """Kinds of files the script writes, from its write calls (comments ignored)."""
+    kinds: list[str] = []
+    for raw in lines:
+        code = raw.split("#", 1)[0]
+        for rx, label in _OUT_KIND_RES:
+            if rx.search(code) and label not in kinds:
+                kinds.append(label)
+    return kinds
+
+
 def output_files(lines: list[str]) -> list[str]:
     """Distinct output file names mentioned by a script, in order of appearance;
     f-string placeholders are kept as '{...}'. Directories end with '/'."""
     seen: list[str] = []
+    def add(name: str) -> None:
+        name = re.sub(r"\{[^}]*\}", "{...}", name.strip().rstrip("'\")"))
+        # Skip bare extensions ('.csv' from endswith checks) and nameless placeholders.
+        if name and name != "{...}" and not name.startswith(".") and not name.startswith("{...}.") \
+                and name not in seen and len(name) < 80:
+            seen.append(name)
     for raw in lines:
         code = raw.split("#", 1)[0]
         for rx in (_OUT_LITERAL_RE, _OUT_JOIN_RE, _OUT_FSTRING_RE):
             for m in rx.finditer(code):
-                name = m.group(1).strip().rstrip("'\")")
-                name = re.sub(r"\{[^}]*\}", "{...}", name)
-                if name and name not in ("{...}",) and name not in seen and len(name) < 80:
-                    seen.append(name)
-    return seen[:12]
+                add(m.group(1))
+    # File-name literals with a known extension anywhere in the script, when
+    # the script does write such files: covers names built into a variable
+    # before the write call ("{}_{}.png".format(col, cohort) -> savefig(path)).
+    kinds = output_kinds(lines)
+    if kinds:
+        for raw in lines:
+            code = raw.split("#", 1)[0]
+            if "/input/" in code:
+                continue
+            # Only lines that write or build an output path, so a file the
+            # script merely reads or mentions is not reported as an output.
+            if "output" not in code.lower() and not any(rx.search(code) for rx, _ in _OUT_KIND_RES):
+                continue
+            for m in _EXT_LITERAL_RE.finditer(code):
+                add(m.group(1))
+    return seen[:14]
 
 
 def room_structure(record: dict[str, Any], nodes: list[dict[str, Any]],
@@ -247,7 +292,9 @@ def room_structure(record: dict[str, Any], nodes: list[dict[str, Any]],
             item["writes"] = sum(1 for h in hints if h["kind"] == "output")
             item["prints"] = any(h["kind"] == "print" for h in hints)
             item["outputs"] = output_files(lines)
-            # External code given an output folder can write files the script does not name.
+            item["output_kinds"] = output_kinds(lines)
+            # The script calls an external package: that package writes its own
+            # files into the output folder, which the script does not name.
             item["external_writes"] = bool(item["external_packages"]) and bool(report["external_call_lines"])
         if kind in ("cohort_data", "dictionary", "shuffled", "mapping", "other") and n["type"] in _DATA_TYPES:
             if published is None:
@@ -315,8 +362,11 @@ def _digest(n: dict[str, Any], record: dict[str, Any], nodes: list[dict[str, Any
     if comments:
         head.append("Script header: " + " | ".join(comments))
     outs = output_files(lines)
+    kinds = output_kinds(lines)
     if outs:
         head.append("Output files it names: " + ", ".join(outs))
+    if kinds:
+        head.append("Kinds of files it writes (from the write calls; names may be computed at run time): " + ", ".join(kinds))
     hints = static_hints(lines) + [{"line": ln, "kind": "external"} for ln in report["external_call_lines"]]
     rank = {"external": 0, "output": 1, "print": 2, "rows": 3}
     shown = sorted(sorted(hints, key=lambda h: rank[h["kind"]])[:DIGEST_OUTPUT_LINES], key=lambda h: h["line"])
@@ -355,6 +405,8 @@ def _room_context(structure: dict[str, Any], record: dict[str, Any], nodes: list
             extra += "; DATA PROVISIONED" if n["provisioned"] else "; no data yet"
         if n.get("outputs"):
             extra += "; writes: " + ", ".join(n["outputs"][:6]) + (" ..." if len(n["outputs"]) > 6 else "")
+        elif n.get("output_kinds"):
+            extra += "; writes: " + ", ".join(n["output_kinds"])
         out.append(f"- {n['name']} ({kinds.get(n['kind'], n['kind'])}; depends on: {', '.join(n['dependencies']) or '-'}{extra})")
     out.append("\n# EXITS (every analyst-accessible output, from the room definition)")
     if not structure["exits"]:
