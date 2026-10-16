@@ -116,6 +116,27 @@ ROOM_FOLLOWUP_TASK = (
     "Answer the reader's latest message about this room. Be focused and shorter than an overview. "
     "If the answer depends on script details you do not have, say which node to open."
 )
+# The "inputs and outputs" view of one compute node: the reader wants to know
+# what goes in, what comes out and who sees it, without reading the code.
+NODE_IO_TASK = (
+    "The reader opened the node named below and asked about its inputs and outputs. You have its FULL "
+    "script in the section NODE SCRIPT (in addition to the digests). Structure the answer as:\n"
+    "**What it reads** (each input node: what it is - cohort data, dictionary, shuffled sample, mapping, "
+    "another node's output - and which parts the script actually uses, e.g. which columns or files).\n"
+    "**What it does with it** (two to four sentences, the gist only: no line numbers).\n"
+    "**What it writes** (every output file or folder: its name, what it contains, one row per what, and "
+    "whether it is aggregate or row-level; also what it prints or logs, if shown).\n"
+    "**Who can see the output** (from the EXITS: run directly by participants? feeds an airlock? only "
+    "read by other nodes? - name them).\n"
+    "**Safeguards** (two or three sentences: does any individual-level data reach an analyst-accessible "
+    "output through this node; external code caveat if any).\n"
+    "Keep it short and concrete; the reader can switch to the code view for a step-by-step explanation."
+)
+NODE_IO_FOLLOWUP_TASK = (
+    "Answer the reader's latest message about the node named below, focusing on its inputs, outputs and "
+    "who sees them; its full script is in NODE SCRIPT. Be short."
+)
+NODE_SCRIPT_MAX_CHARS = 24_000
 
 _DATA_TYPES = ("RawDataNodeDefinition", "TableDataNodeDefinition")
 
@@ -373,11 +394,22 @@ def room_explain_stream(body: dict[str, Any], user: Any = Depends(get_current_us
         raise HTTPException(status_code=400, detail="messages must end with a user message")
     structure = room_structure(record, nodes, fetch_published_datasets(dcr_id))
     is_overview = bool(body.get("overview"))
-    system = "\n\n".join([
-        ROOM_PROMPT,
-        "# THIS DATA CLEAN ROOM\n\n" + _room_context(structure, record, nodes),
-        "# YOUR TASK FOR THIS REPLY\n\n" + (ROOM_OVERVIEW_TASK if is_overview else ROOM_FOLLOWUP_TASK),
-    ])
+    focus = str(body.get("focus_node") or "")
+    sections = [ROOM_PROMPT, "# THIS DATA CLEAN ROOM\n\n" + _room_context(structure, record, nodes)]
+    if focus:
+        node = next((n for n in nodes if n["name"] == focus), None)
+        if node is None:
+            raise HTTPException(status_code=404, detail="Node not found in this data clean room")
+        script = node.get("script") or ""
+        if len(script) > NODE_SCRIPT_MAX_CHARS:
+            script = script[:NODE_SCRIPT_MAX_CHARS] + "\n# ... (script truncated for length)"
+        sections.append(f"# NODE SCRIPT: `{focus}` (reads: {', '.join(node['dependencies']) or 'no other nodes'})\n\n"
+                        + (script or "(this node has no script: it is a data node, an airlock or an environment)"))
+        task = (NODE_IO_TASK if is_overview else NODE_IO_FOLLOWUP_TASK) + f"\n\nThe node: `{focus}`."
+    else:
+        task = ROOM_OVERVIEW_TASK if is_overview else ROOM_FOLLOWUP_TASK
+    sections.append("# YOUR TASK FOR THIS REPLY\n\n" + task)
+    system = "\n\n".join(sections)
     full_messages = [{"role": "system", "content": system}] + messages
     try:
         temperature = float(body.get("temperature", 0.2))

@@ -9,7 +9,7 @@
 // the AI history as a 'code_explanation' session that records where it came
 // from (this DCR and node), and can be reopened from there.
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AlertTriangle, Send, X} from 'react-feather';
+import {AlertTriangle, ArrowLeft, Send, X} from 'react-feather';
 import {LocalModelNote, RichText, TypingDots} from '@/components/ai/ui';
 import {
   ChatMessage,
@@ -23,7 +23,8 @@ import {
   streamCodeExplanation,
   streamRoomExplanation
 } from '@/components/ai/chatClient';
-import {DcrGraph} from '@/components/DcrGraph';
+import {DcrGraph, KIND_STYLE, neighbourhood} from '@/components/DcrGraph';
+import type {RoomNode} from '@/components/ai/chatClient';
 
 // The picker value for the whole-room view (the default when the overlay opens).
 export const ROOM_VIEW = '__room__';
@@ -31,9 +32,10 @@ export const ROOM_VIEW = '__room__';
 type Range = [number, number];
 
 const OVERVIEW_QUESTION = 'Explain this whole script to me, step by step, and check whether any row-level data could leave the DCR.';
-const LEAK_QUESTION = 'Could any individual-level rows leave the DCR through this script? Check every output.';
 const ROOM_OVERVIEW_QUESTION =
   'Explain what happens in this data clean room overall, how the data flows between the nodes, and confirm whether any individual-level data reaches an output that analysts can see.';
+const NODE_IO_QUESTION = (name: string) =>
+  `What does the node "${name}" read, what does it write, and who can see its output?`;
 
 function newConversationId(): string {
   try {
@@ -313,9 +315,6 @@ function NodeExplainer({
                     >
                       Explain the whole script
                     </button>
-                    <button className="btn btn-sm btn-outline" disabled={!script || streaming} onClick={() => ask(LEAK_QUESTION)}>
-                      Check for data leaks
-                    </button>
                   </div>
                   <p className="text-xs text-base-content/50">
                     Answers come from a local language model and can be wrong: treat the privacy check as a second
@@ -397,6 +396,8 @@ function NodeExplainer({
 function RoomExplainer({
   dcrId,
   dcrTitle,
+  room,
+  loadError,
   resumeConversationId,
   session,
   onSession,
@@ -404,14 +405,15 @@ function RoomExplainer({
 }: {
   dcrId: string;
   dcrTitle: string;
+  // The room structure, loaded once by the overlay (null while loading).
+  room: RoomOverview | null;
+  loadError: string | null;
   // A stored room conversation to continue (from the AI history).
   resumeConversationId?: string | null;
   session?: Session;
   onSession: (s: Session) => void;
   onOpenNode: (name: string) => void;
 }) {
-  const [room, setRoom] = useState<RoomOverview | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>(session?.messages || []);
   const [streaming, setStreaming] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -430,13 +432,6 @@ function RoomExplainer({
 
   useEffect(() => {
     let cancelled = false;
-    fetchRoomOverview(dcrId)
-      .then(r => {
-        if (!cancelled) setRoom(r);
-      })
-      .catch(err => {
-        if (!cancelled) setLoadError(err?.message || 'Could not load the room structure.');
-      });
     if (resumeConversationId && !session) {
       fetchConversation(resumeConversationId)
         .then(c => {
@@ -616,6 +611,258 @@ function RoomExplainer({
   );
 }
 
+// The "inputs and outputs" view of one compute node: on the left the facts
+// from the room structure (what it reads, what it writes, who sees it) and the
+// node's neighbourhood in the graph; on the right the model's I/O-focused
+// explanation with follow-up chat. No code shown; that is the other mode.
+function NodeIoExplainer({
+  dcrId,
+  dcrTitle,
+  nodeName,
+  room,
+  loadError,
+  session,
+  onSession,
+  onOpenNode
+}: {
+  dcrId: string;
+  dcrTitle: string;
+  nodeName: string;
+  room: RoomOverview | null;
+  loadError: string | null;
+  session?: Session;
+  onSession: (s: Session) => void;
+  onOpenNode: (name: string) => void;
+}) {
+  const [messages, setMessages] = useState<ChatMessage[]>(session?.messages || []);
+  const [streaming, setStreaming] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [input, setInput] = useState('');
+  const abortRef = useRef<AbortController | null>(null);
+  const convIdRef = useRef<string>(session?.convId || newConversationId());
+  const startedAtRef = useRef<string>(session?.startedAt || new Date().toISOString());
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const follow = useRef(true);
+  const autoStarted = useRef(false);
+
+  const node: RoomNode | undefined = useMemo(() => room?.nodes.find(n => n.name === nodeName), [room, nodeName]);
+  const inputs = useMemo(() => (node ? node.dependencies.map(d => room!.nodes.find(n => n.name === d)).filter(Boolean) as RoomNode[] : []), [node, room]);
+  const readers = useMemo(() => (room ? room.nodes.filter(n => n.dependencies.includes(nodeName)) : []), [room, nodeName]);
+  const exit = useMemo(() => room?.exits.find(e => e.node === nodeName), [room, nodeName]);
+  const airlocksFed = readers.filter(r => r.kind === 'airlock');
+  const sub = useMemo(() => (room ? neighbourhood(room, nodeName) : null), [room, nodeName]);
+
+  useEffect(() => {
+    onSession({convId: convIdRef.current, startedAt: startedAtRef.current, messages});
+  }, [messages, onSession]);
+  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (el && follow.current) el.scrollTop = el.scrollHeight;
+  }, [messages, streaming]);
+
+  const persist = useCallback(
+    (msgs: ChatMessage[]) =>
+      saveConversation({
+        conversationId: convIdRef.current,
+        startedAt: startedAtRef.current,
+        arrivalPath: 'code_explanation',
+        entryContext: {source: 'my_dcrs', page: '/dcrs', dcr_id: dcrId, dcr_title: dcrTitle, node_name: nodeName, view: 'io'},
+        messages: msgs
+      }),
+    [dcrId, dcrTitle, nodeName]
+  );
+
+  const ask = useCallback(
+    async (question: string, opts?: {overview?: boolean}) => {
+      const text = question.trim();
+      if (!text || streaming) return;
+      const history = [...messages, {role: 'user', content: text} as ChatMessage];
+      setMessages([...history, {role: 'assistant', content: ''}]);
+      setInput('');
+      setChatError(null);
+      setStreaming(true);
+      follow.current = true;
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      let answer = '';
+      try {
+        await streamRoomExplanation({
+          dcrId,
+          messages: history,
+          overview: opts?.overview,
+          focusNode: nodeName,
+          signal: ctrl.signal,
+          onChunk: d => {
+            answer += d;
+            setMessages([...history, {role: 'assistant', content: answer}]);
+          }
+        });
+        const done: ChatMessage[] = [...history, {role: 'assistant', content: answer.trim()}];
+        setMessages(done);
+        persist(done);
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+        setChatError(err?.message || 'The model could not be reached.');
+        setMessages(answer ? [...history, {role: 'assistant', content: answer}] : history);
+      } finally {
+        setStreaming(false);
+      }
+    },
+    [messages, streaming, dcrId, nodeName, persist]
+  );
+
+  useEffect(() => {
+    if (room && messages.length === 0 && !autoStarted.current) {
+      autoStarted.current = true;
+      ask(NODE_IO_QUESTION(nodeName), {overview: true});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room]);
+
+  const kindLabel = (n: RoomNode) => KIND_STYLE[n.kind].label.replace(/ \(.*\)$/, '');
+  const Chip = ({n}: {n: RoomNode}) => (
+    <li className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="inline-block w-3 h-3 rounded-sm border shrink-0" style={{background: KIND_STYLE[n.kind].fill, borderColor: KIND_STYLE[n.kind].stroke}} />
+      {n.kind === 'python' ? (
+        <button className="link link-hover font-mono text-xs" onClick={() => onOpenNode(n.name)} title="Open this node">
+          {n.name}
+        </button>
+      ) : (
+        <span className="font-mono text-xs">{n.name}</span>
+      )}
+      <span className="text-xs text-base-content/60">{kindLabel(n)}</span>
+      {n.provisioned === false && <span className="badge badge-error badge-xs gap-1"><AlertTriangle size={9} /> no data yet</span>}
+      {n.kind === 'airlock' && n.quota_bytes ? <span className="text-xs text-base-content/60">quota {Math.round(n.quota_bytes / 1e6)} MB</span> : null}
+    </li>
+  );
+
+  return (
+    <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-base-300">
+      {/* ---- facts + neighbourhood ---- */}
+      <section className="min-h-0 flex flex-col">
+        {!room && !loadError && (
+          <div className="flex justify-center py-12">
+            <span className="loading loading-spinner loading-md" />
+          </div>
+        )}
+        {loadError && (
+          <div className="alert alert-error text-sm m-4 w-auto">
+            <AlertTriangle size={16} /> <span>{loadError}</span>
+          </div>
+        )}
+        {room && node && (
+          <>
+            <div className="px-5 py-3 space-y-3 overflow-y-auto border-b border-base-300 max-h-[55%]">
+              <div>
+                <div className="text-xs font-semibold uppercase text-base-content/60 mb-1">Reads ({inputs.length})</div>
+                {inputs.length === 0 ? <p className="text-sm text-base-content/50 italic">No inputs.</p> : <ul className="space-y-1">{inputs.map(n => <Chip key={n.name} n={n} />)}</ul>}
+                {inputs.some(n => n.provisioned === false) && (
+                  <p className="text-xs text-error mt-1">An input has no data yet: this node cannot run until it is provisioned.</p>
+                )}
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase text-base-content/60 mb-1">Writes</div>
+                {node.outputs && node.outputs.length > 0 ? (
+                  <ul className="flex flex-wrap gap-1">
+                    {node.outputs.map(o => (
+                      <li key={o} className="badge badge-outline font-mono text-[11px]">{o}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-base-content/50 italic">{node.writes ? 'Writes files whose names are not literal in the script.' : 'No file output found in the script.'}</p>
+                )}
+                {node.external_writes && (
+                  <p className="text-xs text-error mt-1">
+                    Calls external code ({(node.external_packages || []).join(', ')}) with an output folder: it may write files not listed here.
+                  </p>
+                )}
+                {node.prints && <p className="text-xs text-base-content/60 mt-1">Also prints or logs text{node.logs.length ? ` (logs shown ${node.logs.join(' and ').replace(/_/g, ' ')})` : ''}.</p>}
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase text-base-content/60 mb-1">Who sees the output</div>
+                <ul className="text-sm space-y-1">
+                  <li>
+                    {exit && exit.kind === 'runnable'
+                      ? <><b>{exit.runners}</b> participant{exit.runners === 1 ? '' : 's'} can run this node directly and download its output files.</>
+                      : <>No participant can run it directly: it only runs as a dependency of other nodes.</>}
+                  </li>
+                  {airlocksFed.length > 0 && <li>Its output is shown through the airlock{airlocksFed.length === 1 ? '' : 's'} {airlocksFed.map(a => <code key={a.name} className="text-xs">{a.name}</code>)}.</li>}
+                  {readers.filter(r => r.kind !== 'airlock').length > 0 && (
+                    <li>Read by: {readers.filter(r => r.kind !== 'airlock').map(r => <button key={r.name} className="link link-hover font-mono text-xs mr-2" onClick={() => onOpenNode(r.name)}>{r.name}</button>)}</li>
+                  )}
+                  {readers.length === 0 && !(exit && exit.kind === 'runnable') && <li className="text-base-content/50 italic">Nothing reads its output.</li>}
+                </ul>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0">
+              {sub && <DcrGraph room={sub} selected={nodeName} compact onSelect={name => name !== nodeName && onOpenNode(name)} />}
+            </div>
+          </>
+        )}
+        {room && !node && <div className="alert alert-warning text-sm m-4 w-auto">This node is not in the room structure.</div>}
+      </section>
+
+      {/* ---- explanation + chat ---- */}
+      <section className="min-h-0 flex flex-col">
+        <div
+          ref={transcriptRef}
+          className="flex-1 overflow-y-auto px-5 py-4 space-y-4"
+          onScroll={e => {
+            const el = e.currentTarget;
+            follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+          }}
+        >
+          {messages.map((m, i) =>
+            m.role === 'user' ? (
+              <div key={i} className="flex justify-end">
+                <div className="rounded-2xl px-4 py-2 max-w-[85%] text-sm whitespace-pre-wrap bg-primary text-primary-content">{m.content}</div>
+              </div>
+            ) : (
+              <div key={i} className="flex justify-start">
+                <div className="rounded-2xl px-4 py-2 max-w-[92%] text-sm bg-base-200">
+                  {m.content ? <RichText text={m.content} /> : <TypingDots />}
+                </div>
+              </div>
+            )
+          )}
+          {messages.length > 0 && !streaming && (
+            <p className="text-xs text-base-content/50">
+              Answers come from a local language model and can be wrong. Switch to &quot;Code &amp; explanation&quot; above for the step-by-step view of the script.
+            </p>
+          )}
+          {chatError && (
+            <div className="alert alert-error text-sm">
+              <AlertTriangle size={16} /> <span>{chatError}</span>
+            </div>
+          )}
+        </div>
+        <div className="border-t border-base-300 px-4 py-3">
+          <div className="flex items-end gap-2">
+            <textarea
+              className="textarea textarea-bordered flex-1 text-sm leading-snug min-h-[2.75rem]"
+              rows={2}
+              placeholder={`Ask about the inputs or outputs of ${nodeName}…`}
+              value={input}
+              disabled={!room}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (input.trim()) ask(input);
+                }
+              }}
+            />
+            <button className="btn btn-primary" disabled={streaming || !room || !input.trim()} onClick={() => ask(input)} title="Send">
+              <Send size={16} /> Send
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function CodeExplainOverlay({
   dcrId,
   dcrTitle,
@@ -635,18 +882,42 @@ export function CodeExplainOverlay({
 }) {
   // Opens on the whole-room view unless a node (or a stored node conversation) was asked for.
   const [node, setNode] = useState<string>(initialNode && nodes.includes(initialNode) ? initialNode : ROOM_VIEW);
+  // For a node: 'io' (inputs and outputs, the default) or 'code' (the script, explained line by line).
+  const [mode, setMode] = useState<'io' | 'code'>(resumeConversationId && initialNode && nodes.includes(initialNode) ? 'code' : 'io');
   const [model, setModel] = useState('');
+  const [room, setRoom] = useState<RoomOverview | null>(null);
+  const [roomError, setRoomError] = useState<string | null>(null);
   const sessions = useRef<Record<string, Session>>({});
+  const sessionKey = node === ROOM_VIEW ? ROOM_VIEW : `${node}::${mode}`;
   const saveSession = useCallback(
     (s: Session) => {
-      sessions.current[node] = s;
+      sessions.current[sessionKey] = s;
     },
-    [node]
+    [sessionKey]
+  );
+  const openNode = useCallback(
+    (name: string) => {
+      if (!nodes.includes(name)) return;
+      setNode(name);
+      setMode('io');
+    },
+    [nodes]
   );
 
   useEffect(() => {
     fetchChatConfig().then(c => setModel(c.model || ''));
-  }, []);
+    let cancelled = false;
+    fetchRoomOverview(dcrId)
+      .then(r => {
+        if (!cancelled) setRoom(r);
+      })
+      .catch(err => {
+        if (!cancelled) setRoomError(err?.message || 'Could not load the room structure.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dcrId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -676,8 +947,14 @@ export function CodeExplainOverlay({
               <X size={18} />
             </button>
           </div>
-          <label className="block mx-auto w-[30%] min-w-[16rem]">
-            <span className="block text-center text-xs font-semibold text-base-content/70 mb-1">View</span>
+          <div className="flex flex-wrap items-end justify-center gap-3">
+            {node !== ROOM_VIEW && (
+              <button className="btn btn-sm btn-primary gap-1" onClick={() => setNode(ROOM_VIEW)} title="Back to the whole room: overview, graph and safeguards">
+                <ArrowLeft size={14} /> Room graph
+              </button>
+            )}
+          <label className="block w-[30%] min-w-[16rem]">
+            <span className="block text-center text-xs font-semibold text-base-content/70 mb-1">{node === ROOM_VIEW ? 'View' : 'Compute node'}</span>
             {/* Same blue as the concept-code tags on the explore page; custom, bold chevron. */}
             <select
               className="w-full appearance-none rounded-xl py-3 pl-4 pr-12 font-mono text-base font-semibold cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-300"
@@ -692,7 +969,7 @@ export function CodeExplainOverlay({
                 backgroundSize: '1.5rem'
               }}
               value={node}
-              onChange={e => setNode(e.target.value)}
+              onChange={e => (e.target.value === ROOM_VIEW ? setNode(ROOM_VIEW) : openNode(e.target.value))}
               aria-label="Compute node to explain"
             >
               <option value={ROOM_VIEW}>Whole room: overview, data flow and safeguards</option>
@@ -703,26 +980,52 @@ export function CodeExplainOverlay({
               ))}
             </select>
           </label>
+            {node !== ROOM_VIEW && (
+              <div role="tablist" className="tabs tabs-boxed tabs-sm">
+                <button role="tab" className={`tab ${mode === 'io' ? 'tab-active' : ''}`} onClick={() => setMode('io')} title="What this node reads and writes, and who sees it">
+                  Inputs &amp; outputs
+                </button>
+                <button role="tab" className={`tab ${mode === 'code' ? 'tab-active' : ''}`} onClick={() => setMode('code')} title="The script, explained step by step">
+                  Code &amp; explanation
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         {node === ROOM_VIEW && (
           <RoomExplainer
             key={ROOM_VIEW}
             dcrId={dcrId}
             dcrTitle={dcrTitle}
+            room={room}
+            loadError={roomError}
             resumeConversationId={initialNode && !nodes.includes(initialNode) ? resumeConversationId : null}
             session={sessions.current[ROOM_VIEW]}
             onSession={saveSession}
-            onOpenNode={name => nodes.includes(name) && setNode(name)}
+            onOpenNode={openNode}
           />
         )}
-        {node && node !== ROOM_VIEW && (
+        {node && node !== ROOM_VIEW && mode === 'io' && (
+          <NodeIoExplainer
+            key={`${node}::io`}
+            dcrId={dcrId}
+            dcrTitle={dcrTitle}
+            nodeName={node}
+            room={room}
+            loadError={roomError}
+            session={sessions.current[`${node}::io`]}
+            onSession={saveSession}
+            onOpenNode={openNode}
+          />
+        )}
+        {node && node !== ROOM_VIEW && mode === 'code' && (
           <NodeExplainer
-            key={node}
+            key={`${node}::code`}
             dcrId={dcrId}
             dcrTitle={dcrTitle}
             nodeName={node}
             resumeConversationId={node === initialNode ? resumeConversationId : null}
-            session={sessions.current[node]}
+            session={sessions.current[`${node}::code`]}
             onSession={saveSession}
           />
         )}

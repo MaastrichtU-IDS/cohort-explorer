@@ -825,6 +825,8 @@ export async function streamRoomExplanation(opts: {
   dcrId: string;
   messages: ChatMessage[];
   overview?: boolean;
+  // When set: the explanation focuses on this node's inputs and outputs (its full script is given to the model).
+  focusNode?: string | null;
   onChunk: (delta: string) => void;
   signal?: AbortSignal;
 }): Promise<void> {
@@ -836,7 +838,8 @@ export async function streamRoomExplanation(opts: {
     body: JSON.stringify({
       dcr_id: opts.dcrId,
       messages: opts.messages.map(m => ({role: m.role, content: m.content})),
-      overview: !!opts.overview
+      overview: !!opts.overview,
+      focus_node: opts.focusNode || null
     })
   });
   if (!res.ok) {
