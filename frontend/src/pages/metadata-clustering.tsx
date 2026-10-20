@@ -30,6 +30,21 @@ interface JobState {
   fields?: FieldGroup[];
   counts?: Record<string, number>;
   duration_seconds?: number;
+  stall_minutes?: number;
+}
+
+interface RunHistoryItem {
+  started?: string;
+  finished?: string;
+  status?: string;
+  started_by?: string;
+  instructions?: string;
+  model?: string | null;
+  counts?: Record<string, number> | null;
+  duration_seconds?: number | null;
+  error?: string | null;
+  elements?: number;
+  ai_done?: number;
 }
 
 interface Results {
@@ -58,6 +73,16 @@ export default function MetadataClusteringPage() {
   const [cohort, setCohort] = useState<string>('');
   const [field, setField] = useState<string>('');
   const [aiOnly, setAiOnly] = useState(false);
+  const [history, setHistory] = useState<RunHistoryItem[]>([]);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const r = await fetch(`${apiUrl}/api/metadata-clustering/runs`, {credentials: 'include'});
+      if (r.ok) setHistory((await r.json()).items || []);
+    } catch {
+      /* history is optional */
+    }
+  }, []);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -89,7 +114,10 @@ export default function MetadataClusteringPage() {
     const tick = async () => {
       const s = await loadStatus();
       if (s?.running) timer = setTimeout(tick, 4000);
-      else if (s?.has_results) loadResults().catch(e => setError(e.message));
+      else {
+        loadHistory();
+        if (s?.has_results) loadResults().catch(e => setError(e.message));
+      }
     };
     tick();
     return () => clearTimeout(timer);
@@ -237,6 +265,36 @@ export default function MetadataClusteringPage() {
           )}
           {job?.phase === 'failed' && job.error && (
             <div className="alert alert-error mt-3 text-sm">Last run failed: {job.error}</div>
+          )}
+          {job?.running && (
+            <p className="text-xs text-base-content/50 mt-1">
+              The job runs on the server and does not need this page to stay open. A run that makes no progress for {job.stall_minutes ?? 15} minutes is marked failed.
+            </p>
+          )}
+          {history.length > 0 && (
+            <details className="mt-3 text-sm">
+              <summary className="cursor-pointer text-base-content/70">Previous runs ({history.length})</summary>
+              <div className="overflow-x-auto mt-2">
+                <table className="table table-xs">
+                  <thead><tr><th>Started</th><th>Status</th><th>Duration</th><th>Studies</th><th>Elements</th><th>Pairs (both / lexical / AI)</th><th>Model</th><th>By</th><th>Instructions</th></tr></thead>
+                  <tbody>
+                    {history.map((h, i) => (
+                      <tr key={i}>
+                        <td className="whitespace-nowrap">{h.started ? new Date(h.started).toLocaleString() : ''}</td>
+                        <td><span className={`badge badge-sm ${h.status === 'done' ? 'badge-success' : 'badge-error'}`} title={h.error || undefined}>{h.status}</span></td>
+                        <td>{h.duration_seconds != null ? `${h.duration_seconds}s` : h.finished && h.started ? `${Math.round((new Date(h.finished).getTime() - new Date(h.started).getTime()) / 1000)}s` : ''}</td>
+                        <td>{h.counts?.cohorts ?? ''}</td>
+                        <td>{h.counts?.elements ?? (h.ai_done != null && h.elements ? `${h.ai_done}/${h.elements} judged` : h.elements ?? '')}</td>
+                        <td>{h.counts ? `${h.counts.pairs} (${h.counts.both} / ${h.counts.lexical} / ${h.counts.ai})` : ''}</td>
+                        <td className="text-xs">{h.model || ''}</td>
+                        <td className="text-xs">{h.started_by || ''}</td>
+                        <td className="text-xs max-w-xs truncate" title={h.instructions || undefined}>{h.instructions || ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
           )}
           {error && <div className="alert alert-error mt-3 text-sm">{error}</div>}
         </div>

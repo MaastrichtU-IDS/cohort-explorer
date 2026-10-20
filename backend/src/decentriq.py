@@ -1,4 +1,5 @@
 import csv
+import re
 from copy import deepcopy
 from typing import Any
 import fcntl
@@ -2925,13 +2926,79 @@ def _dcr_managers(record: dict[str, Any]) -> list[str]:
     ]
 
 
+_TITLE_CREATOR_RE = re.compile(r"created\s+by\s+([^\s<>()\[\]]+@[^\s<>()\[\]]+)\s*$", re.IGNORECASE)
+
+# The app's own records of who created a room, consulted when the platform
+# cannot tell (the service account is the only manager since October 2026).
+_creator_records_cache: dict[str, Any] = {"mtime": None, "by_id": {}}
+
+
+def _creators_from_app_records() -> dict[str, str]:
+    """{dcr_id: creator email} from the explorer's own logs: the analysis DCR
+    event log (dcr_publish_succeeded carries dcr_id and user_email), the
+    no-code room records (created_by) and the provision log ("User")."""
+    out: dict[str, str] = {}
+    try:
+        for ev in read_events():
+            if ev.get("event") == "dcr_publish_succeeded" and ev.get("dcr_id") and ev.get("user_email"):
+                out.setdefault(ev["dcr_id"], str(ev["user_email"]).strip().lower())
+    except Exception as exc:
+        logging.debug("creator lookup: event log unavailable: %s", exc)
+    try:
+        from src.nocode import ROOMS_DIR
+        if os.path.isdir(ROOMS_DIR):
+            for fname in os.listdir(ROOMS_DIR):
+                if fname.endswith(".json"):
+                    with open(os.path.join(ROOMS_DIR, fname), encoding="utf-8") as fh:
+                        info = json.load(fh)
+                    if info.get("dcr_id") and info.get("created_by"):
+                        out.setdefault(info["dcr_id"], str(info["created_by"]).strip().lower())
+    except Exception as exc:
+        logging.debug("creator lookup: no-code records unavailable: %s", exc)
+    try:
+        with open("/data/provisions_log.jsonl") as f:
+            for entry in json.load(f):
+                if entry.get("DCR_id") and entry.get("User"):
+                    out.setdefault(entry["DCR_id"], str(entry["User"]).strip().lower())
+    except Exception:
+        pass
+    return out
+
+
+def _creator_from_app_records(dcr_id: str) -> str | None:
+    """Cached per process; rebuilt when the event log folder changes."""
+    try:
+        logs_dir = os.path.join(settings.data_folder, "logs")
+        marker = max((os.path.getmtime(os.path.join(logs_dir, f)) for f in os.listdir(logs_dir)), default=None) if os.path.isdir(logs_dir) else None
+    except Exception:
+        marker = None
+    if _creator_records_cache["mtime"] != marker or not _creator_records_cache["by_id"]:
+        _creator_records_cache["by_id"] = _creators_from_app_records()
+        _creator_records_cache["mtime"] = marker
+    return _creator_records_cache["by_id"].get(dcr_id)
+
+
 def _dcr_creator(record: dict[str, Any]) -> str | None:
-    """The DCR's creator: its owner (manager) on Decentriq, or None if unknown."""
+    """The person who created the DCR in the explorer. In order:
+    1. a manager (Owner) that is not the service account - rooms published
+       with the user as owner, before the service account became sole manager;
+    2. the explorer's own creation records (event log, no-code room files,
+       provision log), matched on the DCR id;
+    3. the title's "... - created by <email>" suffix, which both room builders append;
+    4. the first manager (the service account) for old rooms with none of the above."""
     managers = _dcr_managers(record)
-    # DCRs published with the service account as an extra manager: the creator
-    # is the other manager (list order is not reliable).
     users = [m for m in managers if not _is_service_account(m)]
-    return users[0] if users else (managers[0] if managers else None)
+    if users:
+        return users[0]
+    dcr_id = record.get("id") or ""
+    if dcr_id:
+        from_records = _creator_from_app_records(dcr_id)
+        if from_records:
+            return from_records
+    m = _TITLE_CREATOR_RE.search(record.get("title") or "")
+    if m:
+        return m.group(1).strip().lower()
+    return managers[0] if managers else None
 
 
 def _is_service_account(email: str | None) -> bool:
@@ -2949,6 +3016,10 @@ def _with_deactivation(records: list[dict[str, Any]], email: str) -> list[dict[s
         info = deactivated.get(record.get("id") or "")
         stopped = bool(info) or bool(record.get("isStopped"))
         creator = _dcr_creator(record)
+        managers = _dcr_managers(record)
+        # The explorer can stop a room itself when the service account holds
+        # the manager permission; the creator (or the service account) may ask it to.
+        service_is_manager = any(_is_service_account(m) for m in managers)
         out.append({
             **record,
             "creator": creator,
@@ -2957,8 +3028,8 @@ def _with_deactivation(records: list[dict[str, Any]], email: str) -> list[dict[s
             "deactivated_by": (info or {}).get("by"),
             # Records written before "source" existed come from stops made in My DCRs.
             "deactivated_source": ((info or {}).get("source") or "explorer") if info else None,
-            "can_deactivate": not stopped and creator is not None and creator == email,
-            "deactivate_in_app": _is_service_account(creator),
+            "can_deactivate": not stopped and ((creator is not None and creator == email) or (service_is_manager and _is_service_account(email))),
+            "deactivate_in_app": service_is_manager,
         })
     return out
 
@@ -3045,8 +3116,11 @@ async def api_deactivate_dcr(dcr_id: str, user: Any = Depends(get_current_user))
     if record is None:
         raise HTTPException(status_code=404, detail="DCR not found among your Data Clean Rooms")
     creator = _dcr_creator(record)
-    if creator != user_email or not _is_service_account(creator):
-        raise HTTPException(status_code=403, detail="Only the service account can deactivate a DCR it owns from here")
+    service_is_manager = any(_is_service_account(m) for m in _dcr_managers(record))
+    if not service_is_manager:
+        raise HTTPException(status_code=403, detail="This DCR is not managed by the explorer's service account: its owner stops it on the Decentriq platform")
+    if creator != user_email and not _is_service_account(user_email):
+        raise HTTPException(status_code=403, detail="Only the creator of this DCR (or the service account) can deactivate it from here")
     import asyncio
     try:
         await asyncio.to_thread(_stop_dcr_as_service_account, dcr_id)

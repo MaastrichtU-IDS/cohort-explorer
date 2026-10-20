@@ -37,7 +37,7 @@ import threading
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -98,6 +98,13 @@ LLM_WORKERS = 3
 _DIR = os.path.join(settings.data_folder, "metadata_clustering")
 _STATE_PATH = os.path.join(_DIR, "job.json")
 _RESULT_PATH = os.path.join(_DIR, "results.json")
+# One line per finished run (done / failed / stalled), newest last.
+_HISTORY_PATH = os.path.join(_DIR, "runs.jsonl")
+# Snapshots of earlier results, results_<started>.json; the newest few are kept.
+_KEEP_SNAPSHOTS = 10
+# A running job whose state file has not been touched for this long did not
+# survive (the worker died or the container restarted): it is marked failed.
+STALL_MINUTES = 15
 _write_lock = threading.Lock()
 
 
@@ -122,11 +129,81 @@ def _write_json(path: str, data: dict[str, Any]) -> None:
 
 
 def _update_state(**fields: Any) -> dict[str, Any]:
+    """Merge fields into the job state; every update stamps updated_at, which
+    the stall detection relies on."""
     with _write_lock:
         state = _read_json(_STATE_PATH)
         state.update(fields)
+        state["updated_at"] = datetime.now().isoformat()
         _write_json(_STATE_PATH, state)
         return state
+
+
+def _append_history(state: dict[str, Any]) -> None:
+    """Record a finished run (done, failed or stalled) in the run history."""
+    entry = {k: state.get(k) for k in ("started", "finished", "phase", "started_by", "instructions", "model",
+                                        "ai_available", "counts", "duration_seconds", "error",
+                                        "elements", "cohorts", "lexical_matches", "ai_done", "ai_failed")}
+    entry["status"] = state.get("phase")
+    try:
+        os.makedirs(_DIR, exist_ok=True)
+        with _write_lock, open(_HISTORY_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        logger.warning("[metadata_clustering] could not write run history: %s", exc)
+
+
+def list_history() -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    try:
+        with open(_HISTORY_PATH, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        out.append(json.loads(line))
+                    except ValueError:
+                        continue
+    except OSError:
+        return []
+    return list(reversed(out))
+
+
+def _snapshot_results(started: Optional[str]) -> None:
+    """Keep a copy of the results of each run, pruning old snapshots."""
+    try:
+        if not os.path.exists(_RESULT_PATH):
+            return
+        tag = re.sub(r"[^0-9T]", "", (started or datetime.now().isoformat())[:19])
+        import shutil
+        shutil.copyfile(_RESULT_PATH, os.path.join(_DIR, f"results_{tag}.json"))
+        snaps = sorted(f for f in os.listdir(_DIR) if f.startswith("results_") and f.endswith(".json"))
+        for old in snaps[:-_KEEP_SNAPSHOTS]:
+            os.remove(os.path.join(_DIR, old))
+    except OSError as exc:
+        logger.warning("[metadata_clustering] could not snapshot results: %s", exc)
+
+
+def check_stalled() -> dict[str, Any]:
+    """The job state, after marking a running job failed when it has made no
+    progress for STALL_MINUTES. The job runs as a background task inside one
+    API worker and does not need anyone on the page; a job that stops
+    updating its state is one whose worker died or was restarted."""
+    state = _read_json(_STATE_PATH)
+    if not state.get("running"):
+        return state
+    try:
+        last = datetime.fromisoformat(state.get("updated_at") or state.get("started"))
+    except (TypeError, ValueError):
+        last = None
+    if last is None or datetime.now() - last > timedelta(minutes=STALL_MINUTES):
+        since = last.isoformat(timespec="minutes") if last else "an unknown time"
+        state = _update_state(running=False, phase="failed", finished=datetime.now().isoformat(),
+                              error=f"stalled: no progress since {since} (more than {STALL_MINUTES} minutes); "
+                                    "the worker running it crashed or was restarted")
+        _append_history(state)
+        logger.warning("[metadata_clustering] run started %s marked as stalled", state.get("started"))
+    return state
 
 
 def _require_admin(user: dict) -> None:
@@ -360,8 +437,9 @@ def run_clustering(instructions: str = "") -> None:
                         # the first reason given for it.
                         if v["strength"] == "strong" and cur["strength"] != "strong":
                             cur["strength"], cur["reason"] = "strong", v["reason"]
+                    # Every element: the state's updated_at is the heartbeat for stall detection.
+                    _update_state(ai_done=done, ai_failed=len(ai_failed))
                     if done % 10 == 0 or done == len(elements):
-                        _update_state(ai_done=done, ai_failed=len(ai_failed))
                         logger.info("[metadata_clustering] LLM %d/%d elements judged", done, len(elements))
         else:
             logger.warning("[metadata_clustering] LITELLM_BASE_URL not set; lexical pass only")
@@ -403,13 +481,16 @@ def run_clustering(instructions: str = "") -> None:
             "matches": matches,
         }
         _write_json(_RESULT_PATH, result)
-        _update_state(running=False, phase="done", finished=datetime.now().isoformat(), error=None,
-                      counts=result["counts"], duration_seconds=result["duration_seconds"])
+        state = _update_state(running=False, phase="done", finished=datetime.now().isoformat(), error=None,
+                              counts=result["counts"], duration_seconds=result["duration_seconds"])
+        _append_history(state)
+        _snapshot_results(state.get("started"))
         logger.info("[metadata_clustering] done in %ds: %s", result["duration_seconds"], result["counts"])
     except Exception as exc:
         logger.exception("[metadata_clustering] run failed")
-        _update_state(running=False, phase="failed", finished=datetime.now().isoformat(),
-                      error=f"{type(exc).__name__}: {exc}")
+        state = _update_state(running=False, phase="failed", finished=datetime.now().isoformat(),
+                              error=f"{type(exc).__name__}: {exc}")
+        _append_history(state)
 
 
 # ---------------------------------------------------------------------------
@@ -420,7 +501,7 @@ def run_clustering(instructions: str = "") -> None:
 async def start_run(background: BackgroundTasks, body: Optional[dict[str, Any]] = None,
                     user: Any = Depends(get_current_user)):
     _require_admin(user)
-    if _read_json(_STATE_PATH).get("running"):
+    if check_stalled().get("running"):
         raise HTTPException(status_code=409, detail="A metadata clustering run is already in progress.")
     instructions = str((body or {}).get("instructions") or "").strip()[:4000]
     _update_state(running=True, phase="starting", started=datetime.now().isoformat(), finished=None,
@@ -432,15 +513,26 @@ async def start_run(background: BackgroundTasks, body: Optional[dict[str, Any]] 
 
 @router.get("/metadata-clustering/status")
 async def status(user: Any = Depends(get_current_user)):
-    state = _read_json(_STATE_PATH)
+    _require_admin(user)
+    state = check_stalled()
     state["has_results"] = os.path.exists(_RESULT_PATH)
-    state["is_admin"] = user["email"] in settings.admins_list
+    state["is_admin"] = True
     state["fields"] = FIELD_GROUPS
+    state["stall_minutes"] = STALL_MINUTES
     return state
+
+
+@router.get("/metadata-clustering/runs")
+async def runs(user: Any = Depends(get_current_user)):
+    """Previous runs, newest first (done, failed and stalled alike)."""
+    _require_admin(user)
+    check_stalled()
+    return {"items": list_history()}
 
 
 @router.get("/metadata-clustering/results")
 async def results(user: Any = Depends(get_current_user)):
+    _require_admin(user)
     data = _read_json(_RESULT_PATH)
     if not data:
         raise HTTPException(status_code=404, detail="No metadata clustering results yet.")
@@ -449,7 +541,9 @@ async def results(user: Any = Depends(get_current_user)):
 
 @router.get("/metadata-clustering/cohort/{cohort_id}")
 async def cohort_matches(cohort_id: str, user: Any = Depends(get_current_user)):
-    """One study's elements with their matches, for the cohort page."""
+    """One study's elements with their matches, for the cohort page (admins only:
+    the panel hides itself for other users)."""
+    _require_admin(user)
     data = _read_json(_RESULT_PATH)
     if not data:
         return {"available": False, "elements": []}

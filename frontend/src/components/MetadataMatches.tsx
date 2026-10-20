@@ -103,14 +103,24 @@ export function CohortMetadataMatchesPanel({cohortId}: {cohortId: string}) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<{available: boolean; finished?: string; elements: MetadataElement[]} | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The endpoint is admins-only: the panel disappears for everyone else.
+  const [forbidden, setForbidden] = useState(false);
 
   useEffect(() => {
     if (!open || data) return;
     fetch(`${apiUrl}/api/metadata-clustering/cohort/${encodeURIComponent(cohortId)}`, {credentials: 'include'})
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setData)
+      .then(r => {
+        if (r.status === 403) {
+          setForbidden(true);
+          return null;
+        }
+        return r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`));
+      })
+      .then(d => d && setData(d))
       .catch(e => setError(e.message));
   }, [open, data, cohortId]);
+
+  if (forbidden) return null;
 
   const total = data?.elements.reduce((n, e) => n + (e.matches?.length || 0), 0) ?? null;
 
