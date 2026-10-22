@@ -2065,8 +2065,9 @@ def is_valid_value(value: Any) -> bool:
 def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df = pd.read_excel(filepath, sheet_name="Descriptions")
     df = df.fillna("")
-    # Convert column names to lowercase for consistency
-    df.columns = df.columns.str.lower()
+    # Headers: trimmed, inner whitespace collapsed, lower-cased (a stray space or a
+    # line break in a header cell must not hide a column).
+    df.columns = [" ".join(str(c).split()).lower() for c in df.columns]
     g = init_graph()
     metadata_graph = URIRef(OntologyNamespaces.CMEO.value + "graph/studies_metadata")
     

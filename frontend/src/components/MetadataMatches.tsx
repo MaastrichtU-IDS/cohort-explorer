@@ -1,12 +1,11 @@
 'use client';
 
-import React, {useEffect, useState} from 'react';
+import React from 'react';
 import Link from 'next/link';
-import {apiUrl} from '@/utils';
 
 /** One metadata element of a study (its study objective, a criterion, ...)
  *  with the matching elements found in other studies. Shape of
- *  /api/metadata-clustering/results and /api/metadata-clustering/cohort/{id}. */
+ *  /api/metadata-clustering/results. */
 export interface MetadataMatch {
   element_id: string;
   cohort: string;
@@ -94,70 +93,5 @@ export function MatchList({matches, showField = true, aiOnly = false, emptyText 
         </li>
       ))}
     </ul>
-  );
-}
-
-/** Collapsible panel for a cohort page: every element of that study with its
- *  matches in other studies, loaded on first open. */
-export function CohortMetadataMatchesPanel({cohortId}: {cohortId: string}) {
-  const [open, setOpen] = useState(false);
-  const [data, setData] = useState<{available: boolean; finished?: string; elements: MetadataElement[]} | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // The endpoint is admins-only: the panel disappears for everyone else.
-  const [forbidden, setForbidden] = useState(false);
-
-  useEffect(() => {
-    if (!open || data) return;
-    fetch(`${apiUrl}/api/metadata-clustering/cohort/${encodeURIComponent(cohortId)}`, {credentials: 'include'})
-      .then(r => {
-        if (r.status === 403) {
-          setForbidden(true);
-          return null;
-        }
-        return r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`));
-      })
-      .then(d => d && setData(d))
-      .catch(e => setError(e.message));
-  }, [open, data, cohortId]);
-
-  if (forbidden) return null;
-
-  const total = data?.elements.reduce((n, e) => n + (e.matches?.length || 0), 0) ?? null;
-
-  return (
-    <div className="collapse collapse-arrow bg-base-200 rounded-lg mb-4">
-      <input type="checkbox" checked={open} onChange={e => setOpen(e.target.checked)} />
-      <div className="collapse-title font-bold">
-        Related metadata in other studies
-        {total !== null && <span className="badge badge-sm ml-2">{total}</span>}
-      </div>
-      <div className="collapse-content">
-        {error && <p className="text-error text-sm">Could not load: {error}</p>}
-        {!error && !data && open && <span className="loading loading-spinner loading-sm" />}
-        {data && !data.available && (
-          <p className="text-sm text-base-content/60 italic">
-            Metadata clustering has not been run yet. An admin can run it from the Metadata clustering page.
-          </p>
-        )}
-        {data && data.available && (
-          <>
-            <p className="text-xs text-base-content/50 mb-3">
-              Each of this study&apos;s metadata elements with the closest elements of other studies, found by text
-              similarity and by AI. Computed {data.finished ? new Date(data.finished).toLocaleString() : ''}.
-            </p>
-            {data.elements.filter(e => (e.matches?.length || 0) > 0).length === 0 && (
-              <p className="text-sm text-base-content/60 italic">No related metadata found in other studies.</p>
-            )}
-            {data.elements.filter(e => (e.matches?.length || 0) > 0).map(e => (
-              <div key={e.id} className="mb-3">
-                <h4 className="font-semibold text-sm mb-1">{e.label}</h4>
-                <p className="text-xs text-base-content/70 mb-1 italic">{e.text}</p>
-                <MatchList matches={e.matches || []} />
-              </div>
-            ))}
-          </>
-        )}
-      </div>
-    </div>
   );
 }

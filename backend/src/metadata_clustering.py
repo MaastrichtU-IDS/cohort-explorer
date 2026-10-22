@@ -25,7 +25,6 @@ Endpoints (prefix /api):
   POST /metadata-clustering/run        {instructions?}   admin, starts the job
   GET  /metadata-clustering/status                       job state
   GET  /metadata-clustering/results                      the whole result
-  GET  /metadata-clustering/cohort/{cohort_id}           one study's matches
 """
 
 import json
@@ -777,18 +776,3 @@ async def results(user: Any = Depends(get_current_user)):
     if not data:
         raise HTTPException(status_code=404, detail="No metadata clustering results yet.")
     return data
-
-
-@router.get("/metadata-clustering/cohort/{cohort_id}")
-async def cohort_matches(cohort_id: str, user: Any = Depends(get_current_user)):
-    """One study's elements with their matches, for the cohort page (admins only:
-    the panel hides itself for other users)."""
-    _require_admin(user)
-    data = _read_json(_RESULT_PATH)
-    if not data:
-        return {"available": False, "elements": []}
-    wanted = cohort_id.lower()
-    out = [{**e, "matches": data["matches"].get(e["id"], [])}
-           for e in data["elements"] if e["cohort"].lower() == wanted]
-    return {"available": True, "finished": data.get("finished"), "model": data.get("model"),
-            "elements": out}

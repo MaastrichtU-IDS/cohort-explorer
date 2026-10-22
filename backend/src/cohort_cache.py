@@ -1477,7 +1477,9 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
         # Read the Excel file
         df = pd.read_excel(excel_filepath, sheet_name="Descriptions")
         df = df.fillna("")
-        df.columns = df.columns.str.lower()
+        # Headers: trimmed, inner whitespace collapsed, lower-cased, so "PI Email Address " or a
+        # wrapped "Data provider\nemail address" still match the expected names.
+        df.columns = [" ".join(str(c).split()).lower() for c in df.columns]
         
         # Clear existing cache
         clear_cache()

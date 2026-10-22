@@ -3,7 +3,6 @@
 import React, {useState, useMemo, useEffect, useCallback} from 'react';
 import {useRouter} from 'next/router';
 import {useCohorts} from '@/components/CohortsContext';
-import {CohortMetadataMatchesPanel} from '@/components/MetadataMatches';
 import FilterByMetadata from '@/components/FilterByMetadata';
 import {Cohort} from '@/types';
 import VariablesList from '@/components/VariablesList';
@@ -2044,9 +2043,6 @@ export default function CohortsList() {
                   </div>
                 </div>
                 
-                {/* Matching metadata elements in other studies (metadata clustering) */}
-                <CohortMetadataMatchesPanel cohortId={cohortData.cohort_id} />
-
                 {/* Cohort Metadata Box */}
                 <div className="bg-white shadow-md rounded-lg p-4 mb-4">
                   <h3 className="text-lg font-semibold mb-3 border-b pb-2">More Details</h3>

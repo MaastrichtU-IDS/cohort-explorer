@@ -648,7 +648,12 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
             administrator=get_value("administrator", row),
             administrator_email=admin_email,
             study_contact_person=get_value("study_contact_person", row),
-            study_contact_person_email=get_value("study_contact_person_email", row).lower() if get_value("study_contact_person_email", row) else "",
+            study_contact_person_email=contact_email,
+            # The graph only knows the legacy roles: PI = administrator, data provider = study contact person.
+            pi=get_value("administrator", row),
+            pi_email=admin_email,
+            data_provider=get_value("study_contact_person", row),
+            data_provider_email=contact_email,
             references=[],
             population_location=get_value("population_location", row),
             language=get_value("language", row),
