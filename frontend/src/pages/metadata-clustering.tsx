@@ -1,6 +1,7 @@
 'use client';
 
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import Link from 'next/link';
 import {Layers, Play, RefreshCw} from 'react-feather';
 import {apiUrl} from '@/utils';
 import {MatchList, MetadataElement, MetadataMatch, SourceBadge} from '@/components/MetadataMatches';
@@ -307,6 +308,11 @@ export default function MetadataClusteringPage() {
 
       {results && (
         <>
+          <div className="flex flex-wrap gap-2 mb-3 text-sm">
+            <Link href="/metadata-heatmap" className="btn btn-sm btn-outline">Open the metadata heatmap</Link>
+            <Link href="/metadata-constellation" className="btn btn-sm btn-outline">Open the constellation</Link>
+            <span className="text-base-content/50 self-center">Theme views of these results (studies x themes, and studies linked by shared themes).</span>
+          </div>
           <div className="stats stats-vertical sm:stats-horizontal shadow mb-4 w-full">
             <div className="stat py-3">
               <div className="stat-title">Studies</div>

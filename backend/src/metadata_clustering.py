@@ -329,9 +329,30 @@ Decide which candidates describe the same or closely overlapping information as 
 Do not match elements that merely belong to the same kind of field or share generic words. Judge the medical content.
 A candidate from a different field (e.g. an exclusion criterion against an inclusion criterion) can still match when it carries the same information.
 
+For every match, name WHAT is shared as one or two short themes of two to five words each: concrete medical or
+methodological terms such as "kidney failure", "NYHA class II-IV", "all-cause mortality", "NT-proBNP guided therapy",
+"adults over 18". No sentences, no field names, no study names.
+
 Answer with STRICT JSON only, no prose, no code fences:
-{"matches": [{"id": <candidate number>, "strength": "strong" | "partial", "reason": "<one short sentence>"}]}
+{"matches": [{"id": <candidate number>, "strength": "strong" | "partial", "themes": ["<2-5 words>", "<2-5 words>"], "reason": "<one short sentence>"}]}
 Return {"matches": []} when nothing matches."""
+
+_MERGE_PROMPT = """You organise a vocabulary of short themes that describe what pairs of clinical cohort studies
+(heart failure and cardiovascular research) have in common in their metadata. You receive the raw themes with how
+often each occurred.
+
+Task 1 - normalise: merge themes that mean the same thing (synonyms, singular/plural, wording variants, different
+granularity of the same idea such as "renal impairment" / "kidney failure" / "chronic kidney disease") into one
+canonical theme of two to five words, lowercase. Keep genuinely different themes apart. Every raw theme must map to
+exactly one canonical theme.
+
+Task 2 - group: sort the canonical themes under five to eight parent themes with short names (two to four words),
+e.g. "heart failure phenotype", "comorbidities", "age and eligibility", "outcomes", "treatment context". Every
+canonical theme belongs to exactly one parent.
+
+Answer with STRICT JSON only, no prose, no code fences:
+{"parents": [{"id": "p1", "label": "<parent name>"}],
+ "themes": [{"id": "t1", "label": "<canonical theme>", "parent": "p1", "raw": ["<raw theme>", "..."]}]}"""
 
 
 def _ai_judge(client: Any, model: str, element: dict[str, Any], candidates: list[dict[str, Any]],
@@ -365,9 +386,16 @@ def _ai_judge(client: Any, model: str, element: dict[str, Any], candidates: list
             continue
         if 0 <= idx < len(candidates):
             strength = str(m.get("strength") or "partial").lower()
+            themes = []
+            for raw in (m.get("themes") or [])[:3]:
+                t = " ".join(str(raw or "").lower().replace("_", " ").split())
+                t = re.sub(r"[^a-z0-9 +/%<>=≥≤.-]", "", t).strip(" .")
+                if t and 1 <= len(t.split()) <= 6 and t not in themes:
+                    themes.append(t[:60])
             verdicts[candidates[idx]["id"]] = {
                 "strength": "strong" if strength.startswith("strong") else "partial",
                 "reason": " ".join(str(m.get("reason") or "").split())[:400],
+                "themes": themes,
             }
     return verdicts, None
 
@@ -392,6 +420,169 @@ def _ai_candidates(i: int, elements: list[dict[str, Any]],
 # ---------------------------------------------------------------------------
 # The job
 # ---------------------------------------------------------------------------
+
+def _slug(label: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:40] or "theme"
+
+
+def merge_themes(client: Any, model: str, raw_counts: dict[str, int]) -> dict[str, Any]:
+    """The two-level vocabulary: {parents: [...], themes: [{id, label, parent, raw}], raw_to_theme: {raw: id}}.
+    Without a model (or when its answer is unusable) every raw theme is its own
+    canonical theme under one parent, so the views still work."""
+    raws = sorted(raw_counts, key=lambda r: -raw_counts[r])
+    fallback = {
+        "parents": [{"id": "p-unsorted", "label": "unsorted themes"}],
+        "themes": [{"id": "t-" + _slug(r), "label": r, "parent": "p-unsorted", "raw": [r]} for r in raws],
+    }
+    fallback["raw_to_theme"] = {r: "t-" + _slug(r) for r in raws}
+    if client is None or not raws:
+        return fallback
+    listing = "\n".join(f"- {r} ({raw_counts[r]}x)" for r in raws[:400])
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": _MERGE_PROMPT},
+                      {"role": "user", "content": f"RAW THEMES ({len(raws)}):\n{listing}"}],
+            temperature=0.1,
+        )
+        content = (resp.choices[0].message.content or "").strip()
+        content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.M).strip()
+        start, end = content.find("{"), content.rfind("}")
+        parsed = json.loads(content[start:end + 1]) if start >= 0 else {}
+    except Exception as exc:
+        logger.warning("[metadata_clustering] theme merge failed, keeping raw themes: %s", exc)
+        return fallback
+    parents, themes, raw_to_theme, seen_p, seen_t = [], [], {}, set(), set()
+    for pp in parsed.get("parents") or []:
+        label = " ".join(str(pp.get("label") or "").lower().split())
+        if label and label not in seen_p:
+            seen_p.add(label)
+            parents.append({"id": "p-" + _slug(label), "label": label, "_src": str(pp.get("id") or "")})
+    src_to_parent = {pp["_src"]: pp["id"] for pp in parents}
+    for tt in parsed.get("themes") or []:
+        label = " ".join(str(tt.get("label") or "").lower().split())
+        if not label or label in seen_t:
+            continue
+        seen_t.add(label)
+        parent = src_to_parent.get(str(tt.get("parent") or ""), parents[0]["id"] if parents else "p-unsorted")
+        tid = "t-" + _slug(label)
+        raw = [" ".join(str(r).lower().split()) for r in (tt.get("raw") or []) if str(r).strip()]
+        themes.append({"id": tid, "label": label, "parent": parent, "raw": raw})
+        for r in raw:
+            raw_to_theme.setdefault(r, tid)
+    if not parents or not themes:
+        return fallback
+    # Raw themes the model forgot keep their own canonical entry.
+    for r in raws:
+        if r not in raw_to_theme:
+            tid = "t-" + _slug(r)
+            if tid not in {t["id"] for t in themes}:
+                themes.append({"id": tid, "label": r, "parent": parents[0]["id"], "raw": [r]})
+            raw_to_theme[r] = tid
+    for pp in parents:
+        pp.pop("_src", None)
+    if not any(p["id"] == "p-unsorted" for p in parents) and any(t["parent"] == "p-unsorted" for t in themes):
+        parents.append({"id": "p-unsorted", "label": "unsorted themes"})
+    return {"parents": parents, "themes": themes, "raw_to_theme": raw_to_theme}
+
+
+_STRENGTH_W = {"strong": 1.0, "partial": 0.6}
+
+
+def build_study_themes(elements: list[dict[str, Any]], pair_records: list[dict[str, Any]],
+                       vocab: dict[str, Any]) -> dict[str, dict[str, dict[str, Any]]]:
+    """study -> theme id -> {strength, count, excerpts}. A study carries a theme
+    when any of its elements matched another study's element on it; strength is
+    the best match that carried it, count how many did."""
+    table: dict[str, dict[str, dict[str, Any]]] = {}
+    for rec in pair_records:
+        if not rec.get("themes"):
+            continue
+        w = _STRENGTH_W.get(rec.get("ai_strength") or "partial", 0.6)
+        a, b = elements[rec["i"]], elements[rec["j"]]
+        for raw in rec["themes"]:
+            tid = vocab["raw_to_theme"].get(raw)
+            if not tid:
+                continue
+            for me, other in ((a, b), (b, a)):
+                cell = table.setdefault(me["cohort"], {}).setdefault(tid, {"strength": 0.0, "count": 0, "excerpts": []})
+                cell["strength"] = max(cell["strength"], w)
+                cell["count"] += 1
+                if len(cell["excerpts"]) < 6 and not any(x["text"] == me["text"] and x["with"] == other["cohort"] for x in cell["excerpts"]):
+                    cell["excerpts"].append({"field": me["label"], "text": me["text"][:400], "with": other["cohort"],
+                                             "with_text": other["text"][:400], "strength": rec.get("ai_strength")})
+    return table
+
+
+# Themes an admin took out of the views (not out of the stored results).
+_EXCLUDED_PATH = os.path.join(_DIR, "excluded_themes.json")
+
+
+def excluded_themes() -> set[str]:
+    data = _read_json(_EXCLUDED_PATH)
+    return set(data.get("excluded") or [])
+
+
+def theme_balance(n: int, n_total: int) -> float:
+    """How informative the split a theme induces is: the binary entropy of the
+    carrier fraction p = n / N, in bits. 1 when half the studies carry the theme,
+    0 when all or none do, low at both ends - so a theme shared by everyone
+    (adults over 18) and a theme shared by one pair are both down-weighted,
+    and themes that divide the catalogue in two weigh most. The criterion
+    information gain uses to pick a splitting feature."""
+    if n_total <= 1 or n <= 0 or n >= n_total:
+        return 0.0
+    p = n / n_total
+    return round(-(p * math.log2(p) + (1 - p) * math.log2(1 - p)), 3)
+
+
+def theme_specificity(n: int, n_total: int) -> float:
+    """Inverse-frequency weight: log(N / n) / log(N), 0 when every study carries
+    the theme. Themes come from pairs, so n is at least 2 and the maximum is
+    log(N / 2) / log(N). Rarer is always heavier, which over-rewards one-pair
+    themes; kept as an alternative to the balance weight."""
+    if n <= 0 or n_total <= 1:
+        return 0.0
+    return round(math.log(n_total / n) / math.log(n_total), 3)
+
+
+def theme_view(data: dict[str, Any]) -> dict[str, Any]:
+    """The study x theme projection for the heatmap and the constellation. Each
+    theme carries two weights, balance (default) and specificity; a pair's
+    strength is the sum over shared themes of min(strength) x weight, computed
+    for both so the views can switch."""
+    themes_info = data.get("themes") or {}
+    vocab_themes = themes_info.get("themes") or []
+    parents = themes_info.get("parents") or []
+    table = themes_info.get("table") or {}
+    studies = sorted({e["cohort"] for e in data.get("elements") or []} | set(table), key=str.lower)
+    n_total = max(len(studies), 1)
+    excluded = excluded_themes()
+    themes_out = []
+    for t in vocab_themes:
+        carriers = [s for s in studies if t["id"] in (table.get(s) or {})]
+        n = len(carriers)
+        themes_out.append({**t, "studies": n, "specificity": theme_specificity(n, n_total),
+                           "balance": theme_balance(n, n_total), "excluded": t["id"] in excluded})
+    active = {t["id"]: t for t in themes_out if not t["excluded"] and t["studies"]}
+    pairs = []
+    for i, a in enumerate(studies):
+        for b in studies[i + 1:]:
+            shared = []
+            for tid, ta in (table.get(a) or {}).items():
+                tb = (table.get(b) or {}).get(tid)
+                if tb and tid in active:
+                    shared.append({"theme": tid, "parent": active[tid]["parent"], "w": round(min(ta["strength"], tb["strength"]), 3),
+                                   "specificity": active[tid]["specificity"], "balance": active[tid]["balance"]})
+            if shared:
+                pairs.append({"a": a, "b": b, "shared": shared, "n": len(shared),
+                              "strength": round(sum(x["w"] * x["balance"] for x in shared), 3),
+                              "strength_specificity": round(sum(x["w"] * x["specificity"] for x in shared), 3),
+                              "raw_strength": round(sum(x["w"] for x in shared), 3)})
+    return {"finished": data.get("finished"), "model": data.get("model"), "studies": studies,
+            "n_studies": n_total, "parents": parents, "themes": themes_out, "table": table, "pairs": pairs,
+            "excluded": sorted(excluded), "weights": ["balance", "specificity"]}
+
 
 def run_clustering(instructions: str = "") -> None:
     started = time.time()
@@ -431,8 +622,11 @@ def run_clustering(instructions: str = "") -> None:
                     for cid, v in verdicts.items():
                         j = index[cid]
                         key = (min(i, j), max(i, j))
-                        cur = ai.setdefault(key, {"strength": v["strength"], "reason": v["reason"], "votes": 0})
+                        cur = ai.setdefault(key, {"strength": v["strength"], "reason": v["reason"], "votes": 0, "themes": []})
                         cur["votes"] += 1
+                        for t in v.get("themes") or []:
+                            if t not in cur["themes"]:
+                                cur["themes"].append(t)
                         # Two directions may disagree; keep the stronger verdict and
                         # the first reason given for it.
                         if v["strength"] == "strong" and cur["strength"] != "strong":
@@ -447,6 +641,7 @@ def run_clustering(instructions: str = "") -> None:
         # Merge, symmetrically: one record per unordered pair, listed on both sides.
         matches: dict[str, list[dict[str, Any]]] = {e["id"]: [] for e in elements}
         counts = {"lexical": 0, "ai": 0, "both": 0}
+        pair_records: list[dict[str, Any]] = []
         for key in sorted(set(lexical_hits) | set(ai)):
             i, j = key
             p = pairs.get(key) or {"score": 0.0, "fuzzy": 0.0, "tfidf": 0.0, "same_field": elements[i]["field"] == elements[j]["field"]}
@@ -457,13 +652,26 @@ def run_clustering(instructions: str = "") -> None:
                    "same_field": p["same_field"],
                    "ai_strength": ai[key]["strength"] if in_ai else None,
                    "ai_reason": ai[key]["reason"] if in_ai else None,
-                   "ai_votes": ai[key]["votes"] if in_ai else 0}
+                   "ai_votes": ai[key]["votes"] if in_ai else 0,
+                   "themes": ai[key]["themes"] if in_ai else []}
+            pair_records.append({"i": i, "j": j, **rec})
             for a, b in ((i, j), (j, i)):
                 matches[elements[a]["id"]].append({**rec, "cohort": elements[b]["cohort"], "field": elements[b]["field"],
                                                    "label": elements[b]["label"], "text": elements[b]["text"],
                                                    "element_id": elements[b]["id"]})
         for lst in matches.values():
             lst.sort(key=lambda m: (-(m["ai_strength"] == "strong"), -(m["source"] != "lexical"), -m["score"]))
+
+        # The theme vocabulary (merge pass) and the study x theme table.
+        _update_state(phase="themes")
+        raw_counts: dict[str, int] = {}
+        for rec in pair_records:
+            for t in rec["themes"]:
+                raw_counts[t] = raw_counts.get(t, 0) + 1
+        vocab = merge_themes(client if ai_available else None, settings.litellm_model if ai_available else "", raw_counts)
+        table = build_study_themes(elements, pair_records, vocab)
+        logger.info("[metadata_clustering] themes: %d raw -> %d canonical under %d parents",
+                    len(raw_counts), len(vocab["themes"]), len(vocab["parents"]))
 
         result = {
             "started": datetime.fromtimestamp(started).isoformat(),
@@ -479,6 +687,8 @@ def run_clustering(instructions: str = "") -> None:
             "ai_failed": ai_failed,
             "elements": elements,
             "matches": matches,
+            "themes": {"parents": vocab["parents"], "themes": vocab["themes"], "raw_to_theme": vocab["raw_to_theme"],
+                       "raw_counts": raw_counts, "table": table},
         }
         _write_json(_RESULT_PATH, result)
         state = _update_state(running=False, phase="done", finished=datetime.now().isoformat(), error=None,
@@ -528,6 +738,36 @@ async def runs(user: Any = Depends(get_current_user)):
     _require_admin(user)
     check_stalled()
     return {"items": list_history()}
+
+
+@router.get("/metadata-clustering/themes")
+async def themes(user: Any = Depends(get_current_user)):
+    """The study x theme view: vocabulary with parents and specificity, the table
+    with excerpts, and the study pairs weighted by specificity."""
+    _require_admin(user)
+    data = _read_json(_RESULT_PATH)
+    if not data:
+        raise HTTPException(status_code=404, detail="No metadata clustering results yet.")
+    if not data.get("themes"):
+        raise HTTPException(status_code=409, detail="The stored results predate theme extraction: run the matching again.")
+    return theme_view(data)
+
+
+@router.post("/metadata-clustering/themes/exclude")
+async def exclude_theme(body: dict[str, Any], user: Any = Depends(get_current_user)):
+    """Take a theme out of (or back into) the views; the stored results are untouched."""
+    _require_admin(user)
+    tid = str(body.get("theme_id") or "")
+    if not tid:
+        raise HTTPException(status_code=400, detail="theme_id is required")
+    excluded = excluded_themes()
+    if body.get("excluded", True):
+        excluded.add(tid)
+    else:
+        excluded.discard(tid)
+    _write_json(_EXCLUDED_PATH, {"excluded": sorted(excluded), "updated_at": datetime.now().isoformat(),
+                                 "updated_by": user["email"]})
+    return {"excluded": sorted(excluded)}
 
 
 @router.get("/metadata-clustering/results")
