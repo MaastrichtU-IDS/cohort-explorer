@@ -3,10 +3,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { apiUrl } from '@/utils';
-import { AlertTriangle, Clock, Code, RefreshCw, ExternalLink, Search } from 'react-feather';
+import { AlertTriangle, Clock, Code, RefreshCw, ExternalLink, Search, Share2 } from 'react-feather';
 import { DcrLogPanel } from '@/components/DcrLogPanel';
 import { DeactivateDcr } from '@/components/DeactivateDcr';
 import { CodeExplainOverlay } from '@/components/CodeExplainOverlay';
+import { DcrGraphOverlay } from '@/components/DcrGraphOverlay';
 
 /** Shape of a single DCR record returned by the /my-dcrs endpoint. */
 interface DcrRecord {
@@ -296,6 +297,8 @@ function DcrCard({
   // The compute node whose script is being explained (overlay), and the stored
   // conversation to continue in it, if any.
   const [explain, setExplain] = useState<{ node: string; conversation: string | null } | null>(null);
+  // The node graph in its own overlay (no AI).
+  const [showGraph, setShowGraph] = useState(false);
   const deepLinkNode = deepLink?.node;
   const deepLinkConversation = deepLink?.conversation ?? null;
   useEffect(() => {
@@ -411,19 +414,7 @@ function DcrCard({
                 </ul>
               </div>
               <div className="flex-1 text-base-content/80">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <span className="font-semibold">Compute nodes:</span>
-                  {/* One button for the whole DCR: the overlay has a node picker. */}
-                  {explainableNodes.length > 0 && dcr.id && (
-                    <button
-                      className="btn btn-xs btn-outline btn-primary"
-                      onClick={() => setExplain({ node: '', conversation: null })}
-                      title="Have the AI explain what happens in this DCR, how the data flows between its nodes and what analysts can see; each compute node's code is one click away"
-                    >
-                      <Code size={11} /> AI - Explain this DCR
-                    </button>
-                  )}
-                </div>
+                <span className="font-semibold">Compute nodes:</span>
                 <ul className="list-disc ml-4 mt-1">
                   {dcr.nodes
                     .filter(n => n.type === 'PreviewComputeNodeDefinition' || n.type === 'PythonComputeNodeDefinition')
@@ -457,6 +448,28 @@ function DcrCard({
           </div>
         )}
 
+        {/* The two ways into the room's structure: the node graph, and the AI explanation (flow first, code one click away). */}
+        {dcr.id && dcr.nodes && dcr.nodes.length > 0 && (
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              className="btn btn-primary btn-sm gap-2"
+              onClick={() => setShowGraph(true)}
+              title="The data and compute nodes of this room as a graph, with each node's inputs, outputs and participants"
+            >
+              <Share2 size={15} /> Node graph
+            </button>
+            {explainableNodes.length > 0 && (
+              <button
+                className="btn btn-outline btn-primary btn-sm gap-2"
+                onClick={() => setExplain({ node: '', conversation: null })}
+                title="Have the AI explain what happens in this room overall, how the data flows and what analysts can see; each compute node's code is one click away"
+              >
+                <Code size={15} /> AI - Explain this DCR
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Compute nodes & results (DcrResultsPanel) hidden for now. */}
         {dcr.id && (dcr.deactivated || dcr.can_deactivate) && (
           <DeactivateDcr
@@ -468,6 +481,9 @@ function DcrCard({
           />
         )}
         {dcr.id && <DcrLogPanel dcrId={dcr.id} />}
+        {dcr.id && showGraph && (
+          <DcrGraphOverlay dcrId={dcr.id} dcrTitle={dcr.title || ''} participants={dcr.participants || []} onClose={() => setShowGraph(false)} />
+        )}
         {dcr.id && explain && explainableNodes.length > 0 && (
           <CodeExplainOverlay
             dcrId={dcr.id}

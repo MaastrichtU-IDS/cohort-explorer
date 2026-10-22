@@ -428,7 +428,8 @@ def _room_context(structure: dict[str, Any], record: dict[str, Any], nodes: list
 
 @router.get("/my-dcrs/{dcr_id}/overview", name="Structure of a DCR (nodes, edges, exits) for the room explanation")
 def get_room_overview(dcr_id: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
-    record = _participant_record(dcr_id, user)
+    # The graph involves no model: available even when the AI explanation is switched off.
+    record = _participant_record(dcr_id, user, enforce_enabled=False)
     nodes = _fetch_dcr_nodes(dcr_id)["nodes"]
     return room_structure(record, nodes, fetch_published_datasets(dcr_id))
 

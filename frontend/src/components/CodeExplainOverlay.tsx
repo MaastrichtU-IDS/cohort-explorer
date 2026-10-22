@@ -518,7 +518,7 @@ function RoomExplainer({
   const exits = room?.exits || [];
 
   return (
-    <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-base-300">
+    <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] divide-y md:divide-y-0 md:divide-x divide-base-300">
       {/* ---- graph ---- */}
       <section className="min-h-0 flex flex-col">
         {!room && !loadError && (
@@ -531,7 +531,14 @@ function RoomExplainer({
             <AlertTriangle size={16} /> <span>{loadError}</span>
           </div>
         )}
-        {room && <DcrGraph room={room} onSelect={name => onOpenNode(name)} />}
+        {room && (
+          <>
+            <div className="min-h-0 flex-1"><DcrGraph room={room} onSelect={name => onOpenNode(name)} compact /></div>
+            <p className="px-3 py-1.5 text-[11px] text-base-content/50 border-t border-base-300">
+              Small view of the room graph: the &quot;Node graph&quot; button on the DCR card opens it full size with per-node details.
+            </p>
+          </>
+        )}
       </section>
 
       {/* ---- explanation + chat ---- */}

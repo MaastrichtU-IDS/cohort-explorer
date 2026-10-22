@@ -88,16 +88,26 @@ export function DcrGraph({
   room,
   selected,
   onSelect,
+  onHover,
+  selectableKinds = 'python',
   compact = false
 }: {
   room: RoomOverview;
   selected?: string | null;
-  // Clicking a python node asks the parent to open it.
+  // Clicking a selectable node asks the parent to open it.
   onSelect?: (name: string, node: RoomNode) => void;
+  // The node under the pointer (null when none), for a details box beside the graph.
+  onHover?: (name: string | null, node: RoomNode | null) => void;
+  // Which nodes react to a click: python nodes only (the explain views) or every node (the graph overlay).
+  selectableKinds?: 'python' | 'all';
   // Smaller chrome (no legend text), for the neighbourhood view of one node.
   compact?: boolean;
 }) {
-  const [hover, setHover] = useState<string | null>(null);
+  const [hover, setHoverState] = useState<string | null>(null);
+  const setHover = (name: string | null) => {
+    setHoverState(name);
+    onHover?.(name, name ? room.nodes.find(n => n.name === name) || null : null);
+  };
   const [orientation, setOrientation] = useState<GraphOrientation>('horizontal');
   const horizontal = orientation === 'horizontal';
 
@@ -234,7 +244,7 @@ export function DcrGraph({
             const isExit = exitNodes.has(n.name);
             const noData = n.provisioned === false;
             const dim = related && !related.has(n.name);
-            const clickable = n.kind === 'python' && !!onSelect;
+            const clickable = !!onSelect && (selectableKinds === 'all' || n.kind === 'python');
             const h = boxHeight(n);
             const maxChars = noData ? 24 : 30;
             const label = n.name.length > maxChars ? n.name.slice(0, maxChars - 1) + '…' : n.name;
@@ -248,7 +258,7 @@ export function DcrGraph({
               (n.prints ? '\nprints or logs text' : '') +
               (n.kind === 'airlock' && n.quota_bytes ? `\nquota ${Math.round(n.quota_bytes / 1e6)} MB` : '') +
               (n.external_packages?.length ? `\nexternal code: ${n.external_packages.join(', ')}` : '') +
-              (clickable ? '\n(click to open this node)' : '');
+              (clickable ? (selectableKinds === 'all' ? '\n(click to pin its details)' : '\n(click to open this node)') : '');
             return (
               <g
                 key={n.name}

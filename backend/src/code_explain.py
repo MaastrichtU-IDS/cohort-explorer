@@ -314,8 +314,10 @@ def _user_email(user: Any) -> str:
     return (user.get("email") or "").strip().lower() if isinstance(user, dict) else ""
 
 
-def _participant_record(dcr_id: str, user: Any) -> dict[str, Any]:
-    """The DCR's history record, provided the user takes part in it (or is an admin)."""
+def _participant_record(dcr_id: str, user: Any, enforce_enabled: bool = True) -> dict[str, Any]:
+    """The DCR's history record, provided the user takes part in it (or is an
+    admin). enforce_enabled applies the admin switches of the AI explanation;
+    the node graph alone (no model involved) passes False."""
     from src.decentriq import get_dcrs_for_participant, get_all_dcrs
 
     email = _user_email(user)
@@ -324,7 +326,8 @@ def _participant_record(dcr_id: str, user: Any) -> dict[str, Any]:
     pool = get_all_dcrs() if email in settings.admins_list else get_dcrs_for_participant(email)
     for record in pool:
         if record.get("id") == dcr_id:
-            _require_enabled(record)
+            if enforce_enabled:
+                _require_enabled(record)
             return record
     raise HTTPException(status_code=404, detail="Data clean room not found among your DCRs")
 
