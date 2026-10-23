@@ -465,9 +465,9 @@ function DcrCard({
             )}
           </div>
           {dcr.id && dcr.nodes && dcr.nodes.length > 0 && (
-            <div className="flex-1 flex flex-wrap justify-center gap-6">
+            <div className="flex-1 flex flex-wrap justify-center gap-10">
               <button
-                className="btn btn-primary h-28 w-56 flex-col gap-2 text-base normal-case"
+                className="btn btn-primary h-32 w-32 flex-col gap-2 text-sm normal-case whitespace-normal leading-tight"
                 onClick={() => setShowGraph(true)}
                 title="The data and compute nodes of this room as a graph, with each node's inputs, outputs and participants"
               >
@@ -476,7 +476,7 @@ function DcrCard({
               </button>
               {explainableNodes.length > 0 && (
                 <button
-                  className="btn btn-outline btn-primary h-28 w-56 flex-col gap-2 text-base normal-case"
+                  className="btn btn-outline btn-primary h-32 w-32 flex-col gap-2 text-sm normal-case whitespace-normal leading-tight"
                   onClick={() => setExplain({ node: '', conversation: null })}
                   title="Have the AI explain what happens in this room overall, how the data flows and what analysts can see; each compute node's code is one click away"
                 >

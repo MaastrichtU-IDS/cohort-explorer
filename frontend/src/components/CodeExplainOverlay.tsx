@@ -959,10 +959,6 @@ export function CodeExplainOverlay({
             <div className="min-w-0">
               <h3 className="font-bold">AI - Explain this data clean room</h3>
               <div className="text-xs text-base-content/60 truncate">{dcrTitle || 'Untitled DCR'}</div>
-              <div className="text-[11px] text-base-content/50 truncate">
-                Model: <span className="font-mono">{model || '…'}</span> ·{' '}
-                <LocalModelNote className="text-[11px] text-base-content/50" />
-              </div>
             </div>
             <button className="btn btn-sm btn-ghost btn-circle" onClick={onClose} aria-label="Close">
               <X size={18} />
@@ -1030,6 +1026,10 @@ export function CodeExplainOverlay({
         {fullGraph && (
           <DcrGraphOverlay dcrId={dcrId} dcrTitle={dcrTitle} participants={participants || []} onClose={() => setFullGraph(false)} />
         )}
+        <div className="px-5 py-1.5 border-t border-base-300 text-[11px] text-base-content/50 text-right truncate">
+          Model: <span className="font-mono">{model || '…'}</span> ·{' '}
+          <LocalModelNote className="text-[11px] text-base-content/50" />
+        </div>
         {node && node !== ROOM_VIEW && mode === 'io' && (
           <NodeIoExplainer
             key={`${node}::io`}

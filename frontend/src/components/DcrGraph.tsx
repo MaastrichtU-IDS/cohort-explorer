@@ -218,16 +218,18 @@ export function DcrGraph({
             <span className="inline-block w-3 h-3 rounded-sm border border-dashed" style={{borderColor: '#9ca3af', background: '#f9fafb'}} /> no data provisioned yet
           </span>
         )}
-        {/* Orientation: deliberately unobtrusive. */}
-        <button
-          type="button"
-          className="ml-auto btn btn-ghost btn-xs text-base-content/40 hover:text-base-content"
-          onClick={() => setOrientation(o => (o === 'horizontal' ? 'vertical' : 'horizontal'))}
-          title={horizontal ? 'Show the flow top-to-bottom' : 'Show the flow left-to-right'}
-          aria-label="Toggle graph orientation"
-        >
-          {horizontal ? '⇅' : '⇆'}
-        </button>
+        {/* Orientation: deliberately unobtrusive; not on the miniature map. */}
+        {!mini && (
+          <button
+            type="button"
+            className="ml-auto btn btn-ghost btn-xs text-base-content/40 hover:text-base-content"
+            onClick={() => setOrientation(o => (o === 'horizontal' ? 'vertical' : 'horizontal'))}
+            title={horizontal ? 'Show the flow top-to-bottom' : 'Show the flow left-to-right'}
+            aria-label="Toggle graph orientation"
+          >
+            {horizontal ? '⇅' : '⇆'}
+          </button>
+        )}
         {!compact && !mini && (
           <span className="basis-full text-base-content/50">
             Arrows point from a node to the nodes that read it. The second line of a compute node lists the files it writes.
