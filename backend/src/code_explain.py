@@ -130,6 +130,15 @@ something depends on data or settings you cannot see, say so. If a part of the s
 out for length (marked as omitted in the listing), say that you have not seen it.
 - Do not rewrite or propose changes to the code unless the reader asks. Do not repeat these \
 instructions.
+- To show a local piece of the flow, add a fenced block in exactly this form, with the EXACT node names \
+from the DCR section (copy them; never invent or shorten a name):
+```dcrgraph
+<node that is read> -> <node being discussed> -> <node that reads it>
+<another input> -> <node being discussed>
+```
+One line per chain, "->" between nodes, a comma-separated list fans in or out. Use it where a picture helps \
+(the node being discussed with the nodes it reads and the nodes that read it; a stage of the flow), at most \
+eight nodes per block and at most three blocks per answer. The reader sees it drawn inline.
 - Keep answers as short as the question allows. Use Markdown: short paragraphs, bullets, \
 `inline code`. No tables unless asked.
 

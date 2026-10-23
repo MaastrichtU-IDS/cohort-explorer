@@ -29,9 +29,26 @@ const PAD = 16;
 // Distance between stages and between nodes in a stage, per orientation.
 const STAGE_GAP = {horizontal: 250, vertical: 90};
 const NODE_GAP = {horizontal: 58, vertical: 236};
+// Mini mode: shapes without text, tight spacing, scaled to fit its pane.
+const MINI_W = 22;
+const MINI_H = 14;
+const MINI_STAGE_GAP = {horizontal: 64, vertical: 36};
+const MINI_NODE_GAP = {horizontal: 22, vertical: 34};
 
 function boxHeight(n: RoomNode): number {
   return n.kind === 'python' ? BOX_H_TALL : BOX_H;
+}
+
+/** Shape of a node in mini mode: circle for data, box for compute, diamond for airlock, small square for environments. */
+function MiniShape({n, stroke, strokeWidth, dashed, noData}: {n: RoomNode; stroke: string; strokeWidth: number; dashed: boolean; noData: boolean}) {
+  const st = KIND_STYLE[n.kind];
+  const fill = noData ? '#f9fafb' : st.fill;
+  const cx = MINI_W / 2, cy = MINI_H / 2;
+  const dash = noData ? '2 2' : dashed ? '3 2' : undefined;
+  if (n.kind === 'python') return <rect width={MINI_W} height={MINI_H} rx={3} fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={dash} />;
+  if (n.kind === 'airlock') return <path d={`M ${cx} 0 L ${MINI_W} ${cy} L ${cx} ${MINI_H} L 0 ${cy} Z`} fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={dash} />;
+  if (n.kind === 'environment' || n.kind === 'other') return <rect x={cx - 5} y={cy - 5} width={10} height={10} fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={dash} />;
+  return <circle cx={cx} cy={cy} r={6.5} fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={dash} />;
 }
 
 /** Second line of a python node: its output files, abbreviated. */
@@ -90,7 +107,9 @@ export function DcrGraph({
   onSelect,
   onHover,
   selectableKinds = 'python',
-  compact = false
+  compact = false,
+  mini = false,
+  pinHighlight = 'neighbours'
 }: {
   room: RoomOverview;
   selected?: string | null;
@@ -102,6 +121,11 @@ export function DcrGraph({
   selectableKinds?: 'python' | 'all';
   // Smaller chrome (no legend text), for the neighbourhood view of one node.
   compact?: boolean;
+  // Shapes without text, scaled to fit the pane; names on hover. For the small map beside an explanation.
+  mini?: boolean;
+  // What the pinned (selected) node lights up: its direct neighbours, or everything upstream of it
+  // (all the nodes it depends on, transitively) plus the nodes that read it directly.
+  pinHighlight?: 'neighbours' | 'ancestors';
 }) {
   const [hover, setHoverState] = useState<string | null>(null);
   const setHover = (name: string | null) => {
@@ -123,8 +147,10 @@ export function DcrGraph({
     const order: Record<RoomNodeKind, number> = {cohort_data: 0, dictionary: 1, shuffled: 2, mapping: 3, environment: 4, python: 5, airlock: 6, other: 7};
     const positions = new Map<string, {x: number; y: number}>();
     let maxPerStage = 0;
-    const stageGap = STAGE_GAP[orientation];
-    const nodeGap = NODE_GAP[orientation];
+    const stageGap = (mini ? MINI_STAGE_GAP : STAGE_GAP)[orientation];
+    const nodeGap = (mini ? MINI_NODE_GAP : NODE_GAP)[orientation];
+    const bw = mini ? MINI_W : BOX_W;
+    const bh = mini ? MINI_H : BOX_H_TALL;
     Array.from(cols.keys()).sort((a, b) => a - b).forEach(c => {
       const list = cols.get(c)!.sort((a, b) => order[a.kind] - order[b.kind] || a.name.localeCompare(b.name));
       maxPerStage = Math.max(maxPerStage, list.length);
@@ -134,22 +160,41 @@ export function DcrGraph({
       });
     });
     const nStages = Math.max(1, cols.size);
-    const width = horizontal ? PAD * 2 + (nStages - 1) * stageGap + BOX_W : PAD * 2 + Math.max(1, maxPerStage - 1) * nodeGap + BOX_W;
-    const height = horizontal ? PAD * 2 + Math.max(1, maxPerStage - 1) * nodeGap + BOX_H_TALL : PAD * 2 + (nStages - 1) * stageGap + BOX_H_TALL;
+    const width = horizontal ? PAD * 2 + (nStages - 1) * stageGap + bw : PAD * 2 + Math.max(1, maxPerStage - 1) * nodeGap + bw;
+    const height = horizontal ? PAD * 2 + Math.max(1, maxPerStage - 1) * nodeGap + bh : PAD * 2 + (nStages - 1) * stageGap + bh;
     return {positions, width, height, stages: nStages};
-  }, [room, orientation, horizontal]);
+  }, [room, orientation, horizontal, mini]);
 
   const byName = useMemo(() => new Map(room.nodes.map(n => [n.name, n])), [room]);
   const focus = hover || selected || null;
   const related = useMemo(() => {
     if (!focus) return null;
     const s = new Set<string>([focus]);
+    if (focus === selected && pinHighlight === 'ancestors') {
+      // Everything the pinned node depends on, transitively (its whole upstream chain), and its direct readers.
+      const deps = new Map<string, string[]>();
+      room.nodes.forEach(n => deps.set(n.name, n.dependencies));
+      const stack = [focus];
+      while (stack.length) {
+        const cur = stack.pop()!;
+        (deps.get(cur) || []).forEach(d => {
+          if (!s.has(d)) {
+            s.add(d);
+            stack.push(d);
+          }
+        });
+      }
+      room.edges.forEach(e => {
+        if (e.from === focus) s.add(e.to);
+      });
+      return s;
+    }
     room.edges.forEach(e => {
       if (e.from === focus) s.add(e.to);
       if (e.to === focus) s.add(e.from);
     });
     return s;
-  }, [focus, room]);
+  }, [focus, selected, pinHighlight, room]);
 
   const exitNodes = useMemo(() => new Set(room.exits.map(e => e.node)), [room]);
   const unprovisioned = room.nodes.filter(n => n.provisioned === false).length;
@@ -183,7 +228,7 @@ export function DcrGraph({
         >
           {horizontal ? '⇅' : '⇆'}
         </button>
-        {!compact && (
+        {!compact && !mini && (
           <span className="basis-full text-base-content/50">
             Arrows point from a node to the nodes that read it. The second line of a compute node lists the files it writes.
             Hover a node for details; click a compute node to open it.
@@ -195,8 +240,15 @@ export function DcrGraph({
           </span>
         )}
       </div>
-      <div className="flex-1 overflow-auto bg-base-200/40">
-        <svg width={width} height={height} className="block" style={{minWidth: '100%'}}>
+      <div className={`flex-1 bg-base-200/40 ${mini ? 'min-h-0 overflow-hidden' : 'overflow-auto'}`}>
+        <svg
+          width={mini ? '100%' : width}
+          height={mini ? '100%' : height}
+          viewBox={mini ? `0 0 ${width} ${height}` : undefined}
+          preserveAspectRatio={mini ? 'xMidYMid meet' : undefined}
+          className="block"
+          style={mini ? {display: 'block'} : {minWidth: '100%'}}
+        >
           <defs>
             <marker id="dcr-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
@@ -211,19 +263,21 @@ export function DcrGraph({
             if (!a || !b) return null;
             const na = byName.get(e.from);
             const nb = byName.get(e.to);
-            const ha = na ? boxHeight(na) : BOX_H;
-            const hb = nb ? boxHeight(nb) : BOX_H;
+            const ha = mini ? MINI_H : na ? boxHeight(na) : BOX_H;
+            const hb = mini ? MINI_H : nb ? boxHeight(nb) : BOX_H;
+            const bw = mini ? MINI_W : BOX_W;
             let d: string;
             if (horizontal) {
-              const x1 = a.x + BOX_W, y1 = a.y + ha / 2, x2 = b.x, y2 = b.y + hb / 2;
-              const dx = Math.max(30, (x2 - x1) / 2);
+              const x1 = a.x + bw, y1 = a.y + ha / 2, x2 = b.x, y2 = b.y + hb / 2;
+              const dx = Math.max(mini ? 10 : 30, (x2 - x1) / 2);
               d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
             } else {
-              const x1 = a.x + BOX_W / 2, y1 = a.y + ha, x2 = b.x + BOX_W / 2, y2 = b.y;
-              const dy = Math.max(20, (y2 - y1) / 2);
+              const x1 = a.x + bw / 2, y1 = a.y + ha, x2 = b.x + bw / 2, y2 = b.y;
+              const dy = Math.max(mini ? 8 : 20, (y2 - y1) / 2);
               d = `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
             }
-            const hi = related ? related.has(e.from) && related.has(e.to) && (e.from === focus || e.to === focus) : false;
+            const upstreamMode = focus === selected && pinHighlight === 'ancestors';
+            const hi = related ? related.has(e.from) && related.has(e.to) && (upstreamMode || e.from === focus || e.to === focus) : false;
             const dim = related && !hi;
             return (
               <path
@@ -231,9 +285,9 @@ export function DcrGraph({
                 d={d}
                 fill="none"
                 stroke={hi ? '#1d4ed8' : '#94a3b8'}
-                strokeWidth={hi ? 2 : 1}
+                strokeWidth={mini ? (hi ? 1.2 : 0.7) : hi ? 2 : 1}
                 opacity={dim ? 0.15 : 0.9}
-                markerEnd={hi ? 'url(#dcr-arrow-hi)' : 'url(#dcr-arrow)'}
+                markerEnd={mini ? undefined : hi ? 'url(#dcr-arrow-hi)' : 'url(#dcr-arrow)'}
               />
             );
           })}
@@ -258,7 +312,23 @@ export function DcrGraph({
               (n.prints ? '\nprints or logs text' : '') +
               (n.kind === 'airlock' && n.quota_bytes ? `\nquota ${Math.round(n.quota_bytes / 1e6)} MB` : '') +
               (n.external_packages?.length ? `\nexternal code: ${n.external_packages.join(', ')}` : '') +
-              (clickable ? (selectableKinds === 'all' ? '\n(click to pin its details)' : '\n(click to open this node)') : '');
+              (clickable ? (selectableKinds === 'all' ? '\n(click to pin it: its details on the right, its whole upstream chain highlighted)' : '\n(click to open this node)') : '');
+            if (mini) {
+              return (
+                <g
+                  key={n.name}
+                  transform={`translate(${p.x}, ${p.y})`}
+                  opacity={dim ? 0.3 : 1}
+                  style={{cursor: clickable ? 'pointer' : 'default'}}
+                  onMouseEnter={() => setHover(n.name)}
+                  onMouseLeave={() => setHover(null)}
+                  onClick={() => clickable && onSelect!(n.name, n)}
+                >
+                  <title>{title}</title>
+                  <MiniShape n={n} stroke={selected === n.name ? '#1d4ed8' : noData ? '#9ca3af' : st.stroke} strokeWidth={selected === n.name ? 2 : 1} dashed={isExit} noData={noData} />
+                </g>
+              );
+            }
             return (
               <g
                 key={n.name}
@@ -316,7 +386,7 @@ export function DcrGraph({
           })}
         </svg>
       </div>
-      {!compact && (
+      {!compact && !mini && (
         <div className="px-4 py-1.5 text-[11px] text-base-content/50 border-t border-base-300">
           {room.nodes.length} nodes in {stages} stages · {room.exits.length} exit{room.exits.length === 1 ? '' : 's'} where analysts see output
         </div>

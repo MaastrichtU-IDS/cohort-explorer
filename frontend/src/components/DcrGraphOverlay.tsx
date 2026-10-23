@@ -59,6 +59,14 @@ export function DcrGraphOverlay({
   const owners = (name: string) => participants.filter(p => (p.data_owner_of || []).includes(name)).map(p => p.email || '?');
   const runners = (name: string) => participants.filter(p => (p.analyst_of || []).includes(name)).map(p => p.email || '?');
   const kindLabel = (n: RoomNode) => KIND_STYLE[n.kind].label;
+  // Everyone in the room: say so instead of listing every address.
+  const allParticipants = participants.length;
+  const People = ({emails}: {emails: string[]}) =>
+    allParticipants > 0 && emails.length === allParticipants ? (
+      <p className="text-xs">All DCR participants ({allParticipants}).</p>
+    ) : (
+      <ul className="space-y-0.5">{emails.map(e => <li key={e} className="font-mono text-xs">{e}</li>)}</ul>
+    );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 md:p-6" onClick={onClose}>
@@ -88,6 +96,7 @@ export function DcrGraphOverlay({
                 onHover={setHover}
                 onSelect={name => setPinned(p => (p === name ? null : name))}
                 selectableKinds="all"
+                pinHighlight="ancestors"
               />
             )}
           </section>
@@ -118,7 +127,7 @@ export function DcrGraphOverlay({
                     ))}
                   </ul>
                 </div>
-                <p className="text-xs text-base-content/50">Hover a node for its details; click to pin it here. Click a python node again to unpin.</p>
+                <p className="text-xs text-base-content/50">Hover a node for its details; click to pin it here and light up everything upstream of it. Click it again to unpin.</p>
               </>
             )}
 
@@ -147,9 +156,7 @@ export function DcrGraphOverlay({
                 {shown.kind !== 'python' && shown.kind !== 'airlock' && shown.kind !== 'environment' && (
                   <div>
                     <div className="text-xs font-semibold uppercase text-base-content/60 mb-1">Data owners ({owners(shown.name).length})</div>
-                    {owners(shown.name).length === 0 ? <p className="text-base-content/50 italic">Nobody owns this node.</p> : (
-                      <ul className="space-y-0.5">{owners(shown.name).map(e => <li key={e} className="font-mono text-xs">{e}</li>)}</ul>
-                    )}
+                    {owners(shown.name).length === 0 ? <p className="text-base-content/50 italic">Nobody owns this node.</p> : <People emails={owners(shown.name)} />}
                   </div>
                 )}
 
@@ -192,9 +199,7 @@ export function DcrGraphOverlay({
                 {(shown.kind === 'python' || shown.kind === 'airlock') && (
                   <div>
                     <div className="text-xs font-semibold uppercase text-base-content/60 mb-1">{shown.kind === 'airlock' ? 'Viewers' : 'Can run it'} ({runners(shown.name).length})</div>
-                    {runners(shown.name).length === 0 ? <p className="text-base-content/50 italic">Nobody directly: it only runs as a dependency of other nodes.</p> : (
-                      <ul className="space-y-0.5">{runners(shown.name).map(e => <li key={e} className="font-mono text-xs">{e}</li>)}</ul>
-                    )}
+                    {runners(shown.name).length === 0 ? <p className="text-base-content/50 italic">Nobody directly: it only runs as a dependency of other nodes.</p> : <People emails={runners(shown.name)} />}
                   </div>
                 )}
 

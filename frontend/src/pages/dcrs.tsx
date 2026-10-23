@@ -448,38 +448,45 @@ function DcrCard({
           </div>
         )}
 
-        {/* The two ways into the room's structure: the node graph, and the AI explanation (flow first, code one click away). */}
-        {dcr.id && dcr.nodes && dcr.nodes.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              className="btn btn-primary btn-sm gap-2"
-              onClick={() => setShowGraph(true)}
-              title="The data and compute nodes of this room as a graph, with each node's inputs, outputs and participants"
-            >
-              <Share2 size={15} /> Node graph
-            </button>
-            {explainableNodes.length > 0 && (
-              <button
-                className="btn btn-outline btn-primary btn-sm gap-2"
-                onClick={() => setExplain({ node: '', conversation: null })}
-                title="Have the AI explain what happens in this room overall, how the data flows and what analysts can see; each compute node's code is one click away"
-              >
-                <Code size={15} /> AI - Explain this DCR
-              </button>
+        {/* Bottom row: Deactivate on the left (when allowed); the two ways into the room's
+            structure - the node graph, and the AI explanation (flow first, code one click
+            away) - as large buttons centred in the remaining space. */}
+        {/* Compute nodes & results (DcrResultsPanel) hidden for now. */}
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          <div className="shrink-0">
+            {dcr.id && (dcr.deactivated || dcr.can_deactivate) && (
+              <DeactivateDcr
+                dcrId={dcr.id}
+                dcrTitle={dcr.title || ''}
+                deactivated={!!dcr.deactivated}
+                canDeactivate={!!dcr.can_deactivate}
+                inApp={!!dcr.deactivate_in_app}
+              />
             )}
           </div>
-        )}
-
-        {/* Compute nodes & results (DcrResultsPanel) hidden for now. */}
-        {dcr.id && (dcr.deactivated || dcr.can_deactivate) && (
-          <DeactivateDcr
-            dcrId={dcr.id}
-            dcrTitle={dcr.title || ''}
-            deactivated={!!dcr.deactivated}
-            canDeactivate={!!dcr.can_deactivate}
-            inApp={!!dcr.deactivate_in_app}
-          />
-        )}
+          {dcr.id && dcr.nodes && dcr.nodes.length > 0 && (
+            <div className="flex-1 flex flex-wrap justify-center gap-6">
+              <button
+                className="btn btn-primary h-28 w-56 flex-col gap-2 text-base normal-case"
+                onClick={() => setShowGraph(true)}
+                title="The data and compute nodes of this room as a graph, with each node's inputs, outputs and participants"
+              >
+                <Share2 size={28} />
+                <span>Node graph</span>
+              </button>
+              {explainableNodes.length > 0 && (
+                <button
+                  className="btn btn-outline btn-primary h-28 w-56 flex-col gap-2 text-base normal-case"
+                  onClick={() => setExplain({ node: '', conversation: null })}
+                  title="Have the AI explain what happens in this room overall, how the data flows and what analysts can see; each compute node's code is one click away"
+                >
+                  <Code size={28} />
+                  <span>AI - Explain this DCR</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         {dcr.id && <DcrLogPanel dcrId={dcr.id} />}
         {dcr.id && showGraph && (
           <DcrGraphOverlay dcrId={dcr.id} dcrTitle={dcr.title || ''} participants={dcr.participants || []} onClose={() => setShowGraph(false)} />
@@ -491,6 +498,7 @@ function DcrCard({
             nodes={explainableNodes}
             initialNode={explain.node}
             resumeConversationId={explain.conversation}
+            participants={dcr.participants || []}
             onClose={() => setExplain(null)}
           />
         )}

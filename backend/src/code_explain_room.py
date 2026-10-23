@@ -74,6 +74,15 @@ there is a ... node") instead of repeating yourself per cohort.
 The reader can open any node for the step-by-step view.
 - Never invent behaviour. A digest shows only the writing and printing lines; the processing \
 between them is not visible to you. Say "appears to" where you infer.
+- To show a local piece of the flow, add a fenced block in exactly this form, with the EXACT node names \
+from the DCR section (copy them; never invent or shorten a name):
+```dcrgraph
+<node that is read> -> <node being discussed> -> <node that reads it>
+<another input> -> <node being discussed>
+```
+One line per chain, "->" between nodes, a comma-separated list fans in or out. Use it where a picture helps \
+(the node being discussed with the nodes it reads and the nodes that read it; a stage of the flow), at most \
+eight nodes per block and at most three blocks per answer. The reader sees it drawn inline.
 
 # DATA SAFEGUARDS (the section the reader cares most about)
 
@@ -100,8 +109,8 @@ ROOM_OVERVIEW_TASK = (
     "**What this room does** (three to five sentences: which cohorts, what the research purpose is "
     "according to the description, what kinds of results analysts can get out).\n"
     "**How the data flows** (a short narrative of the dependency graph: data nodes -> per-cohort "
-    "processing -> airlocks / merge chain -> what analysts run; mention that the reader can see the "
-    "graph on the left).\n"
+    "processing -> airlocks / merge chain -> what analysts run; illustrate one representative chain, e.g. "
+    "one cohort's data node through its fragment node to its airlock, with a dcrgraph block).\n"
     "**Data safeguards** (go through the EXITS one group at a time; for each say what it exposes and "
     "whether it is aggregate-only, a deliberately limited row-level fragment with its safeguards, or "
     "cannot be verified; end with one clear sentence answering whether any individual-level data is "
@@ -122,6 +131,7 @@ ROOM_FOLLOWUP_TASK = (
 NODE_IO_TASK = (
     "The reader opened the node named below and asked about its inputs and outputs. You have its FULL "
     "script in the section NODE SCRIPT (in addition to the digests). Structure the answer as:\n"
+    "Start with a dcrgraph block of the node with the nodes it reads and the nodes that read it.\n"
     "**What it reads** (each input node: what it is - cohort data, dictionary, shuffled sample, mapping, "
     "another node's output - and which parts the script actually uses, e.g. which columns or files).\n"
     "**What it does with it** (two to four sentences, the gist only: no line numbers).\n"

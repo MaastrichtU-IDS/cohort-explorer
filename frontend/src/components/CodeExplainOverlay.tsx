@@ -24,6 +24,8 @@ import {
   streamRoomExplanation
 } from '@/components/ai/chatClient';
 import {DcrGraph, KIND_STYLE, neighbourhood} from '@/components/DcrGraph';
+import {DcrGraphOverlay, DcrParticipantLite} from '@/components/DcrGraphOverlay';
+import {ExplainText} from '@/components/ai/ExplainText';
 import type {RoomNode} from '@/components/ai/chatClient';
 
 // The picker value for the whole-room view (the default when the overlay opens).
@@ -337,7 +339,7 @@ function NodeExplainer({
                 ) : (
                   <div key={i} className="flex justify-start">
                     <div className="rounded-2xl px-4 py-2 max-w-[92%] text-sm bg-base-200">
-                      {m.content ? <RichText text={m.content} /> : <TypingDots />}
+                      {m.content ? <ExplainText text={m.content} room={null} /> : <TypingDots />}
                     </div>
                   </div>
                 )
@@ -401,7 +403,8 @@ function RoomExplainer({
   resumeConversationId,
   session,
   onSession,
-  onOpenNode
+  onOpenNode,
+  onOpenFullGraph
 }: {
   dcrId: string;
   dcrTitle: string;
@@ -413,6 +416,7 @@ function RoomExplainer({
   session?: Session;
   onSession: (s: Session) => void;
   onOpenNode: (name: string) => void;
+  onOpenFullGraph: () => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>(session?.messages || []);
   const [streaming, setStreaming] = useState(false);
@@ -533,10 +537,11 @@ function RoomExplainer({
         )}
         {room && (
           <>
-            <div className="min-h-0 flex-1"><DcrGraph room={room} onSelect={name => onOpenNode(name)} compact /></div>
-            <p className="px-3 py-1.5 text-[11px] text-base-content/50 border-t border-base-300">
-              Small view of the room graph: the &quot;Node graph&quot; button on the DCR card opens it full size with per-node details.
-            </p>
+            <div className="min-h-0 flex-1 flex flex-col"><DcrGraph room={room} onSelect={name => onOpenNode(name)} mini /></div>
+            <div className="px-3 py-2 text-[11px] text-base-content/60 border-t border-base-300 flex items-center gap-2 flex-wrap">
+              <span>Map of the room: hover a shape for its name, click a compute node to open it.</span>
+              <button className="btn btn-xs btn-outline ml-auto" onClick={onOpenFullGraph}>Open the full node graph</button>
+            </div>
           </>
         )}
       </section>
@@ -575,7 +580,7 @@ function RoomExplainer({
             ) : (
               <div key={i} className="flex justify-start">
                 <div className="rounded-2xl px-4 py-2 max-w-[92%] text-sm bg-base-200">
-                  {m.content ? <RichText text={m.content} /> : <TypingDots />}
+                  {m.content ? <ExplainText text={m.content} room={room} onOpenNode={onOpenNode} /> : <TypingDots />}
                 </div>
               </div>
             )
@@ -833,7 +838,7 @@ function NodeIoExplainer({
             ) : (
               <div key={i} className="flex justify-start">
                 <div className="rounded-2xl px-4 py-2 max-w-[92%] text-sm bg-base-200">
-                  {m.content ? <RichText text={m.content} /> : <TypingDots />}
+                  {m.content ? <ExplainText text={m.content} room={room} onOpenNode={onOpenNode} /> : <TypingDots />}
                 </div>
               </div>
             )
@@ -881,6 +886,7 @@ export function CodeExplainOverlay({
   nodes,
   initialNode,
   resumeConversationId,
+  participants,
   onClose
 }: {
   dcrId: string;
@@ -890,8 +896,11 @@ export function CodeExplainOverlay({
   initialNode?: string | null;
   // A stored conversation to continue; it belongs to initialNode.
   resumeConversationId?: string | null;
+  // The room's participants with their per-node permissions, for the full node graph.
+  participants?: DcrParticipantLite[];
   onClose: () => void;
 }) {
+  const [fullGraph, setFullGraph] = useState(false);
   // Opens on the whole-room view unless a node (or a stored node conversation) was asked for.
   const [node, setNode] = useState<string>(initialNode && nodes.includes(initialNode) ? initialNode : ROOM_VIEW);
   // For a node: 'io' (inputs and outputs, the default) or 'code' (the script, explained line by line).
@@ -965,7 +974,7 @@ export function CodeExplainOverlay({
                 <ArrowLeft size={14} /> Room graph
               </button>
             )}
-          <label className="block w-[30%] min-w-[16rem]">
+          <label className="block w-auto min-w-[16rem] max-w-full">
             <span className="block text-center text-xs font-semibold text-base-content/70 mb-1">{node === ROOM_VIEW ? 'View' : 'Compute node'}</span>
             {/* Same blue as the concept-code tags on the explore page; custom, bold chevron. */}
             <select
@@ -1015,7 +1024,11 @@ export function CodeExplainOverlay({
             session={sessions.current[ROOM_VIEW]}
             onSession={saveSession}
             onOpenNode={openNode}
+            onOpenFullGraph={() => setFullGraph(true)}
           />
+        )}
+        {fullGraph && (
+          <DcrGraphOverlay dcrId={dcrId} dcrTitle={dcrTitle} participants={participants || []} onClose={() => setFullGraph(false)} />
         )}
         {node && node !== ROOM_VIEW && mode === 'io' && (
           <NodeIoExplainer
