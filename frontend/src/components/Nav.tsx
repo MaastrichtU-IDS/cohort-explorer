@@ -60,9 +60,24 @@ export function Nav() {
   const [mergeUseShuffled, setMergeUseShuffled] = useState(false);
   const mergeChainAvailable = Object.keys(dataCleanRoom?.cohorts || {}).length >= 2;
   const mergeChainOn = mergeChainAvailable && includeMergeChain;
+  // The effective per-cohort choice for EVERY selected cohort, defaults included:
+  // the Data Samples step shows "shuffled sample" for a cohort that has one and
+  // "airlock" for one that does not, but the maps only hold cohorts the user
+  // clicked. Everything sent to the backend, and the review step, must use
+  // these, or an untouched cohort without a shuffled sample gets no airlock.
+  const effectiveSampleSettings = (): {airlock: Record<string, boolean>; shuffled: Record<string, boolean>} => {
+    const airlock: Record<string, boolean> = {};
+    const shuffled: Record<string, boolean> = {};
+    Object.keys(dataCleanRoom?.cohorts || {}).forEach(cohortId => {
+      const hasShuffledSample = cohortsWithShuffledSamples.includes(cohortId);
+      airlock[cohortId] = airlockSettings[cohortId] ?? !hasShuffledSample;
+      shuffled[cohortId] = shuffledSampleSettings[cohortId] ?? hasShuffledSample;
+    });
+    return {airlock, shuffled};
+  };
   // True when at least one selected cohort still has its shuffled sample enabled
   // (Data Samples step). Pooling shuffled samples is impossible without any.
-  const anyShuffledEnabled = Object.values(shuffledSampleSettings).some(v => v !== false);
+  const anyShuffledEnabled = Object.values(effectiveSampleSettings().shuffled).some(v => v !== false);
   // The merge-source toggle lives in a later step and keeps its value across wizard
   // runs; if shuffled samples get disabled for every cohort, a stale "Shuffled samples"
   // choice would make the backend pool nothing. Fall back to full cohort data.
@@ -384,7 +399,7 @@ export function Nav() {
         },
         body: JSON.stringify({
           ...dataCleanRoom,
-          include_shuffled_samples: shuffledSampleSettings,
+          include_shuffled_samples: effectiveSampleSettings().shuffled,
           dcr_name: dcrName || defaultDcrName,
           session_id: sessionIdRef.current
         })
@@ -466,11 +481,12 @@ export function Nav() {
         },
         body: JSON.stringify({
           ...dataCleanRoom,
-          include_shuffled_samples: shuffledSampleSettings,
+          include_shuffled_samples: effectiveSampleSettings().shuffled,
           additional_analysts: additionalAnalysts,
           excluded_data_owners: excludedDataOwners,
+          // Every selected cohort, defaults included: 20% airlock or none.
           airlock_settings: Object.fromEntries(
-            Object.entries(airlockSettings).map(([cohortId, isEnabled]) => [
+            Object.entries(effectiveSampleSettings().airlock).map(([cohortId, isEnabled]) => [
               cohortId,
               isEnabled ? 20 : 0
             ])
@@ -1346,10 +1362,10 @@ export function Nav() {
                           </div>
                         )}
                         <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Airlock Cohorts:</strong> {Object.entries(airlockSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None'}
+                          <strong>Airlock Cohorts:</strong> {Object.entries(effectiveSampleSettings().airlock).filter(([_, v]) => v).map(([k]) => k).join(', ') || 'None'}
                         </div>
                         <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>Shuffled Samples:</strong> {Object.entries(shuffledSampleSettings).filter(([_, v]) => v !== false).map(([k]) => k).join(', ') || 'None'}
+                          <strong>Shuffled Samples:</strong> {Object.entries(effectiveSampleSettings().shuffled).filter(([_, v]) => v).map(([k]) => k).join(', ') || 'None'}
                         </div>
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>Merge / pool nodes:</strong> {mergeChainOn ? 'Included' : 'Not included'}
