@@ -1,8 +1,9 @@
 'use client';
 
 import React, {useCallback, useEffect, useState} from 'react';
-import {Database, RefreshCw, Search} from 'react-feather';
+import {Database, Download, RefreshCw, Search} from 'react-feather';
 import {apiUrl} from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 
 interface Run {
   run_id: string;
@@ -103,6 +104,7 @@ async function getJson<T>(path: string): Promise<T> {
 
 export default function LlmDecisionsPage() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
   // True until the first runs/stats load has completed (or failed).
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [tab, setTab] = useState<Tab>('runs');
@@ -127,7 +129,13 @@ export default function LlmDecisionsPage() {
   // cohorts payload, several seconds later).
   useEffect(() => {
     fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
-      .then(r => (r.ok ? r.json() : {is_admin: false}))
+      .then(r => {
+        if (r.status === 401) {
+          setNeedsLogin(true);
+          return {is_admin: false};
+        }
+        return r.ok ? r.json() : {is_admin: false};
+      })
       .then(d => setIsAdmin(!!d.is_admin))
       .catch(() => setIsAdmin(false));
   }, []);
@@ -199,11 +207,42 @@ export default function LlmDecisionsPage() {
     }
   };
 
+  const [exporting, setExporting] = useState<string | null>(null);
+  // Fetch with the session cookie, then hand the file to the browser under the server's file name.
+  const exportRun = async (runId: string) => {
+    setExporting(runId);
+    setError(null);
+    try {
+      const r = await fetch(`${apiUrl}/api/llm-decisions/runs/${encodeURIComponent(runId)}/export.csv`, {credentials: 'include'});
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail || `Export failed (${r.status})`);
+      }
+      const disposition = r.headers.get('Content-Disposition') || '';
+      const m = /filename="([^"]+)"/.exec(disposition);
+      const name = r.headers.get('X-Export-Filename') || (m ? m[1] : `llm-decisions_${runId}.csv`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setExporting(null);
+    }
+  };
+
   const showRunDecisions = (runId: string) => {
     setFilters(f => ({...f, run_id: runId}));
     setTab('decisions');
   };
 
+  if (needsLogin) return <LoginPrompt message="Authenticate to access this page (administrators only)" />;
   if (isAdmin === false) {
     return <div className="container mx-auto p-6"><div className="alert alert-warning">This page is for administrators only.</div></div>;
   }
@@ -277,7 +316,12 @@ export default function LlmDecisionsPage() {
                     <td className={r.n_failed ? 'text-error' : ''}>{r.n_failed}</td>
                     <td><span className={`badge badge-sm ${r.status === 'done' ? 'badge-success' : r.status === 'running' ? 'badge-info' : r.status === 'crashed' ? 'badge-warning' : 'badge-error'}`} title={r.status === 'crashed' ? 'No completion was recorded within 3 hours of the start: the worker crashed or was restarted' : undefined}>{r.status}</span>{r.error && <div className="text-xs text-error">{r.error}</div>}</td>
                     <td className="text-xs">{r.requested_by || ''}</td>
-                    <td><button className="btn btn-xs" onClick={() => showRunDecisions(r.run_id)}>decisions</button></td>
+                    <td className="whitespace-nowrap">
+                      <button className="btn btn-xs" onClick={() => showRunDecisions(r.run_id)}>decisions</button>{' '}
+                      <button className="btn btn-xs btn-outline gap-1" onClick={() => exportRun(r.run_id)} disabled={exporting === r.run_id || !r.n_decisions} title="Download every decision of this run, with full prompts and replies, as CSV">
+                        {exporting === r.run_id ? <span className="loading loading-spinner loading-xs" /> : <Download size={12} />} CSV
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

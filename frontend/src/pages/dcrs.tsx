@@ -6,6 +6,7 @@ import { apiUrl } from '@/utils';
 import { AlertTriangle, Clock, Code, RefreshCw, ExternalLink, Search, Share2 } from 'react-feather';
 import { DcrLogPanel } from '@/components/DcrLogPanel';
 import { DeactivateDcr } from '@/components/DeactivateDcr';
+import LoginPrompt from '@/components/LoginPrompt';
 import { CodeExplainOverlay } from '@/components/CodeExplainOverlay';
 import { DcrGraphOverlay } from '@/components/DcrGraphOverlay';
 
@@ -51,6 +52,8 @@ export default function DcrsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Not signed in: the page shows the standard login prompt instead of an error.
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [scope, setScope] = useState<'all' | 'created'>('all');
@@ -72,8 +75,11 @@ export default function DcrsPage() {
     try {
       const response = await fetch(`${apiUrl}/my-dcrs`, { credentials: 'include' });
       if (response.status === 401 || response.status === 403) {
-        throw new Error('You must be signed in to view this page.');
+        setNeedsLogin(true);
+        setIsLoading(false);
+        return;
       }
+      setNeedsLogin(false);
       if (!response.ok) {
         throw new Error(`Failed to fetch DCRs: ${response.status} ${response.statusText}`);
       }
@@ -117,7 +123,8 @@ export default function DcrsPage() {
         credentials: 'include',
       });
       if (response.status === 401 || response.status === 403) {
-        throw new Error('You must be signed in to refresh.');
+        setNeedsLogin(true);
+        return;
       }
       if (!response.ok) {
         throw new Error(`Refresh failed: ${response.status} ${response.statusText}`);
@@ -220,6 +227,8 @@ export default function DcrsPage() {
           </div>
         )}
 
+        {needsLogin && !isLoading && <LoginPrompt />}
+
         {error && !isLoading && (
           <div className="alert alert-error">
             <AlertTriangle size={20} />
@@ -227,7 +236,7 @@ export default function DcrsPage() {
           </div>
         )}
 
-        {!isLoading && !error && visibleDcrs.length === 0 && (
+        {!isLoading && !error && !needsLogin && visibleDcrs.length === 0 && (
           <div className="text-center text-base-content/60 py-16">
             {keywordWords.length > 0 && dcrs.length > 0
               ? 'No Data Clean Rooms match this keyword.'
@@ -464,7 +473,8 @@ function DcrCard({
               />
             )}
           </div>
-          {dcr.id && dcr.nodes && dcr.nodes.length > 0 && (
+          {/* Both buttons follow the same admin switches as the AI explanation (on/off, and for stopped DCRs). */}
+          {dcr.id && explainAllowed && dcr.nodes && dcr.nodes.length > 0 && (
             <div className="flex-1 flex flex-wrap justify-center gap-10">
               <button
                 className="btn btn-primary h-32 w-32 flex-col gap-2 text-sm normal-case whitespace-normal leading-tight"
@@ -488,7 +498,7 @@ function DcrCard({
           )}
         </div>
         {dcr.id && <DcrLogPanel dcrId={dcr.id} />}
-        {dcr.id && showGraph && (
+        {dcr.id && showGraph && explainAllowed && (
           <DcrGraphOverlay dcrId={dcr.id} dcrTitle={dcr.title || ''} participants={dcr.participants || []} onClose={() => setShowGraph(false)} />
         )}
         {dcr.id && explain && explainableNodes.length > 0 && (

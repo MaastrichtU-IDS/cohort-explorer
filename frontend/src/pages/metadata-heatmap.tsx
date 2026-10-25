@@ -7,6 +7,7 @@ import React, {useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
 import {Grid, X} from 'react-feather';
 import {apiUrl} from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 import {
   Theme,
   ThemeView,
@@ -26,6 +27,7 @@ const WEIGHT_HELP: Record<ThemeWeight, string> = {
 
 export default function MetadataHeatmapPage() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [view, setView] = useState<ThemeView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [minSpec, setMinSpec] = useState(0);
@@ -36,7 +38,13 @@ export default function MetadataHeatmapPage() {
 
   useEffect(() => {
     fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
-      .then(r => (r.ok ? r.json() : {is_admin: false}))
+      .then(r => {
+        if (r.status === 401) {
+          setNeedsLogin(true);
+          return {is_admin: false};
+        }
+        return r.ok ? r.json() : {is_admin: false};
+      })
       .then(d => setIsAdmin(!!d.is_admin))
       .catch(() => setIsAdmin(false));
   }, []);
@@ -78,6 +86,7 @@ export default function MetadataHeatmapPage() {
       return next.length > 2 ? next.slice(1) : next;
     });
 
+  if (needsLogin) return <LoginPrompt message="Authenticate to access this page (administrators only)" />;
   if (isAdmin === false) {
     return <div className="container mx-auto p-6"><div className="alert alert-warning">This page is for administrators only.</div></div>;
   }

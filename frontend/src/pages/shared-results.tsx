@@ -6,6 +6,7 @@ import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
 import {AlertTriangle, Box, Download, Eye, Search, Trash2, User} from 'react-feather';
 import {apiUrl} from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 import {ResultFileModal, downloadFile, formatBytes, formatDateTime, isViewable} from '@/components/results/ResultFileView';
 
 interface GalleryFile {
@@ -45,6 +46,7 @@ export default function SharedResultsPage() {
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [selectedCohorts, setSelectedCohorts] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [viewing, setViewing] = useState<{item: GalleryItem; index: number} | null>(null);
@@ -54,7 +56,11 @@ export default function SharedResultsPage() {
     setError(null);
     try {
       const res = await fetch(`${apiUrl}/shared-results`, {credentials: 'include'});
-      if (res.status === 401 || res.status === 403) throw new Error('You must be signed in to view Shared Results.');
+      if (res.status === 401 || res.status === 403) {
+        setNeedsLogin(true);
+        return;
+      }
+      setNeedsLogin(false);
       if (!res.ok) throw new Error(`Failed to load Shared Results: ${res.status} ${res.statusText}`);
       const data = await res.json();
       setItems(Array.isArray(data?.items) ? data.items : []);
@@ -157,6 +163,7 @@ export default function SharedResultsPage() {
             <span className="loading loading-spinner loading-lg" />
           </div>
         )}
+        {needsLogin && <LoginPrompt />}
         {error && (
           <div className="alert alert-error">
             <AlertTriangle size={20} /> <span>{error}</span>

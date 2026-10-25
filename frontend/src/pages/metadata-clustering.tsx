@@ -4,6 +4,7 @@ import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
 import {Layers, Play, RefreshCw} from 'react-feather';
 import {apiUrl} from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 import {MatchList, MetadataElement, MetadataMatch, SourceBadge} from '@/components/MetadataMatches';
 
 interface FieldGroup {
@@ -66,6 +67,7 @@ type View = 'study' | 'field' | 'ai';
 
 export default function MetadataClusteringPage() {
   const [job, setJob] = useState<JobState | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [results, setResults] = useState<Results | null>(null);
   const [instructions, setInstructions] = useState('');
   const [starting, setStarting] = useState(false);
@@ -88,6 +90,10 @@ export default function MetadataClusteringPage() {
   const loadStatus = useCallback(async () => {
     try {
       const r = await fetch(`${apiUrl}/api/metadata-clustering/status`, {credentials: 'include'});
+      if (r.status === 401) {
+        setNeedsLogin(true);
+        return null;
+      }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const s: JobState = await r.json();
       setJob(s);
@@ -182,6 +188,7 @@ export default function MetadataClusteringPage() {
     return out;
   };
 
+  if (needsLogin) return <LoginPrompt message="Authenticate to access this page (administrators only)" />;
   if (job && job.is_admin === false) {
     return (
       <div className="container mx-auto p-6">

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { apiUrl } from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 import { AlertTriangle, CheckCircle, XCircle, Clock, Users, FileText } from 'react-feather';
 import {
   DcrEvent,
@@ -19,6 +20,7 @@ export default function DcrsDetailsPage() {
   const [sessions, setSessions] = useState<DcrSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [filter, setFilter] = useState<FilterMode>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -28,8 +30,12 @@ export default function DcrsDetailsPage() {
       setError(null);
       try {
         const response = await fetch(`${apiUrl}/dcr-events`, { credentials: 'include' });
-        if (response.status === 401 || response.status === 403) {
-          throw new Error('You must be signed in as an administrator to view this page.');
+        if (response.status === 401) {
+          setNeedsLogin(true);
+          return;
+        }
+        if (response.status === 403) {
+          throw new Error('This page is for administrators only.');
         }
         if (!response.ok) {
           throw new Error(`Failed to fetch events: ${response.status} ${response.statusText}`);
@@ -109,6 +115,7 @@ export default function DcrsDetailsPage() {
           </div>
         )}
 
+        {needsLogin && !isLoading && <LoginPrompt message="Authenticate to access this page (administrators only)" />}
         {error && !isLoading && (
           <div className="alert alert-error">
             <AlertTriangle size={20} />

@@ -8,9 +8,13 @@
   GET /api/llm-decisions/consistency?only_conflicts=true
 """
 
+import csv
+import io
+import re
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from src.auth import get_current_user
 from src.config import settings
@@ -38,6 +42,42 @@ async def llm_decision_stats(user: Any = Depends(get_current_user)):
 async def llm_decision_runs(limit: int = Query(200, le=2000), user: Any = Depends(get_current_user)):
     _require_admin(user)
     return {"items": _store().list_runs(limit)}
+
+
+_EXPORT_COLUMNS = [
+    "id", "run_id", "created_at", "model", "mapping_mode", "source_study", "target_study", "pair_key",
+    "src_desc", "src_concepts", "src_cats", "src_unit", "tgt_desc", "tgt_concepts", "tgt_cats", "tgt_unit",
+    "evidence", "matched", "ctx_type", "status", "confidence", "reason", "transform", "transform_direction",
+    "cached", "attempts", "duration_ms", "round_idx", "error", "system_prompt", "prompt", "raw_response", "verdict_json",
+]
+
+
+def _slug(x: Any) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "-", str(x or "")).strip("-") or "unknown"
+
+
+@router.get("/llm-decisions/runs/{run_id}/export.csv", name="Every decision of one mapping run as CSV")
+async def llm_decisions_export(run_id: str, user: Any = Depends(get_current_user)):
+    """All decisions of the run with their full input and output, as a CSV named
+    after the mapping pair, the run date and the number of decisions."""
+    _require_admin(user)
+    store = _store()
+    run = store.run_record(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="No such run.")
+    rows = store.run_decisions_full(run_id)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=_EXPORT_COLUMNS, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        w.writerow({k: ("" if r.get(k) is None else r.get(k)) for k in _EXPORT_COLUMNS})
+    targets = "+".join(_slug(t) for t in (run.get("target_studies") or [])) or "targets"
+    date = _slug((run.get("started") or "")[:10])
+    name = f"llm-decisions_{_slug(run.get('source_study'))}_to_{targets}_{date}_{len(rows)}-decisions.csv"
+    data = ("\ufeff" + buf.getvalue()).encode("utf-8")  # BOM so Excel opens it as UTF-8
+    return StreamingResponse(iter([data]), media_type="text/csv; charset=utf-8",
+                             headers={"Content-Disposition": f'attachment; filename="{name}"',
+                                      "X-Export-Filename": name})
 
 
 @router.get("/llm-decisions/decisions")

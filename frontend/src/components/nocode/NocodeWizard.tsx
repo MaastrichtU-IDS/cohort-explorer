@@ -10,6 +10,7 @@
 // generated node computes figures and tables. Results come back into the
 // explorer (see /nocode-results).
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import LoginPrompt from '@/components/LoginPrompt';
 import Link from 'next/link';
 import {ArrowLeft, ArrowRight, Check, Edit2, HelpCircle, AlertTriangle, Users, X} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
@@ -312,14 +313,7 @@ export default function NocodeWizard({embedded = false, onClose}: {embedded?: bo
     );
   }
   if (!userEmail) {
-    return (
-      <div className="flex justify-center items-center min-h-[60vh]">
-        <div className="alert alert-warning max-w-md">
-          <AlertTriangle size={20} />
-          <span>Please log in to use the no-code DCR analysis.</span>
-        </div>
-      </div>
-    );
+    return <LoginPrompt message="Authenticate to use the no-code DCR analysis" />;
   }
 
   return (

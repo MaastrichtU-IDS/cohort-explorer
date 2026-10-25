@@ -6,6 +6,7 @@ import {Settings, Shield, AlertTriangle, ArrowRight} from 'react-feather';
 import {SparklesIcon} from '@/components/Icons';
 import {useCohorts} from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 
 export default function AdminSettingsPage() {
   const {userEmail} = useCohorts();
@@ -137,14 +138,7 @@ export default function AdminSettingsPage() {
     );
   }
   if (!userEmail) {
-    return (
-      <div className="flex justify-center items-center min-h-[60vh]">
-        <div className="alert alert-warning max-w-md">
-          <AlertTriangle size={20} />
-          <span>Please log in to access this page.</span>
-        </div>
-      </div>
-    );
+    return <LoginPrompt message="Authenticate to access this page (administrators only)" />;
   }
 
   // Not an admin

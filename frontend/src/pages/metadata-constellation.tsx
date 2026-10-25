@@ -8,6 +8,7 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import Link from 'next/link';
 import {Share2, X} from 'react-feather';
 import {apiUrl} from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 import {
   StudyPair,
   ThemeView,
@@ -75,6 +76,7 @@ function layout(studies: string[], pairs: StudyPair[], themeCount: Record<string
 
 export default function MetadataConstellationPage() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [view, setView] = useState<ThemeView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [minSpec, setMinSpec] = useState(0.2);
@@ -86,7 +88,13 @@ export default function MetadataConstellationPage() {
 
   useEffect(() => {
     fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
-      .then(r => (r.ok ? r.json() : {is_admin: false}))
+      .then(r => {
+        if (r.status === 401) {
+          setNeedsLogin(true);
+          return {is_admin: false};
+        }
+        return r.ok ? r.json() : {is_admin: false};
+      })
       .then(d => setIsAdmin(!!d.is_admin))
       .catch(() => setIsAdmin(false));
   }, []);
@@ -117,6 +125,7 @@ export default function MetadataConstellationPage() {
     return s;
   }, [picked, pairs]);
 
+  if (needsLogin) return <LoginPrompt message="Authenticate to access this page (administrators only)" />;
   if (isAdmin === false) {
     return <div className="container mx-auto p-6"><div className="alert alert-warning">This page is for administrators only.</div></div>;
   }

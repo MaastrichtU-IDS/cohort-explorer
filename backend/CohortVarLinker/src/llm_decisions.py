@@ -424,6 +424,27 @@ def list_decisions(run_id: Optional[str] = None, status: Optional[str] = None, s
     return {"total": total, "limit": limit, "offset": offset, "items": [dict(r) for r in rows]}
 
 
+def run_record(run_id: str) -> Optional[dict]:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["target_studies"] = json.loads(d.get("target_studies") or "[]")
+    except ValueError:
+        d["target_studies"] = []
+    return d
+
+
+def run_decisions_full(run_id: str) -> list[dict]:
+    """Every decision of one run with every column (prompts and raw replies
+    included), oldest first - the export."""
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM decisions WHERE run_id=? ORDER BY id", (run_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_decision(decision_id: int) -> Optional[dict]:
     with _connect() as conn:
         row = conn.execute("SELECT * FROM decisions WHERE id=?", (decision_id,)).fetchone()

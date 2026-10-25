@@ -8,6 +8,7 @@ import Link from 'next/link';
 import {useRouter} from 'next/router';
 import {AlertTriangle, Download, Play, RefreshCw} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
+import LoginPrompt from '@/components/LoginPrompt';
 import {fetchNocodeResults, fetchResultBlob, fetchResultText, resultFileUrl, runNocode} from '@/components/nocode/client';
 
 function StatsBlock({text}: {text: string}) {
@@ -140,14 +141,7 @@ export default function NocodeResultsPage() {
     );
   }
   if (!userEmail) {
-    return (
-      <div className="flex justify-center items-center min-h-[60vh]">
-        <div className="alert alert-warning max-w-md">
-          <AlertTriangle size={20} />
-          <span>Please log in to view results.</span>
-        </div>
-      </div>
-    );
+    return <LoginPrompt />;
   }
 
   return (

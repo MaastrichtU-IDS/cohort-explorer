@@ -114,7 +114,7 @@ export default function ManageAnnouncements() {
   };
 
   if (userEmail === null) {
-    return <LoginPrompt message="Authenticate to manage announcements" />;
+    return <LoginPrompt message="Authenticate to manage announcements (administrators only)" />;
   }
   if (isAdmin === null) {
     return <div className="p-8 text-sm text-base-content/60">Checking access…</div>;

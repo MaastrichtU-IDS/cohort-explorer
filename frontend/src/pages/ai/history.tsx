@@ -8,6 +8,7 @@ import React, {useEffect, useState} from 'react';
 import {AlertTriangle, Shield, Clock, MessageSquare, Users, Activity, X} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 import {
   ConversationSummary,
   ConversationDetail,
@@ -168,14 +169,7 @@ export default function AiHistoryPage() {
     );
   }
   if (!userEmail) {
-    return (
-      <div className="flex justify-center items-center min-h-[60vh]">
-        <div className="alert alert-warning max-w-md">
-          <AlertTriangle size={20} />
-          <span>Please log in to access this page.</span>
-        </div>
-      </div>
-    );
+    return <LoginPrompt />;
   }
   if (isAdmin === false) {
     return (

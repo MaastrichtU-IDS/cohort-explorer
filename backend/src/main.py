@@ -110,7 +110,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Chat-Context"],
+    expose_headers=["X-Chat-Context", "Content-Disposition", "X-Export-Filename"],
 )
 
 

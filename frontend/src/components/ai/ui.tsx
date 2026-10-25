@@ -13,6 +13,7 @@ import {
 } from '@/components/ai/chatClient';
 import EdaOverlayHost, {openEda} from '@/components/ai/EdaOverlay';
 import {apiUrl} from '@/utils';
+import LoginPrompt from '@/components/LoginPrompt';
 
 // Very small, safe markdown-ish renderer: escapes HTML then applies headings,
 // bold, italics, inline code, pipe tables, and turns "- " / "* " lines into
@@ -1172,21 +1173,9 @@ export function DisabledNotice() {
   );
 }
 
+// The standard login prompt (same as the explore page): a red line that is a link.
 export function LoginNotice() {
-  return (
-    <div className="alert bg-info/20 border border-info/40 text-base-content">
-      <div>
-        <div className="font-semibold">Please log in</div>
-        <div className="text-sm opacity-80">
-          You need to be signed in to talk to the model.{' '}
-          <a className="link" href={`${apiUrl}/login`}>
-            Log in
-          </a>
-          .
-        </div>
-      </div>
-    </div>
-  );
+  return <LoginPrompt message="Authenticate to access iCARE-AI" />;
 }
 
 export function ExperimentBadge() {
