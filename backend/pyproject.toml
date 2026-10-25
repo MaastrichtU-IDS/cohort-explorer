@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-requires-python = ">=3.9.2,<3.14"
+requires-python = ">=3.11, <3.14"
 version = "0.0.1"
 name = "cohort-explorer-backend"
 description = "Backend for the iCARE4CVD Cohort Explorer."
@@ -27,7 +27,7 @@ classifiers = [
 
 dependencies = [
     "numpy",  # numpy shim in omop_graph_nx.py handles numpy 2.x pickle compatibility
-    "decentriq-platform ==0.39.1",
+    "decentriq-platform ==0.42.1",
     "thefuzz",
     "curies",
     "pandas[excel,spss]",
