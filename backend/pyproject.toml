@@ -65,7 +65,7 @@ dependencies = [
     "qdrant-client",
     "langchain-community >=0.2.0,<0.3",
     "faiss-cpu",
-    "langchain-together",
+    "langchain-together ==0.1.5",  # 0.0.2.post1 (which uv otherwise picks) has no ChatTogether, imported at startup via upload -> mapping_generation
     "simstring-fast",
     "langchain_ollama",
     "langchain_huggingface",

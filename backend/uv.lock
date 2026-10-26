@@ -439,7 +439,7 @@ requires-dist = [
     { name = "langchain-ollama" },
     { name = "langchain-openai", specifier = ">=0.1.0,<0.2" },
     { name = "langchain-qdrant" },
-    { name = "langchain-together" },
+    { name = "langchain-together", specifier = "==0.1.5" },
     { name = "langdetect" },
     { name = "mypy", marker = "extra == 'test'", specifier = ">=1.4.1" },
     { name = "numpy" },
@@ -1542,17 +1542,17 @@ wheels = [
 
 [[package]]
 name = "langchain-together"
-version = "0.0.2.post1"
+version = "0.1.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
     { name = "langchain-core" },
+    { name = "langchain-openai" },
     { name = "requests" },
-    { name = "together" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f7/5c/d52e38ca0d7d1fa3d96058825e66e70685d69dbdddbc2bddb74491961e4f/langchain_together-0.0.2.post1.tar.gz", hash = "sha256:60eaed0267d86edad2dde1f1dd28dea3aeed126c8f322eea986d46cd2c252394", size = 5124 }
+sdist = { url = "https://files.pythonhosted.org/packages/5d/98/c4b8d3de6390461074a5297896d35a648130eac520107cc51714203ac505/langchain_together-0.1.5.tar.gz", hash = "sha256:049aae10eece64b83fa4bd6047571c3524efaa7f53a73968857c89748792ae59", size = 10063 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/24/4de8d0d0cd71c88a0deb6dc6ff0c46e545246af280647093dc11c95d93e2/langchain_together-0.0.2.post1-py3-none-any.whl", hash = "sha256:6fb618939e2e200daed027ae611cdb7783e5587457fca465c2afe5fa38984680", size = 6076 },
+    { url = "https://files.pythonhosted.org/packages/f7/7b/a97b705deb541030a37380c0b6167c1310e4569766a5cc9c5675ff3068e6/langchain_together-0.1.5-py3-none-any.whl", hash = "sha256:785e625adab8334a49a02af5893ef1e4d4affc4e90cd29b92da7265d5dbb41f3", size = 11889 },
 ]
 
 [[package]]
@@ -3694,14 +3694,6 @@ wheels = [
 ]
 
 [[package]]
-name = "sseclient-py"
-version = "1.9.0"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4d/2e/59920f7d66b7f9932a3d83dd0ec53fab001be1e058bf582606fe414a5198/sseclient_py-1.9.0-py3-none-any.whl", hash = "sha256:340062b1587fc2880892811e2ab5b176d98ef3eee98b3672ff3a3ba1e8ed0f6f", size = 8351 },
-]
-
-[[package]]
 name = "starlette"
 version = "0.45.3"
 source = { registry = "https://pypi.org/simple" }
@@ -3723,15 +3715,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ca/99/5a5b6f19ff9f083671ddf7b9632028436167cd3d33e11015754e41b249a4/sympy-1.13.1.tar.gz", hash = "sha256:9cebf7e04ff162015ce31c9c6c9144daa34a93bd082f54fd8f12deca4f47515f", size = 7533040 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b2/fe/81695a1aa331a842b582453b605175f419fe8540355886031328089d840a/sympy-1.13.1-py3-none-any.whl", hash = "sha256:db36cdc64bf61b9b24578b6f7bab1ecdd2452cf008f34faa33776680c26d66f8", size = 6189177 },
-]
-
-[[package]]
-name = "tabulate"
-version = "0.9.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ec/fe/802052aecb21e3797b8f7902564ab6ea0d60ff8ca23952079064155d1ae1/tabulate-0.9.0.tar.gz", hash = "sha256:0095b12bf5966de529c0feb1fa08671671b3368eec77d7ef7ab114be2c068b3c", size = 81090 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/40/44/4a5f08c96eb108af5cb50b41f76142f0afa346dfa99d5296fe7202a11854/tabulate-0.9.0-py3-none-any.whl", hash = "sha256:024ca478df22e9340661486f85298cff5f6dcdba14f3813e8830015b9ed1948f", size = 35252 },
 ]
 
 [[package]]
@@ -3892,24 +3875,6 @@ wheels = [
 ]
 
 [[package]]
-name = "together"
-version = "0.2.11"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "pydantic" },
-    { name = "requests" },
-    { name = "sseclient-py" },
-    { name = "tabulate" },
-    { name = "tqdm" },
-    { name = "typer" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/36/8f/ca74863a4591b359100470974b2f4f2c2221ce764bae0fe9b36f80dc38fe/together-0.2.11.tar.gz", hash = "sha256:906ae626b0ec49f7ea90d5660fb4c28664a1f55719f998e868d035f417316e24", size = 41518 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ef/9c/ff58694ce629171db4563ec0a8c274a1c6b2804526c8ed204d3e61912498/together-0.2.11-py3-none-any.whl", hash = "sha256:0760aafe1b53cf41cb58592086a2b5edef956a2536b52daecfc2f9ef0fc736d5", size = 43800 },
-]
-
-[[package]]
 name = "tokenizers"
 version = "0.22.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4064,8 +4029,8 @@ name = "typer"
 version = "0.9.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click" },
-    { name = "typing-extensions" },
+    { name = "click", marker = "python_full_version >= '3.12'" },
+    { name = "typing-extensions", marker = "python_full_version >= '3.12'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/e9/7d/b1e0399aa5e27071f0042784681d28417f3e526c61f62c8e3635ee5ad334/typer-0.9.4.tar.gz", hash = "sha256:f714c2d90afae3a7929fcd72a3abb08df305e1ff61719381384211c4070af57f", size = 276061 }
 wheels = [
