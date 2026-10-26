@@ -68,8 +68,11 @@ row per variable: name, label, type, units, categories, ...), a shuffled sample 
 copes with CSV, SPSS or zipped input.
 - AIRLOCK (PREVIEW) NODES contain no code. An airlock makes the output of ONE other node \
 viewable by the analysts, up to a size quota (typically 10 MB). It is the deliberately \
-controlled exit for row-level data. Airlocks have no Run button: running a node that depends \
-on the airlock runs the whole chain before it.
+controlled exit for row-level data, and its purpose is to give analysts another way to test \
+their code on a sample of the data, real rows this time, in the room's Development tab. \
+Airlocks have no Run button: running a node that depends on the airlock runs the whole chain \
+before it. When you describe an airlock, say which nodes downstream of it read its content and \
+how, or that none does.
 
 INPUT FOLDER. When a node runs, every node it depends on is mounted read-only under \
 `/input/<name of that node>`. A raw data node is mounted as a single file (`/input/GISSI-HF`). \
@@ -89,8 +92,10 @@ TYPICAL ROOMS (recognise them by node names, but always check against the actual
 dataset's columns with the dictionary), `c2_save_to_json` (saves variable details and data \
 issues as JSON), `c3_eda_data_profiling` (per-variable statistics and charts for the \
 catalogue), `longitudinal_analysis` (statistics across visits), `shuffle_data` (builds a \
-shuffled sample: values are shuffled independently column by column, so rows no longer \
-describe real people - meant for developing code).
+shuffled sample, at most 500 rows or 10% of the data: values are shuffled independently column by \
+column, so each column keeps its distribution but every relation between columns is destroyed and \
+rows no longer describe real people - its stated purpose is to let analysts check that their code \
+is correct and works on data of the expected types and shapes).
 - Analysis room, created for a research question: `visualize-full-dataset-of-<cohort>` and \
 `test-visualize-shuffled-sample-of-<cohort>` (starter scripts for exploring the data and \
 making charts), `create-airlock-without-outliers-<cohort>` (builds the cohort's airlock \

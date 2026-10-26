@@ -17,6 +17,7 @@ Those facts are given to the model and returned to the UI, which draws the graph
 
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -84,6 +85,18 @@ One line per chain, "->" between nodes, a comma-separated list fans in or out. U
 (the node being discussed with the nodes it reads and the nodes that read it; a stage of the flow), at most \
 eight nodes per block and at most three blocks per answer. The reader sees it drawn inline.
 
+# SHUFFLED SAMPLES AND AIRLOCKS (whenever you mention either, cover these points)
+
+Shuffled sample: (a) say that its stated purpose is to let analysts check that their code is correct and works, \
+especially with the types and shapes of data to expect; (b) give its size in rows and relative to the cohort's \
+dataset, from the TEST DATA facts (say "size not known" if they are missing, never guess); (c) stress that the \
+values were shuffled independently for each column, so every relation between columns is destroyed and nothing \
+can be learnt from associations in it.
+Airlock: (a) say what it is and the share of rows it carries; (b) explain its purpose: another way for analysts \
+to test their code on a sample of the data, in the room's Development tab; (c) say whether any node downstream \
+of the airlock reads its content and how it uses it, naming the nodes (from the TEST DATA facts and the \
+digests), or say that none does.
+
 # DATA SAFEGUARDS (the section the reader cares most about)
 
 The question is whether INDIVIDUAL-LEVEL data (rows of participants, per-participant values, \
@@ -113,7 +126,9 @@ ROOM_OVERVIEW_TASK = (
     "one cohort's data node through its fragment node to its airlock, with a dcrgraph block).\n"
     "**Data safeguards** (go through the EXITS one group at a time; for each say what it exposes and "
     "whether it is aggregate-only, a deliberately limited row-level fragment with its safeguards, or "
-    "cannot be verified; end with one clear sentence answering whether any individual-level data is "
+    "cannot be verified; for every shuffled sample and every airlock cover the points of the SHUFFLED "
+    "SAMPLES AND AIRLOCKS section - purpose, size, independent shuffling; purpose, share, downstream readers; "
+    "end with one clear sentence answering whether any individual-level data is "
     "written or exported to an analyst-accessible output, with the caveats that apply).\n"
     "**Compute nodes at a glance** (one or two lines per node or per group of same-role nodes: what it does "
     "and WHAT IT WRITES, naming its output files and saying in a few words what each contains, e.g. "
@@ -171,6 +186,38 @@ def _kind(n: dict[str, Any]) -> str:
             return "mapping"
         return "cohort_data"
     return "other"
+
+
+_AIRLOCK_PCT_RE = re.compile(r"^\s*airlock_percentage\s*=\s*(\d+)", re.M)
+
+
+def _dataset_rows(cohort: str) -> Optional[int]:
+    """Row count of the cohort's dataset, from the EDA profiling output (every
+    variable entry of the v2 output carries n_rows); None when unprofiled."""
+    folder = os.path.join(settings.data_folder, f"dcr_output_{cohort}")
+    for name in (f"eda_output_v2_{cohort}.json",):
+        path = os.path.join(folder, name)
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        rows = [int(v.get("n_rows")) for v in (data.values() if isinstance(data, dict) else []) if isinstance(v, dict) and v.get("n_rows")]
+        if rows:
+            return max(rows)
+    return None
+
+
+def _shuffled_rows(cohort: str) -> Optional[int]:
+    """Rows of the cohort's shuffled sample as uploaded to the room (the CSV the
+    platform provisions), None when there is none."""
+    path = os.path.join(settings.data_folder, f"dcr_output_{cohort}", "shuffled_sample.csv")
+    try:
+        with open(path, "rb") as fh:
+            n = sum(1 for _ in fh) - 1
+        return max(n, 0)
+    except OSError:
+        return None
 
 
 def _runners(record: dict[str, Any], name: str) -> list[str]:
@@ -306,6 +353,22 @@ def room_structure(record: dict[str, Any], nodes: list[dict[str, Any]],
             # The script calls an external package: that package writes its own
             # files into the output folder, which the script does not name.
             item["external_writes"] = bool(item["external_packages"]) and bool(report["external_call_lines"])
+        if kind == "python" and n.get("script"):
+            m = _AIRLOCK_PCT_RE.search(n["script"])
+            if m:
+                item["airlock_percentage"] = int(m.group(1))
+        if kind == "cohort_data":
+            rows = _dataset_rows(n["name"])
+            if rows:
+                item["rows"] = rows
+        elif kind == "shuffled":
+            cohort = n["name"][: -len("_shuffled_sample")]
+            rows = _shuffled_rows(cohort)
+            if rows is not None:
+                item["rows"] = rows
+            total = _dataset_rows(cohort)
+            if total:
+                item["dataset_rows"] = total
         if kind in ("cohort_data", "dictionary", "shuffled", "mapping", "other") and n["type"] in _DATA_TYPES:
             if published is None:
                 item["provisioned"] = None
@@ -315,6 +378,10 @@ def room_structure(record: dict[str, Any], nodes: list[dict[str, Any]],
                     item["provisioned_by"] = published[n["name"]].get("user")
                     item["provisioned_at"] = published[n["name"]].get("timestamp")
         out_nodes.append(item)
+    pct_by_name = {n["name"]: n["airlock_percentage"] for n in out_nodes if n.get("airlock_percentage")}
+    for n in out_nodes:
+        if n["kind"] == "airlock" and n["dependencies"] and n["dependencies"][0] in pct_by_name:
+            n["airlock_percentage"] = pct_by_name[n["dependencies"][0]]
     edges = [{"from": d, "to": n["name"]} for n in out_nodes for d in n["dependencies"]]
     dependents: dict[str, list[str]] = {}
     for e in edges:
@@ -418,6 +485,37 @@ def _room_context(structure: dict[str, Any], record: dict[str, Any], nodes: list
         elif n.get("output_kinds"):
             extra += "; writes: " + ", ".join(n["output_kinds"])
         out.append(f"- {n['name']} ({kinds.get(n['kind'], n['kind'])}; depends on: {', '.join(n['dependencies']) or '-'}{extra})")
+    # The two kinds of test data in the room, with the facts the explanation must state.
+    shuffled = [n for n in structure["nodes"] if n["kind"] == "shuffled"]
+    airlocks = [n for n in structure["nodes"] if n["kind"] == "airlock"]
+    if shuffled or airlocks:
+        out.append("\n# TEST DATA: SHUFFLED SAMPLES AND AIRLOCKS (facts; use them when you describe either)")
+    readers_of: dict[str, list[str]] = {}
+    for n in structure["nodes"]:
+        for d in n["dependencies"]:
+            readers_of.setdefault(d, []).append(n["name"])
+    for n in shuffled:
+        size = (f"{n['rows']:,} rows" if n.get("rows") is not None else "size unknown")
+        if n.get("rows") is not None and n.get("dataset_rows"):
+            size += f" of the cohort's {n['dataset_rows']:,} rows ({100.0 * n['rows'] / n['dataset_rows']:.1f}%)"
+        elif n.get("dataset_rows"):
+            size += f" (the cohort has {n['dataset_rows']:,} rows)"
+        out.append(f"- Shuffled sample `{n['name']}`: {size}. Purpose: lets analysts test that their code runs and "
+                   "behaves correctly on data of the expected types and shapes before running it on the real data. "
+                   "Built by shuffling the values of EVERY column independently, so each column keeps its own "
+                   "distribution but every relation between columns is destroyed: a row is not a real person and "
+                   "nothing can be concluded from associations in it."
+                   + (f" Read by: {', '.join(readers_of.get(n['name'], [])) or 'no node'}."))
+    for n in airlocks:
+        src = n["dependencies"][0] if n["dependencies"] else None
+        pct = f"{n['airlock_percentage']}% of the rows" if n.get("airlock_percentage") else "a limited share of the rows"
+        downstream = readers_of.get(n["name"], [])
+        out.append(f"- Airlock `{n['name']}`: shows the output of `{src}` ({pct}, identifiers dropped, extreme values capped)"
+                   + (f" up to {n['quota_bytes'] // 1_000_000} MB" if n.get("quota_bytes") else "")
+                   + ". Purpose: another way for analysts to test their code on a sample of the data, this time real rows, "
+                   "in the room's Development tab (where a script can read the airlock's content). "
+                   + (f"Nodes downstream that read this airlock: {', '.join(downstream)} (say how each uses it, from its digest)."
+                      if downstream else "No compute node reads this airlock: its content is only viewed by participants and used in the Development tab."))
     out.append("\n# EXITS (every analyst-accessible output, from the room definition)")
     if not structure["exits"]:
         out.append("None: no airlock and no compute node that a participant may run directly.")
