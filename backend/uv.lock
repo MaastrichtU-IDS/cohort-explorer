@@ -367,7 +367,7 @@ wheels = [
 [[package]]
 name = "cohort-explorer-backend"
 version = "0.0.1"
-source = { editable = "backend" }
+source = { editable = "." }
 dependencies = [
     { name = "curies" },
     { name = "decentriq-platform" },
