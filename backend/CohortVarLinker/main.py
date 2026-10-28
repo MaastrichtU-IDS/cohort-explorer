@@ -267,9 +267,9 @@ def _write_pair_csv(mapper: StudyMapper, source_study: str, source_family: list[
                                  mapping_mode=mapping_mode)
         if df.empty:
             continue
-        if "harmonization_status" in df.columns:
-            df = df[df["harmonization_status"].str.strip().str.lower()
-                    != "not applicable"].copy()
+        # if "harmonization_status" in df.columns:
+        #     df = df[df["harmonization_status"].str.strip().str.lower()
+        #             != "not applicable"].copy()  # # Comment out to keep Not Applicable rows. Both LLM rejections (IMPOSSIBLE) and failed LLM calls (parse_failed / empty_response / pending_after retries) end up as Not Applicable, so this filter hides the difference. Delete cached pair CSVs or use force=True.
         if df.empty:
             continue
         df.insert(0, "source_study", src)

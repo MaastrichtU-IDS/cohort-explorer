@@ -21,7 +21,8 @@ from .utils import (
     parse_joined_string,
     create_code_uri,
     split_categories,
-    has_real_value
+    has_real_value,
+    get_var_uri
 )
 from typing import Optional, Any
 
@@ -886,12 +887,12 @@ def get_category_uri(var_uri: URIRef, category_value: str) -> URIRef:
     return URIRef(f"{var_uri}/category/{safe_category_value}")
 
 
-def get_var_uri(cohort_id: str | URIRef, var_id: str) -> URIRef:
-    safe_var_id = normalize_text(var_id)
-    # if safe_var_id == "":
-        # print("Variable ID is empty")
-    # safe_cohort_id = normalize_text(cohort_id)
-    return URIRef(f"{OntologyNamespaces.CMEO.value}{cohort_id}/{safe_var_id}")
+# def get_var_uri(cohort_id: str | URIRef, var_id: str) -> URIRef:
+#     safe_var_id = normalize_text(var_id)
+#     # if safe_var_id == "":
+#         # print("Variable ID is empty")
+#     # safe_cohort_id = normalize_text(cohort_id)
+#     return URIRef(f"{OntologyNamespaces.CMEO.value}{cohort_id}/{safe_var_id}")
 
 # def get_context_uri(var_uri: str | URIRef, context_id: str) -> URIRef: 
 #     safe_context_id = normalize_text(context_id)

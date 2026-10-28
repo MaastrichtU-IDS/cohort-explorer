@@ -358,10 +358,13 @@ STUDY_TYPES = {
 
 
 
+
 def normalize_text(text: str) -> str:
     if text is None or text == "nan" or text == "":
         return None
-    text =str(text).lower().strip().replace(" ", "_").replace("/", "_").replace(":", "_").replace('[','').replace(']','')
+    text = urllib.parse.unquote(str(text))          # added
+    text = text.lower().strip().replace(" ", "_").replace("/", "_") \
+               .replace(":", "_").replace('[', '').replace(']', '')
     return urllib.parse.quote(text, safe='_-')
 
 
