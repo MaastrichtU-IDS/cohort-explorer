@@ -340,9 +340,17 @@ def generate_mapping_csv(source_study: str, target_studies: list,
                          embed_model: str = API_EMBED_MODEL,
                          embedding_mode: str = API_EMBEDDING_MODE,
                          mapping_mode: str = API_MAPPING_MODE,
-                         llm_model: Optional[str] = API_LLM_MODEL) -> dict:
+                         llm_model: Optional[str] = API_LLM_MODEL,
+                         force_targets: Optional[list[str]] = None) -> dict:
     """Map `source_study` onto every requested target, caching per pair.
+
+    `force` recomputes every pair; `force_targets` recomputes only the pairs
+    whose target (after family expansion) is named, taking the others from
+    the cache. A recomputed pair replaces its cached CSV only once the new
+    one is complete (atomic rename in _write_pair_csv), so a failed or empty
+    run leaves the previous file in place.
     """
+    forced = {str(t).strip().lower() for t in (force_targets or []) if str(t).strip()}
     started = time.time()
     out_dir = settings.output_dir
     os.makedirs(out_dir, exist_ok=True)
@@ -402,10 +410,12 @@ def generate_mapping_csv(source_study: str, target_studies: list,
         stale_by = _is_stale(source_study, tgt, cache_mtime, source_dict_mtime,
                              dictionary_timestamps.get(tgt))
 
-        if stale_by or force:
+        if stale_by or force or tgt in forced:
             entry = {**pair, "timestamp": cache_mtime}
             if stale_by:
                 entry["outdated_cohort"] = stale_by
+            elif tgt in forced:
+                entry["forced"] = True
             outdated_pairs.append(entry)
             to_compute.append(tgt)
         else:
@@ -427,7 +437,7 @@ def generate_mapping_csv(source_study: str, target_studies: list,
                 # on disk now and fresh. Take it instead of spending another 15
                 # minutes producing the identical file.
                 csv_path = _find_pair_csv(source_study, tgt, cfg)
-                if not force and csv_path is not None:
+                if not force and tgt not in forced and csv_path is not None:
                     cache_mtime = os.path.getmtime(csv_path)
                     if not _is_stale(source_study, tgt, cache_mtime, source_dict_mtime,
                                      dictionary_timestamps.get(tgt)):

@@ -1421,6 +1421,9 @@ export default function MappingPage() {
   const [cachedFiles, setCachedFiles] = useState<any[]>([]);
   const [loadingCacheFiles, setLoadingCacheFiles] = useState(false);
   const [loadingCacheAction, setLoadingCacheAction] = useState<string | null>(null);
+  // Forced recompute of one cached pair from the cached pairs panel
+  const [recomputingPair, setRecomputingPair] = useState<{filename: string, label: string} | null>(null);
+  const [recomputeNotice, setRecomputeNotice] = useState<{kind: 'success' | 'error', text: string} | null>(null);
   
   // Reference to the mapping output section
   const mappingOutputRef = useRef<HTMLDivElement>(null);
@@ -1519,6 +1522,47 @@ export default function MappingPage() {
       console.error('Failed to preview cached file:', error);
     } finally {
       setLoadingCacheAction(null);
+    }
+  };
+
+  // Recompute one cached pair, ignoring its cached CSV. The backend replaces
+  // the cached file only when the new run completes with rows.
+  const handleCacheRecompute = async (file: any) => {
+    const [source, target] = file.cohorts;
+    const label = `${source} → ${target}`;
+    if (!window.confirm(`Re-compute the mapping ${label}?\n\nThe cached result is ignored and the pair is mapped again from scratch, which may take up to 45 minutes. The cached file is replaced only when the new run succeeds.`)) {
+      return;
+    }
+    setRecomputingPair({ filename: file.filename, label });
+    setRecomputeNotice(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 50 * 60 * 1000); // 50 minutes, as for a new mapping
+    const startedAt = Date.now();
+    try {
+      const response = await fetch(`${apiUrl}/api/recompute-mapping-pair`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_study: source, target_study: target }),
+        signal: controller.signal,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || result.detail || `Failed to re-compute ${label}`);
+      }
+      const seconds = Math.round(result.duration_seconds ?? (Date.now() - startedAt) / 1000);
+      setRecomputeNotice({ kind: 'success', text: `${label} re-computed in ${formatComputeTime(seconds)}; the cached file was replaced.` });
+      await fetchCachedFiles();
+    } catch (err: any) {
+      setRecomputeNotice({
+        kind: 'error',
+        text: err?.name === 'AbortError'
+          ? `The re-compute of ${label} timed out after 50 minutes. It may still be running on the server; if it succeeds, the cached file is replaced and the new date appears here on reload.`
+          : (err?.message || `Failed to re-compute ${label}`),
+      });
+    } finally {
+      clearTimeout(timeoutId);
+      setRecomputingPair(null);
     }
   };
 
@@ -1895,6 +1939,18 @@ export default function MappingPage() {
                 onClick={() => setShowCachePanel(false)}
               >✕</button>
             </div>
+            {recomputingPair && (
+              <div className="mb-2 p-2 rounded text-sm bg-red-50 text-red-800 border border-red-200 flex items-center gap-2">
+                <span className="loading loading-spinner loading-xs"></span>
+                <span>Re-computing <strong>{recomputingPair.label}</strong> from scratch… this may take up to 45 minutes. The cached file is kept until the new run succeeds.</span>
+              </div>
+            )}
+            {recomputeNotice && !recomputingPair && (
+              <div className={`mb-2 p-2 rounded text-sm flex justify-between items-start gap-2 ${recomputeNotice.kind === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+                <span>{recomputeNotice.kind === 'success' ? '✓ ' : ''}{recomputeNotice.text}</span>
+                <button className="btn btn-ghost btn-xs" onClick={() => setRecomputeNotice(null)}>✕</button>
+              </div>
+            )}
             {loadingCacheFiles ? (
               <div className="flex items-center gap-2 py-4 justify-center">
                 <span className="loading loading-spinner loading-sm"></span>
@@ -1977,6 +2033,14 @@ export default function MappingPage() {
                               disabled={loadingCacheAction === file.filename}
                             >
                               Download
+                            </button>
+                            <button
+                              className="btn btn-xs btn-outline border-red-300 text-red-700 bg-red-50 hover:bg-red-100 hover:border-red-400 hover:text-red-800"
+                              onClick={() => handleCacheRecompute(file)}
+                              disabled={recomputingPair !== null || loadingCacheAction === file.filename}
+                              title="Map this pair again from scratch, ignoring the cached result. The cached file is replaced when the new run succeeds."
+                            >
+                              {recomputingPair?.filename === file.filename ? <span className="loading loading-spinner loading-xs"></span> : 'Re-compute'}
                             </button>
                           </div>
                         </td>

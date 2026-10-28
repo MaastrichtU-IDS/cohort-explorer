@@ -21,6 +21,7 @@ from fastapi import Body
 from fastapi.responses import StreamingResponse, JSONResponse
 import io
 import os
+import time
 import sys
 import json
 import glob
@@ -496,6 +497,69 @@ async def generate_mapping(
              f"No mapping output file found for {source_study}",
              ctx={"source": source_study, "targets": list(target_lowers)})
     return JSONResponse(status_code=404, content={"error": "Cache error. Mapping file not found."})
+
+
+@router.post("/recompute-mapping-pair")
+async def recompute_mapping_pair(
+    source_study: str = Body(...),
+    target_study: str = Body(...),
+    user: Any = Depends(get_current_user),
+):
+    """Recompute one cached pair, ignoring its cached CSV.
+
+    The pair is forced through generate_mapping_csv with force_targets, so a
+    target that belongs to a study family does not drag its siblings along.
+    The cached CSV is replaced only when the new run completes with rows; a
+    failed or empty run leaves the previous file untouched and reports so.
+    """
+    from CohortVarLinker.main import generate_mapping_csv, find_cached_csv
+    from CohortVarLinker.src.config import settings as cohort_linker_settings
+
+    source_study = source_study.strip().lower()
+    target_study = target_study.strip().lower()
+    if not source_study or not target_study:
+        raise HTTPException(status_code=400, detail="source_study and target_study are required")
+    if source_study == target_study:
+        raise HTTPException(status_code=400, detail="A study cannot be mapped onto itself")
+
+    with MappingRun(PROCESS_CVL, source=source_study, targets=[target_study],
+                    user=user.get("email", "unknown")):
+        from CohortVarLinker.src import llm_decisions
+        llm_decisions.set_context(requested_by=user.get("email"))
+        log_main(PROCESS_CVL, "recompute_pair",
+                 f"Forced recompute of {source_study} -> {target_study}",
+                 ctx={"source": source_study, "target": target_study,
+                      "user": user.get("email")})
+        started = time.time()
+        cache_info = generate_mapping_csv(source_study, [[target_study, False]],
+                                          force_targets=[target_study])
+
+    computed = cache_info.get("computed_pairs") or []
+    if target_study not in computed:
+        # The pair was skipped (same family as the source) or taken from a
+        # fresher cache written by a concurrent run; nothing was recomputed.
+        skipped = [p["target"] for p in cache_info.get("skipped_pairs") or []]
+        detail = (f"{source_study} -> {target_study} was not recomputed: same study family as the source."
+                  if target_study in skipped else
+                  f"{source_study} -> {target_study} was not recomputed: another run refreshed it meanwhile.")
+        return JSONResponse(status_code=409, content={"error": detail, "cache_info": cache_info})
+
+    # A run with no rows writes nothing, so the previous CSV (if any) is still
+    # there: only a file newer than the run start is the recomputed one.
+    csv_path = find_cached_csv(source_study, target_study, cohort_linker_settings.output_dir)
+    if csv_path is None or os.path.getmtime(csv_path) < started:
+        detail = (f"The recompute of {source_study} -> {target_study} produced no mappings; "
+                  + ("the previous cached file was kept." if csv_path else "nothing was cached."))
+        return JSONResponse(status_code=422, content={"error": detail, "no_mappings": True,
+                                                      "cache_info": cache_info})
+
+    return JSONResponse(content={
+        "source": source_study,
+        "target": target_study,
+        "filename": os.path.basename(csv_path),
+        "duration_seconds": cache_info.get("duration_seconds"),
+        "cache_info": cache_info,
+    })
 
 
 @router.get("/mapping-activity-log")
