@@ -320,14 +320,17 @@ def maintenance_running() -> dict[str, bool]:
 
 
 def invalidate_stale_mapping_caches(source: str, targets: list[str]) -> list[str]:
-    """Delete cached per-pair CSVs that predate their inputs, so CohortVarLinker
-    (which only compares against dictionary mtimes) recomputes them. Returns
-    the deleted file names."""
-    from CohortVarLinker.main import find_cached_csv, study_family
+    """Retire cached per-pair CSVs that predate their inputs (a cohort graph or
+    the vector index rebuilt after them), so CohortVarLinker (which only
+    compares against dictionary mtimes) recomputes them. The files are not
+    deleted: they move to the output folder's replaced_due_to_new_dictionary
+    subfolder, since those rebuilds follow a dictionary upload or new EDA
+    output. Returns the retired file names."""
+    from CohortVarLinker.main import archive_replaced_csv, find_cached_csv, study_family
     from CohortVarLinker.src.config import settings as cvl_settings
     out_dir = cvl_settings.output_dir
     source_family = study_family(source.lower())
-    deleted = []
+    retired = []
     for target in targets:
         for member in study_family(target.lower()):
             cutoff = inputs_changed_at(source_family + [member])
@@ -335,11 +338,11 @@ def invalidate_stale_mapping_caches(source: str, targets: list[str]) -> list[str
                 path = find_cached_csv(source, member, out_dir)
                 if not path or os.path.getmtime(path) >= cutoff:
                     break
-                os.remove(path)
-                deleted.append(os.path.basename(path))
-    if deleted:
-        logger.info("[mapping_maintenance] removed stale mapping caches: %s", deleted)
-    return deleted
+                archive_replaced_csv(path, "new_dictionary")
+                retired.append(os.path.basename(path))
+    if retired:
+        logger.info("[mapping_maintenance] moved stale mapping caches to replaced_due_to_new_dictionary/: %s", retired)
+    return retired
 
 
 # ---------------------------------------------------------------------------

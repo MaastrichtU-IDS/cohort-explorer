@@ -253,12 +253,53 @@ def _is_stale(source_study: str, target: str, cache_mtime: float,
     return None
 
 
+# A cached pair CSV that gets replaced is kept under settings.output_dir in a
+# subfolder named for why it was replaced:
+#   replaced_due_to_new_dictionary - one of the pair's inputs (dictionary, cohort
+#       graph, vector index) is newer than the mapping, so it was recomputed or
+#       invalidated (src/mapping_maintenance.invalidate_stale_mapping_caches)
+#   replaced_due_to_user_request   - a user forced the recompute (force /
+#       force_targets, e.g. the Re-compute button of the mapping page)
+REPLACED_SUBFOLDERS = {
+    "new_dictionary": "replaced_due_to_new_dictionary",
+    "user_request": "replaced_due_to_user_request",
+}
+
+
+def archive_replaced_csv(path: str, reason: str) -> Optional[str]:
+    """Move a cached pair CSV that is being replaced into the subfolder for
+    `reason` (a key of REPLACED_SUBFOLDERS). The file keeps its name with the
+    time of its last write appended, so successive replacements of the same
+    pair never overwrite each other. Returns the new path, or None when there
+    was nothing to move. Subfolder names carry no .csv suffix, so every flat
+    scan of the output folder (cache lookups, file listings) ignores them."""
+    if not path or not os.path.isfile(path):
+        return None
+    folder = os.path.join(os.path.dirname(path), REPLACED_SUBFOLDERS[reason])
+    os.makedirs(folder, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime(os.path.getmtime(path)))
+    stem, ext = os.path.splitext(os.path.basename(path))
+    dest = os.path.join(folder, f"{stem}__replaced_{stamp}{ext}")
+    n = 1
+    while os.path.exists(dest):
+        n += 1
+        dest = os.path.join(folder, f"{stem}__replaced_{stamp}_{n}{ext}")
+    os.replace(path, dest)
+    print(f"[api] archived replaced cache {os.path.basename(path)} -> {REPLACED_SUBFOLDERS[reason]}/")
+    return dest
+
+
 def _write_pair_csv(mapper: StudyMapper, source_study: str, source_family: list[str],
-                    target: str, embed_model: str, mapping_mode: str, cfg: str) -> int:
+                    target: str, embed_model: str, mapping_mode: str, cfg: str,
+                    replace_reason: str = "user_request") -> int:
     """Map every source-family member onto `target` and write one CSV.
 
     Source-family rows share a single file named for the study the caller asked
     for; the source_study/target_study columns keep each row self-describing.
+
+    A cached CSV this run replaces is first moved to the subfolder for
+    `replace_reason` (see REPLACED_SUBFOLDERS); the move happens only once the
+    new file is complete, so a failed or empty run leaves the cache untouched.
     """
     parts = []
     for src in source_family:
@@ -290,6 +331,12 @@ def _write_pair_csv(mapper: StudyMapper, source_study: str, source_family: list[
     final_path = _cross_mapping_csv_path(source_study, target, cfg)
     tmp_path = f"{final_path}.tmp{os.getpid()}"
     combined.to_csv(tmp_path, index=False)
+    # The new file is complete on disk: now retire what it replaces - the file
+    # the cache lookup would have served (possibly a legacy *_full.csv) and the
+    # exact-name file if that is a different one.
+    previous = _find_pair_csv(source_study, target, cfg)
+    for old_path in dict.fromkeys(p for p in (previous, final_path) if p and os.path.exists(p)):
+        archive_replaced_csv(old_path, replace_reason)
     os.replace(tmp_path, final_path)
 
     print(f"[api] {len(combined)} rows -> {os.path.basename(final_path)}")
@@ -396,6 +443,10 @@ def generate_mapping_csv(source_study: str, target_studies: list,
 
     cached_pairs, uncached_pairs, outdated_pairs = [], [], []
     to_compute: list[str] = []
+    # Why each recomputed pair replaces its cache (key of REPLACED_SUBFOLDERS).
+    # A stale pair counts as new_dictionary even when it was also forced: it
+    # would have been recomputed anyway, and that is the fact worth keeping.
+    replace_reasons: dict[str, str] = {}
 
     for tgt in effective_targets:
         pair = {"source": source_study, "target": tgt}
@@ -416,6 +467,7 @@ def generate_mapping_csv(source_study: str, target_studies: list,
                 entry["outdated_cohort"] = stale_by
             elif tgt in forced:
                 entry["forced"] = True
+            replace_reasons[tgt] = "new_dictionary" if stale_by else "user_request"
             outdated_pairs.append(entry)
             to_compute.append(tgt)
         else:
@@ -447,7 +499,8 @@ def generate_mapping_csv(source_study: str, target_studies: list,
                 llm_decisions.begin_pair(source_study, tgt)
                 try:
                     _write_pair_csv(mapper, source_study, source_family, tgt,
-                                    embed_model, mapping_mode, cfg)
+                                    embed_model, mapping_mode, cfg,
+                                    replace_reason=replace_reasons.get(tgt, "user_request"))
                 except Exception as exc:
                     llm_decisions.end_pair(status="failed", error=f"{type(exc).__name__}: {exc}")
                     llm_decisions.end_run(decisions_run_id, status="failed", error=f"{type(exc).__name__}: {exc}")

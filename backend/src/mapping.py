@@ -429,7 +429,8 @@ async def generate_mapping(
     target_names = [t[0] for t in target_studies]
 
     # generate_mapping_csv only compares cached CSVs against the dictionaries;
-    # drop the ones that predate a graph or vector-index rebuild so it recomputes them.
+    # retire the ones that predate a graph or vector-index rebuild (moved to the
+    # replaced_due_to_new_dictionary subfolder) so it recomputes them.
     from src.mapping_maintenance import invalidate_stale_mapping_caches
     invalidate_stale_mapping_caches(source_study, target_names)
 
