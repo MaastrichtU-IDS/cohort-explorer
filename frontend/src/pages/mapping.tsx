@@ -1530,9 +1530,6 @@ export default function MappingPage() {
   const handleCacheRecompute = async (file: any) => {
     const [source, target] = file.cohorts;
     const label = `${source} → ${target}`;
-    if (!window.confirm(`Re-compute the mapping ${label}?\n\nThe cached result is ignored and the pair is mapped again from scratch, which may take up to 45 minutes. The cached file is replaced only when the new run succeeds.`)) {
-      return;
-    }
     setRecomputingPair({ filename: file.filename, label });
     setRecomputeNotice(null);
     const controller = new AbortController();
@@ -1931,7 +1928,7 @@ export default function MappingPage() {
 
         {/* Cached pairs panel - overlays source/target boxes */}
         {showCachePanel && (
-          <div className="absolute inset-x-0 top-10 z-10 p-4 border rounded-lg bg-base-100 shadow-lg flex flex-col overflow-auto" style={{minHeight: '400px', maxHeight: 'calc(100% - 2.5rem)' }}>
+          <div className="absolute left-1/2 -translate-x-1/2 w-[min(96vw,88rem)] top-10 z-10 p-4 border rounded-lg bg-base-100 shadow-lg flex flex-col overflow-auto" style={{minHeight: '400px', maxHeight: 'calc(100% - 2.5rem)' }}>
             <div className="flex justify-between items-center mb-2">
               <span className="text-sm font-semibold">Cached Pairs</span>
               <button
@@ -1960,7 +1957,7 @@ export default function MappingPage() {
               <p className="text-sm text-gray-500 text-center py-2">No cached mapping pairs found.</p>
             ) : (
               <div className="overflow-x-auto flex-1">
-                <table className="table table-zebra table-sm w-full">
+                <table className="table table-zebra table-sm min-w-full w-max">
                   <thead>
                     <tr>
                       <th className="bg-base-300 whitespace-nowrap">Cohorts</th>
@@ -2011,8 +2008,8 @@ export default function MappingPage() {
                         <td className="text-xs text-center whitespace-nowrap" title={file.compute ? `${file.compute.llm_calls} calls to ${file.compute.model || 'the LLM'} for ${file.compute.llm_pairs} variable pairs${file.compute.llm_cached ? ` (${file.compute.llm_cached} answered from the response cache)` : ''}` : undefined}>
                           {file.compute ? <>{file.compute.llm_calls} <span className="text-gray-400">/ {file.compute.llm_pairs} pairs</span></> : '—'}
                         </td>
-                        <td className="text-xs">
-                          <div className="flex gap-1">
+                        <td className="text-xs whitespace-nowrap">
+                          <div className="flex flex-nowrap gap-1">
                             <button
                               className="btn btn-xs btn-outline"
                               onClick={() => handleCachePreview(file)}
