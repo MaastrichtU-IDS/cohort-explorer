@@ -436,11 +436,18 @@ def load_cached_rows(filenames: list[str]) -> list[dict]:
 
 
 def _cache_hits(rows: list[dict], a: dict, b: dict) -> list[dict]:
-    """Rows linking variable a (cohort A) and b (cohort B) in either direction."""
+    """Rows linking variable a (cohort A) and b (cohort B) in either direction.
+
+    Rows with status Not Applicable are skipped: since the cross-study mapping
+    keeps them in the pair CSVs (CohortVarLinker main._write_pair_csv), the cache
+    also holds the pairs the LLM rejected or could not decide, and those are not
+    evidence for a mapping."""
     ca, cb = a["cohort_id"].lower(), b["cohort_id"].lower()
     na, nb = a["var_name"].lower(), b["var_name"].lower()
     hits = []
     for r in rows:
+        if r["status"].lower() == "not applicable":
+            continue
         if r["source_study"] == ca and r["target_study"] == cb and r["source"].lower() == na and r["target"].lower() == nb:
             hits.append({**r, "direction": "a->b"})
         elif r["source_study"] == cb and r["target_study"] == ca and r["source"].lower() == nb and r["target"].lower() == na:
