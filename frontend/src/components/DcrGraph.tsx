@@ -15,6 +15,7 @@ export const KIND_STYLE: Record<RoomNodeKind, {fill: string; stroke: string; lab
   shuffled: {fill: '#ede9fe', stroke: '#6d28d9', label: 'shuffled sample (synthetic rows)'},
   mapping: {fill: '#ffedd5', stroke: '#c2410c', label: 'cross-study mapping file'},
   python: {fill: '#fefce8', stroke: '#a16207', label: 'python compute node'},
+  r: {fill: '#e0f2fe', stroke: '#0369a1', label: 'R compute node (installs packages from CRAN at run time)'},
   airlock: {fill: '#fee2e2', stroke: '#f87171', label: 'airlock (controlled exit for row-level data)'},
   environment: {fill: '#f5f5f4', stroke: '#78716c', label: 'custom python environment'},
   other: {fill: '#f5f5f4', stroke: '#78716c', label: 'other'}
@@ -45,7 +46,7 @@ function MiniShape({n, stroke, strokeWidth, dashed, noData}: {n: RoomNode; strok
   const fill = noData ? '#f9fafb' : st.fill;
   const cx = MINI_W / 2, cy = MINI_H / 2;
   const dash = noData ? '2 2' : dashed ? '3 2' : undefined;
-  if (n.kind === 'python') return <rect width={MINI_W} height={MINI_H} rx={3} fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={dash} />;
+  if (n.kind === 'python' || n.kind === 'r') return <rect width={MINI_W} height={MINI_H} rx={3} fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={dash} />;
   if (n.kind === 'airlock') return <path d={`M ${cx} 0 L ${MINI_W} ${cy} L ${cx} ${MINI_H} L 0 ${cy} Z`} fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={dash} />;
   if (n.kind === 'environment' || n.kind === 'other') return <rect x={cx - 5} y={cy - 5} width={10} height={10} fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={dash} />;
   return <circle cx={cx} cy={cy} r={6.5} fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={dash} />;
@@ -144,7 +145,7 @@ export function DcrGraph({
       cols.get(d)!.push(n);
     });
     // Within a stage: data kinds first, then by name, so each cohort's nodes stay together.
-    const order: Record<RoomNodeKind, number> = {cohort_data: 0, dictionary: 1, shuffled: 2, mapping: 3, environment: 4, python: 5, airlock: 6, other: 7};
+    const order: Record<RoomNodeKind, number> = {cohort_data: 0, dictionary: 1, shuffled: 2, mapping: 3, environment: 4, python: 5, r: 6, airlock: 7, other: 8};
     const positions = new Map<string, {x: number; y: number}>();
     let maxPerStage = 0;
     const stageGap = (mini ? MINI_STAGE_GAP : STAGE_GAP)[orientation];

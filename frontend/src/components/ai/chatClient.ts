@@ -758,6 +758,7 @@ export type RoomNodeKind =
   | 'shuffled'
   | 'mapping'
   | 'python'
+  | 'r'
   | 'airlock'
   | 'environment'
   | 'other';

@@ -1874,3 +1874,340 @@ with open(output_file, "w") as f:
     f.write("=" * 80 + "\\n")
     f.write("\\nReport written to {}\\n".format(output_file))
 """
+
+
+# ---------------------------------------------------------------------------
+# Optional R compute node ("load-R-packages")
+# ---------------------------------------------------------------------------
+
+R_PACKAGES_NODE_NAME = "load-R-packages"
+
+# The node may reach these domains only (ProxyConfiguration.allow_list); every
+# domain it accesses is recorded by the platform in accessed_domains.txt of
+# the node's result.
+R_CRAN_DOMAINS = ["cloud.r-project.org"]
+
+# Packages the node installs from CRAN at runtime (those the built-in R
+# environment already provides are only loaded) and then loads with library().
+R_PACKAGES = [
+    "survival", "LTRCtrees", "LTRCforests", "ksamplesLTRC", "dplyr", "data.table",
+    "miceRanger", "ggplot2", "Amelia", "plotly", "grf", "readr", "pROC", "glmnet",
+    "xgboost", "caret", "tibble", "isotone", "mgcv", "CBPS", "WeightIt", "scales",
+    "zoo", "purrr", "MuMIn", "merTools", "corrr", "DHARMa", "forestplot", "timeROC",
+    "RMediation", "forestploter", "showtext", "sysfonts",
+]
+
+
+def r_packages_script(inputs: list[dict]) -> str:
+    """The R script of the "load-R-packages" node.
+
+    `inputs` lists the CSV file(s) the node analyses, each a dict with
+      - 'label':  short tag used in the output file names (e.g. "merged")
+      - 'path':   the file inside the node (e.g. /input/<merge_node>/pooled_dataset.csv)
+      - 'source': what the file is, in words, for the script header
+
+    The script installs the packages of R_PACKAGES from CRAN (skipping those the
+    environment ships with), loads them, and runs a few basic statistics and
+    plots with some of them over each input: per-column summary statistics,
+    missingness per column, distributions of the most complete numeric
+    columns, pairwise correlations, and - when a follow-up time and an event
+    column can be recognised - a Kaplan-Meier curve and a logistic regression.
+    Every file it writes holds aggregates only: no data rows leave the node.
+    """
+    r_inputs = ",\n".join(
+        '  list(label = "{label}", path = "{path}")'.format(
+            label=str(i["label"]).replace('"', ""), path=str(i["path"]).replace('"', ""))
+        for i in inputs
+    )
+    sources = "\n".join(f"#   - {i['path']}  ({i['source']})" for i in inputs)
+    packages = ", ".join(f'"{p}"' for p in R_PACKAGES)
+    return _R_PACKAGES_SCRIPT.replace("__INPUT_SOURCES__", sources) \
+                             .replace("__INPUTS__", r_inputs) \
+                             .replace("__PACKAGES__", packages) \
+                             .replace("__CRAN__", f"https://{R_CRAN_DOMAINS[0]}")
+
+
+_R_PACKAGES_SCRIPT = r'''###############################################################################
+# LOAD R PACKAGES - an R compute node you can run as is and copy
+#
+# This node shows how to work in R, with packages beyond the built-in R
+# environment, on the data of this clean room. Its input file(s):
+__INPUT_SOURCES__
+#
+# What it does:
+#   1. Installs the packages listed in PACKAGES from CRAN at run time - the node
+#      is allowed outbound access to cloud.r-project.org ONLY, and the platform
+#      records every domain it reaches in accessed_domains.txt of the result.
+#      Packages the environment already provides are not reinstalled. The
+#      outcome per package goes to r_packages_status.csv (already available /
+#      installed / FAILED). Installing from CRAN compiles most packages from
+#      source: expect the first run to take a long time, and a package that
+#      needs a system library the environment lacks to fail - the analyses
+#      below only use a package when it loaded.
+#   2. Loads every available package with library().
+#   3. Runs basic statistics and plots over each input, writing AGGREGATES ONLY
+#      to /output (never data rows):
+#        summary_stats_<input>.csv        n, missing, mean, sd, quartiles per numeric column
+#        column_types_<input>.csv         how many columns of each type (dplyr)
+#        missingness_<input>.png          share of missing values per column (ggplot2, scales)
+#        distributions_<input>.png        histograms of the most complete numeric columns (ggplot2)
+#        correlations_<input>.csv/.png    pairwise correlations of numeric columns (corrr, ggplot2)
+#        kaplan_meier_<input>.png/.csv    survival curve when a follow-up time and an event
+#                                         column are recognised by name (survival)
+#        logistic_regression_<input>.csv  event ~ most complete numeric columns (glm)
+#        README.txt                       what ran and what was skipped, and why
+#
+# To use it on the airlock fragment in the Development tab instead, point the
+# path in INPUTS at /input/<airlock node>/dataset.csv.
+###############################################################################
+
+PACKAGES <- c(__PACKAGES__)
+CRAN <- "__CRAN__"
+INPUTS <- list(
+__INPUTS__
+)
+OUT <- "/output"
+dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
+options(repos = c(CRAN = CRAN), warn = 1, timeout = 600, width = 160)
+
+notes <- character(0)
+note <- function(...) {
+  msg <- paste0(...)
+  cat(msg, "\n")
+  notes <<- c(notes, msg)
+}
+
+# ---- 1. install what is missing, from CRAN -----------------------------------
+available <- function(pkg) suppressWarnings(requireNamespace(pkg, quietly = TRUE))
+
+status <- data.frame(package = PACKAGES, status = NA_character_, seconds = NA_real_,
+                     stringsAsFactors = FALSE)
+for (i in seq_along(PACKAGES)) {
+  pkg <- PACKAGES[i]
+  if (available(pkg)) {
+    status$status[i] <- "already available"
+    next
+  }
+  t0 <- Sys.time()
+  cat("Installing", pkg, "from CRAN ...\n")
+  tryCatch(
+    suppressWarnings(install.packages(pkg, repos = CRAN, quiet = TRUE,
+                                      dependencies = c("Depends", "Imports", "LinkingTo"))),
+    error = function(e) cat("  install.packages(", pkg, ") raised: ", conditionMessage(e), "\n", sep = "")
+  )
+  status$seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1)
+  status$status[i] <- if (available(pkg)) "installed" else "FAILED"
+}
+write.csv(status, file.path(OUT, "r_packages_status.csv"), row.names = FALSE)
+cat("\nPackage status:\n")
+print(status, row.names = FALSE)
+
+# ---- 2. load every available package ----------------------------------------
+loaded <- character(0)
+for (pkg in PACKAGES) {
+  if (available(pkg)) {
+    suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+    loaded <- c(loaded, pkg)
+  }
+}
+note("Loaded packages: ", paste(loaded, collapse = ", "))
+failed <- status$package[status$status == "FAILED"]
+if (length(failed) > 0) note("Not available (install failed): ", paste(failed, collapse = ", "))
+has <- function(pkg) pkg %in% loaded
+
+# ---- helpers ----------------------------------------------------------------
+read_table <- function(path) {
+  if (!file.exists(path)) stop("input not found: ", path)
+  na <- c("", "NA", "NaN", "null", "NULL", "None")
+  if (has("data.table")) {
+    as.data.frame(data.table::fread(path, na.strings = na, showProgress = FALSE))
+  } else {
+    read.csv(path, na.strings = na, check.names = FALSE, stringsAsFactors = FALSE)
+  }
+}
+
+# Columns that look like a follow-up time / an event indicator / a study label,
+# recognised by name and content. Returns NULL when nothing fits.
+find_time_col <- function(df, exclude = character(0)) {
+  cand <- names(df)[grepl("time|follow|fu_|duration|days|months|years|survival", names(df), ignore.case = TRUE)]
+  cand <- setdiff(cand, exclude)
+  cand <- cand[vapply(cand, function(c) is.numeric(df[[c]]) && sum(!is.na(df[[c]])) > 20, logical(1))]
+  if (length(cand) == 0) NULL else cand[which.max(vapply(cand, function(c) sum(!is.na(df[[c]])), numeric(1)))]
+}
+as_event <- function(x) {
+  if (is.logical(x)) return(as.integer(x))
+  if (is.numeric(x) && all(x[!is.na(x)] %in% c(0, 1))) return(as.integer(x))
+  v <- tolower(trimws(as.character(x)))
+  if (all(v[!is.na(v)] %in% c("yes", "no"))) return(as.integer(v == "yes"))
+  if (all(v[!is.na(v)] %in% c("true", "false"))) return(as.integer(v == "true"))
+  NULL
+}
+find_event_col <- function(df) {
+  cand <- names(df)[grepl("death|dead|died|event|status|mortal|outcome", names(df), ignore.case = TRUE)]
+  for (c in cand) {
+    ev <- as_event(df[[c]])
+    if (!is.null(ev) && sum(!is.na(ev)) > 20 && length(unique(na.omit(ev))) == 2) return(c)
+  }
+  NULL
+}
+find_group_col <- function(df) {
+  cand <- names(df)[grepl("^(study|cohort|source_study|study_name|dataset)$", names(df), ignore.case = TRUE)]
+  for (c in cand) {
+    k <- length(unique(na.omit(df[[c]])))
+    if (k >= 2 && k <= 12) return(c)
+  }
+  NULL
+}
+write_table <- function(x, file) {
+  x <- as.data.frame(x)
+  if (has("readr")) readr::write_csv(x, file.path(OUT, file)) else write.csv(x, file.path(OUT, file), row.names = FALSE)
+}
+save_plot <- function(p, file, width = 10, height = 6) {
+  ggplot2::ggsave(file.path(OUT, file), p, width = width, height = height, dpi = 120, bg = "white")
+  note("wrote ", file)
+}
+
+# ---- 3. basic statistics and plots per input ---------------------------------
+for (inp in INPUTS) {
+  label <- inp$label
+  cat("\n==== ", label, " (", inp$path, ") ====\n", sep = "")
+  df <- tryCatch(read_table(inp$path), error = function(e) { note(label, ": could not read - ", conditionMessage(e)); NULL })
+  if (is.null(df)) next
+  note(label, ": ", nrow(df), " rows x ", ncol(df), " columns")
+
+  num_cols <- names(df)[vapply(df, is.numeric, logical(1))]
+  complete <- vapply(df, function(x) sum(!is.na(x)), numeric(1))
+
+  # summary statistics of every numeric column (aggregates)
+  if (length(num_cols) > 0) {
+    stats <- do.call(rbind, lapply(num_cols, function(c) {
+      x <- df[[c]]
+      data.frame(column = c, n = sum(!is.na(x)), missing = sum(is.na(x)),
+                 mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE),
+                 min = suppressWarnings(min(x, na.rm = TRUE)),
+                 q25 = unname(quantile(x, 0.25, na.rm = TRUE)),
+                 median = median(x, na.rm = TRUE),
+                 q75 = unname(quantile(x, 0.75, na.rm = TRUE)),
+                 max = suppressWarnings(max(x, na.rm = TRUE)),
+                 stringsAsFactors = FALSE)
+    }))
+    stats[, -1] <- lapply(stats[, -1], function(v) round(v, 4))
+    write.csv(stats, file.path(OUT, paste0("summary_stats_", label, ".csv")), row.names = FALSE)
+    note("wrote summary_stats_", label, ".csv (", length(num_cols), " numeric columns)")
+  } else {
+    note(label, ": no numeric column, summary statistics skipped")
+  }
+
+  # how many columns of each type (dplyr)
+  if (has("dplyr")) {
+    types <- tibble::tibble(column = names(df), type = vapply(df, function(x) class(x)[1], character(1)),
+                            complete = complete) %>%
+      dplyr::group_by(type) %>%
+      dplyr::summarise(columns = dplyr::n(), mean_complete = round(mean(complete), 1), .groups = "drop")
+    write_table(types, paste0("column_types_", label, ".csv"))
+    note("wrote column_types_", label, ".csv")
+  }
+
+  # missingness per column (ggplot2 + scales)
+  if (has("ggplot2")) {
+    miss <- data.frame(column = names(df), missing = 1 - complete / nrow(df), stringsAsFactors = FALSE)
+    miss <- miss[order(-miss$missing), ][seq_len(min(40, nrow(miss))), ]
+    p <- ggplot2::ggplot(miss, ggplot2::aes(x = reorder(column, missing), y = missing)) +
+      ggplot2::geom_col(fill = "#c0392b") +
+      ggplot2::coord_flip() +
+      ggplot2::scale_y_continuous(labels = if (has("scales")) scales::percent else ggplot2::waiver(), limits = c(0, 1)) +
+      ggplot2::labs(title = paste0("Missing values per column - ", label),
+                    subtitle = paste0(nrow(df), " rows; the ", nrow(miss), " columns with most missing values"),
+                    x = NULL, y = "share missing") +
+      ggplot2::theme_minimal(base_size = 11)
+    save_plot(p, paste0("missingness_", label, ".png"), height = 8)
+  }
+
+  # distributions of the most complete numeric columns (ggplot2)
+  if (has("ggplot2") && length(num_cols) > 0) {
+    top <- head(num_cols[order(-complete[num_cols])], 8)
+    long <- do.call(rbind, lapply(top, function(c) data.frame(column = c, value = df[[c]][!is.na(df[[c]])])))
+    p <- ggplot2::ggplot(long, ggplot2::aes(x = value)) +
+      ggplot2::geom_histogram(bins = 30, fill = "#2e86c1", colour = "white") +
+      ggplot2::facet_wrap(~ column, scales = "free", ncol = 4) +
+      ggplot2::labs(title = paste0("Distributions - ", label), x = NULL, y = "count") +
+      ggplot2::theme_minimal(base_size = 11)
+    save_plot(p, paste0("distributions_", label, ".png"), height = 5)
+  }
+
+  # pairwise correlations of numeric columns (corrr + ggplot2)
+  cor_cols <- head(num_cols[order(-complete[num_cols])], 20)
+  cor_cols <- cor_cols[vapply(cor_cols, function(c) sd(df[[c]], na.rm = TRUE) > 0, logical(1))]
+  if (length(cor_cols) >= 2) {
+    if (has("corrr")) {
+      cm <- corrr::correlate(df[, cor_cols], use = "pairwise.complete.obs", quiet = TRUE)
+      long <- corrr::stretch(cm)
+      write_table(cm, paste0("correlations_", label, ".csv"))
+    } else {
+      cm <- cor(df[, cor_cols], use = "pairwise.complete.obs")
+      write_table(data.frame(term = rownames(cm), round(cm, 4), check.names = FALSE), paste0("correlations_", label, ".csv"))
+      long <- data.frame(x = rep(rownames(cm), ncol(cm)), y = rep(colnames(cm), each = nrow(cm)), r = as.vector(cm))
+    }
+    note("wrote correlations_", label, ".csv (", length(cor_cols), " columns)")
+    if (has("ggplot2")) {
+      p <- ggplot2::ggplot(long, ggplot2::aes(x = x, y = y, fill = r)) +
+        ggplot2::geom_tile() +
+        ggplot2::scale_fill_gradient2(low = "#2166ac", mid = "white", high = "#b2182b", limits = c(-1, 1), na.value = "grey90") +
+        ggplot2::labs(title = paste0("Pairwise correlations - ", label), x = NULL, y = NULL) +
+        ggplot2::theme_minimal(base_size = 10) +
+        ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
+      save_plot(p, paste0("correlation_heatmap_", label, ".png"), width = 9, height = 8)
+    }
+  } else {
+    note(label, ": fewer than two varying numeric columns, correlations skipped")
+  }
+
+  # survival: Kaplan-Meier when a follow-up time and an event column are recognised
+  event_col <- find_event_col(df)
+  time_col <- if (is.null(event_col)) NULL else find_time_col(df, exclude = event_col)
+  if (!is.null(event_col) && !is.null(time_col) && has("survival")) {
+    sd_ <- data.frame(time = df[[time_col]], event = as_event(df[[event_col]]))
+    group_col <- find_group_col(df)
+    if (!is.null(group_col)) sd_$group <- as.factor(df[[group_col]])
+    sd_ <- sd_[!is.na(sd_$time) & !is.na(sd_$event) & sd_$time >= 0, ]
+    fit <- if (!is.null(group_col)) survival::survfit(survival::Surv(time, event) ~ group, data = sd_)
+           else survival::survfit(survival::Surv(time, event) ~ 1, data = sd_)
+    png(file.path(OUT, paste0("kaplan_meier_", label, ".png")), width = 1000, height = 650)
+    plot(fit, col = seq_len(max(1, length(fit$strata))), lwd = 2, xlab = time_col, ylab = "survival probability",
+         main = paste0("Kaplan-Meier - ", label, " (event: ", event_col, ")"))
+    if (!is.null(group_col)) legend("bottomleft", legend = names(fit$strata), col = seq_along(fit$strata), lwd = 2, bty = "n")
+    dev.off()
+    note("wrote kaplan_meier_", label, ".png (time: ", time_col, ", event: ", event_col,
+         if (!is.null(group_col)) paste0(", by ", group_col) else "", ")")
+    probs <- c(0.25, 0.5, 0.75)
+    sfit <- summary(fit, times = unname(quantile(sd_$time, probs)), extend = TRUE)
+    surv_tab <- data.frame(stratum = if (is.null(sfit$strata)) "all" else as.character(sfit$strata),
+                           time = sfit$time, n_risk = sfit$n.risk, n_event = sfit$n.event,
+                           survival = round(sfit$surv, 4), lower95 = round(sfit$lower, 4), upper95 = round(sfit$upper, 4))
+    write.csv(surv_tab, file.path(OUT, paste0("kaplan_meier_", label, ".csv")), row.names = FALSE)
+
+    # logistic regression of the event on the most complete numeric columns (glm)
+    covs <- head(setdiff(cor_cols, c(time_col, event_col)), 5)
+    if (length(covs) >= 1) {
+      md <- df[, covs, drop = FALSE]
+      md$event <- as_event(df[[event_col]])
+      md <- md[complete.cases(md), ]
+      if (nrow(md) > 10 * (length(covs) + 1)) {
+        fit_glm <- glm(event ~ ., data = md, family = binomial())
+        co <- as.data.frame(summary(fit_glm)$coefficients)
+        co <- data.frame(term = rownames(co), estimate = round(co[, 1], 4), std_error = round(co[, 2], 4),
+                         odds_ratio = round(exp(co[, 1]), 4), p_value = signif(co[, 4], 3), n = nrow(md))
+        write.csv(co, file.path(OUT, paste0("logistic_regression_", label, ".csv")), row.names = FALSE)
+        note("wrote logistic_regression_", label, ".csv (", event_col, " ~ ", paste(covs, collapse = " + "), ")")
+      }
+    }
+  } else {
+    note(label, ": no follow-up time / event column recognised by name (or 'survival' not loaded); survival analysis skipped")
+  }
+}
+
+writeLines(c("load-R-packages - run summary", paste0("R ", R.version.string), "", notes),
+           file.path(OUT, "README.txt"))
+cat("\nDone. Files in", OUT, ":\n")
+print(list.files(OUT))
+'''

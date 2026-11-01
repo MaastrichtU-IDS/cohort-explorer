@@ -177,6 +177,8 @@ def _kind(n: dict[str, Any]) -> str:
         return "environment"
     if t == "PythonComputeNodeDefinition":
         return "python"
+    if t == "RComputeNodeDefinition":
+        return "r"
     if t in _DATA_TYPES:
         if name.endswith("_metadata_dictionary") or name.endswith("-metadata"):
             return "dictionary"
@@ -393,7 +395,7 @@ def room_structure(record: dict[str, Any], nodes: list[dict[str, Any]],
             src = n["dependencies"][0] if n["dependencies"] else None
             exits.append({"node": n["name"], "kind": "airlock", "shows_output_of": src,
                           "quota_bytes": n.get("quota_bytes"), "viewers": n["runners"]})
-        elif n["kind"] == "python" and n["runners"]:
+        elif n["kind"] in ("python", "r") and n["runners"]:
             exits.append({"node": n["name"], "kind": "runnable", "runners": n["runners"],
                           "logs": n["logs"], "feeds": dependents.get(n["name"], [])})
     data_nodes = [n for n in out_nodes if "provisioned" in n]
@@ -462,7 +464,7 @@ def _digest(n: dict[str, Any], record: dict[str, Any], nodes: list[dict[str, Any
 def _room_context(structure: dict[str, Any], record: dict[str, Any], nodes: list[dict[str, Any]]) -> str:
     kinds = {"cohort_data": "cohort data file", "dictionary": "dictionary", "shuffled": "shuffled sample",
              "mapping": "cross-study mapping", "airlock": "AIRLOCK", "environment": "custom python environment",
-             "python": "python compute", "other": "node"}
+             "python": "python compute", "r": "R compute (installs packages from CRAN at run time)", "other": "node"}
     out = [f"Title: {structure['title'] or '(untitled)'}"]
     if structure["cohorts"]:
         out.append("Cohorts: " + ", ".join(structure["cohorts"]))

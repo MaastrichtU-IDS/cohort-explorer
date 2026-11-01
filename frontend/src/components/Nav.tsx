@@ -58,6 +58,11 @@ export function Nav() {
   // Whether the merge/pool node should combine the shuffled samples (true) instead
   // of the full cohort data (false, default).
   const [mergeUseShuffled, setMergeUseShuffled] = useState(false);
+  // Wizard question: add the "load-R-packages" R compute node? Default no. It
+  // installs a fixed list of R packages from CRAN at run time (the node's only
+  // internet access) and runs basic statistics and plots on the pooled data,
+  // or on each cohort's data when the DCR has no merge/pool nodes.
+  const [includeRPackagesNode, setIncludeRPackagesNode] = useState(false);
   const mergeChainAvailable = Object.keys(dataCleanRoom?.cohorts || {}).length >= 2;
   const mergeChainOn = mergeChainAvailable && includeMergeChain;
   // The effective per-cohort choice for EVERY selected cohort, defaults included:
@@ -500,7 +505,8 @@ export function Nav() {
                 .filter(m => selectedMappingFiles[m.filename] !== false)
                 .map(m => ({ filename: m.filename, display_name: m.display_name, cohorts: m.cohorts }))
             : [],
-          merge_use_shuffled: mergeChainOn ? mergeUseShuffled : false
+          merge_use_shuffled: mergeChainOn ? mergeUseShuffled : false,
+          include_r_packages_node: includeRPackagesNode
         })
       });
       
@@ -1339,6 +1345,42 @@ export function Nav() {
                           )}
                         </>
                       )}
+
+                      {/* Optional R compute node */}
+                      <div className="mt-6 pt-4 border-t">
+                        <p className="text-sm font-semibold mb-1">Should the DCR include an R compute node?</p>
+                        <p className="text-xs text-base-content/60 mb-3">
+                          Adds a node named <code>load-R-packages</code> that installs a set of R packages from CRAN at run time
+                          (survival, dplyr, data.table, ggplot2, glmnet, xgboost, caret, mgcv and others) and runs a few basic
+                          statistics and plots on {mergeChainOn ? 'the pooled dataset' : "each cohort's data"}, as a starting point for
+                          analyses in R. The node is allowed outbound internet access to cloud.r-project.org only; every domain it
+                          reaches is recorded by Decentriq in the node&apos;s result. Installing the packages makes its first run slow.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                              includeRPackagesNode
+                                ? 'bg-primary text-primary-content'
+                                : 'bg-base-200 text-base-content/70 hover:bg-base-300'
+                            }`}
+                            onClick={() => setIncludeRPackagesNode(true)}
+                          >
+                            Yes
+                          </button>
+                          <button
+                            type="button"
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                              !includeRPackagesNode
+                                ? 'bg-primary text-primary-content'
+                                : 'bg-base-200 text-base-content/70 hover:bg-base-300'
+                            }`}
+                            onClick={() => setIncludeRPackagesNode(false)}
+                          >
+                            No
+                          </button>
+                        </div>
+                      </div>
                     </>
                   )}
                   
@@ -1380,6 +1422,9 @@ export function Nav() {
                             <strong>Merge / pool data source:</strong> {mergeUseShuffled ? 'Shuffled samples' : 'Full cohorts data'}
                           </div>
                         )}
+                        <div className="p-3 bg-base-200 rounded-lg">
+                          <strong>R compute node (load-R-packages):</strong> {includeRPackagesNode ? 'Included' : 'Not included'}
+                        </div>
                       </div>
                       
                       <div className="flex flex-wrap gap-2 mt-6">

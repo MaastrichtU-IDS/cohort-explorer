@@ -18,6 +18,8 @@ from decentriq_platform.analytics import (
     PreviewComputeNodeDefinition,
     PythonComputeNodeDefinition,
     PythonEnvironmentComputeNodeDefinition,
+    ProxyConfiguration,
+    RComputeNodeDefinition,
     TableDataNodeDefinition,
     RawDataNodeDefinition
 )
@@ -28,7 +30,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
-from src.analysisDCR_scripts import data_fragment_script, visualization_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script
+from src.analysisDCR_scripts import data_fragment_script, visualization_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script, r_packages_script, R_PACKAGES_NODE_NAME, R_CRAN_DOMAINS
 from src.mapping import resolve_selected_mapping_files
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata, split_emails
@@ -678,6 +680,7 @@ async def get_compute_dcr_definition(
     merge_use_shuffled: bool = False,
     nocode_analyses: list[dict] = None,
     include_merge_chain: bool = True,
+    include_r_packages_node: bool = False,
 ) -> Any:
     # Request emails trimmed and lower-cased like everywhere else (split_emails,
     # build_dcr_participants), so a casing difference between the session email
@@ -1333,6 +1336,51 @@ async def get_compute_dcr_definition(
         logging.warning(msg)
         merge_warnings.append(msg)
 
+    # Optional R compute node (wizard question on the Merging & Pooling step).
+    # It installs a fixed list of R packages from CRAN at run time - the only
+    # outbound access it has (ProxyConfiguration.allow_list, recorded by the
+    # platform in accessed_domains.txt of its result) - loads them, and runs a
+    # few basic statistics and plots with some of them. Like the merged-data
+    # example node it reads the pooled dataset directly (so running it
+    # triggers the merge) and writes aggregates only; without a merge chain it
+    # reads the full data file of every cohort instead, like the per-cohort
+    # visualization scripts. Every participant can run it. Not in no-code
+    # rooms, which carry no starter scripts.
+    if include_r_packages_node and not nocode_room:
+        if studies_info:
+            r_inputs = [{"label": "merged",
+                         "path": f"/input/{merge_node_name}/pooled_dataset.csv",
+                         "source": f"the pooled dataset written by the '{merge_node_name}' node"}]
+            r_dependencies = [merge_node_name]
+        else:
+            r_inputs = [{"label": node_id, "path": f"/input/{node_id}",
+                         "source": f"the full data file of cohort {node_id} (a CSV is expected)"}
+                        for node_id in data_nodes]
+            r_dependencies = list(data_nodes)
+        if r_inputs:
+            builder.add_node_definition(
+                RComputeNodeDefinition(
+                    name=R_PACKAGES_NODE_NAME,
+                    script=r_packages_script(r_inputs),
+                    dependencies=r_dependencies,
+                    enable_logs_on_error=True,
+                    enable_logs_on_success=True,
+                    proxy_configuration=ProxyConfiguration.allow_list(R_CRAN_DOMAINS),
+                )
+            )
+            for p_email in participants:
+                participants[p_email]["analyst_of"].add(R_PACKAGES_NODE_NAME)
+            logging.info(
+                f"Added R compute node '{R_PACKAGES_NODE_NAME}' (CRAN access: {', '.join(R_CRAN_DOMAINS)}) "
+                f"reading {[i['path'] for i in r_inputs]}; every participant may run it"
+            )
+        else:
+            msg = f"R compute node '{R_PACKAGES_NODE_NAME}' NOT added: the room has no data node for it to read."
+            logging.warning(msg)
+            merge_warnings.append(msg)
+    elif include_r_packages_node:
+        logging.info("No-code room: R compute node intentionally not added")
+
     # Grant all participants (data owners and analysts) access to preview fragment nodes
     for p_email in participants.keys():
         for preview_node in preview_nodes:
@@ -1394,6 +1442,7 @@ async def create_live_compute_dcr(
     merge_use_shuffled: bool = False,
     nocode_analyses: list[dict] = None,
     include_merge_chain: bool = True,
+    include_r_packages_node: bool = False,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -1417,7 +1466,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, nocode_node_names = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain)
+    dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, nocode_node_names = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain, include_r_packages_node)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1796,6 +1845,10 @@ async def api_create_live_compute_dcr(
     # Defaults to True; a single-cohort request is forced to False downstream.
     include_merge_chain = bool(cohorts_request.get("include_merge_chain", True))
 
+    # Whether to add the "load-R-packages" R compute node (wizard question on
+    # the Merging & Pooling step). Defaults to False.
+    include_r_packages_node = bool(cohorts_request.get("include_r_packages_node", False))
+
     # No-code DCR analysis specs from the /nocode-dcr wizard, if any.
     nocode_analyses = cohorts_request.get("nocode_analyses", []) or []
 
@@ -1840,12 +1893,13 @@ async def api_create_live_compute_dcr(
         selected_mapping_files=[m.get("filename") for m in (selected_mapping_files or []) if isinstance(m, dict)],
         include_mapping_upload_slot=include_mapping_upload_slot,
         include_merge_chain=include_merge_chain,
+        include_r_packages_node=include_r_packages_node,
         participants=participants_for_log,
     )
 
     # Create and publish the live compute DCR
     try:
-        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain)
+        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain, include_r_packages_node)
         duration_ms = int((datetime.now() - publish_started_at).total_seconds() * 1000)
         log_dcr_event(
             "dcr_publish_succeeded",
@@ -1929,7 +1983,7 @@ async def api_get_compute_dcr_definition(
         include_shuffled_samples=include_shuffled_samples,
     )
 
-    dcr_definition, _dcr_title, _participants, _mapping_nodes, _merge_warnings, _nocode = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name, include_merge_chain=bool(cohorts_request.get("include_merge_chain", True)))
+    dcr_definition, _dcr_title, _participants, _mapping_nodes, _merge_warnings, _nocode = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name, include_merge_chain=bool(cohorts_request.get("include_merge_chain", True)), include_r_packages_node=bool(cohorts_request.get("include_r_packages_node", False)))
 
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }
@@ -2713,7 +2767,7 @@ def _fetch_dcr_details(client: Any, dcr_id: str) -> dict[str, Any]:
     nodes = []
     for node_def in getattr(dcr, "node_definitions", []) or []:
         node_info = {"name": getattr(node_def, "name", None), "type": type(node_def).__name__}
-        if node_info["type"] in ("PreviewComputeNodeDefinition", "PythonComputeNodeDefinition"):
+        if node_info["type"] in ("PreviewComputeNodeDefinition", "PythonComputeNodeDefinition", "RComputeNodeDefinition"):
             script = getattr(node_def, "script", None)
             if script:
                 node_info["script"] = str(script).split("\n")[0]
