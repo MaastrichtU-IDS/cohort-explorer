@@ -1955,10 +1955,12 @@ __INPUT_SOURCES__
 #      its own under R's temp dir (the image's site library is read-only).
 #      The node is allowed outbound access to packagemanager.posit.co and
 #      cloud.r-project.org ONLY, and the platform records every domain it
-#      reaches in accessed_domains.txt of the result. Posit Package Manager
-#      serves ready-built Linux binaries and is used when the image's
-#      distribution is recognised; CRAN (source packages, compiled here) is
-#      the fallback. Packages the environment already provides are not
+#      reaches in accessed_domains.txt of the result. The enclave has no
+#      compiler, so packages come as ready-built Linux binaries from Posit
+#      Package Manager (for the image's distribution, Ubuntu 22.04 assumed
+#      when unknown); CRAN is only a last resort for pure-R packages. A
+#      package needing a system library the enclave lacks still fails to
+#      load - the status file gives the reason. Packages the environment already provides are not
 #      reinstalled. The outcome per package goes to r_packages_status.csv
 #      (already available / installed / FAILED, with the reason), with the
 #      seconds its installation and its loading took; the totals are printed
@@ -2028,21 +2030,26 @@ proxy <- Sys.getenv(c("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", 
 proxy <- proxy[!is.na(proxy) & proxy != ""]
 cat("Proxy environment:", if (length(proxy) == 0) "(none set)" else paste(names(proxy), proxy, sep = "=", collapse = "  "), "\n")
 
-# Prefer Posit Package Manager's Linux binaries when the distribution is
-# known (installs in seconds, no compiler needed); CRAN source otherwise.
+# The enclave ships no compiler, so CRAN's source packages cannot be built
+# here: packages come from Posit Package Manager's pre-built Linux binaries.
+# The binaries are per distribution; the image's own is read from
+# /etc/os-release when present, otherwise Ubuntu 22.04 (jammy) is assumed, as
+# in Decentriq's example. CRAN stays as the last resort for pure-R packages.
 os <- tryCatch(readLines("/etc/os-release", warn = FALSE), error = function(e) character(0))
 field <- function(key) { v <- sub(paste0("^", key, "="), "", grep(paste0("^", key, "="), os, value = TRUE)); gsub('"', "", v)[1] }
 distro <- field("ID"); codename <- field("VERSION_CODENAME")
-cat("Distribution:", if (is.na(distro)) "(unknown)" else paste(distro, codename), "\n")
-PPM <- if (!is.na(distro) && !is.na(codename) && distro %in% c("ubuntu", "debian")) {
-  sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", codename)
-} else NULL
-if (!is.null(PPM)) {
-  # The user agent tells Package Manager which R / platform to serve binaries for.
-  options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
-                                  paste(getRversion(), R.version$platform, R.version$arch, R.version$os)))
+if (is.na(distro) || is.na(codename) || !(distro %in% c("ubuntu", "debian"))) {
+  cat("Distribution:", if (is.na(distro)) "unknown (no /etc/os-release)" else paste(distro, codename),
+      "- assuming Ubuntu 22.04 (jammy) binaries\n")
+  codename <- "jammy"
+} else {
+  cat("Distribution:", distro, codename, "\n")
 }
-REPOS <- c(if (!is.null(PPM)) c(PPM = PPM), CRAN = CRAN)
+PPM <- sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", codename)
+# The user agent tells Package Manager which R / platform to serve binaries for.
+options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
+                                paste(getRversion(), R.version$platform, R.version$arch, R.version$os)))
+REPOS <- c(PPM = PPM, CRAN = CRAN)
 options(repos = REPOS)
 
 reachable <- character(0)
@@ -2081,11 +2088,15 @@ for (i in seq_along(PACKAGES)) {
   r <- capture(install.packages(pkg, lib = LIB, repos = REPOS, quiet = TRUE,
                                 dependencies = c("Depends", "Imports", "LinkingTo")))
   status$install_seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1)
-  if (available(pkg)) {
+  # A binary can install and still not load, when it needs a system library
+  # the enclave lacks: the load error is the reason to report then.
+  ld <- capture(requireNamespace(pkg, quietly = TRUE))
+  if (isTRUE(ld$value)) {
     status$status[i] <- "installed"
   } else {
     status$status[i] <- "FAILED"
-    status$reason[i] <- one_line(if (length(r$messages) > 0) r$messages else "no message from install.packages; see the console log above")
+    msgs <- c(r$messages, ld$messages)
+    status$reason[i] <- one_line(if (length(msgs) > 0) msgs else "no message from install.packages; see the console log above")
     cat("  FAILED:", status$reason[i], "\n")
   }
 }
