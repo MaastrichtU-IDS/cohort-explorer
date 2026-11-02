@@ -1885,7 +1885,10 @@ R_PACKAGES_NODE_NAME = "load-R-packages"
 # The node may reach these domains only (ProxyConfiguration.allow_list); every
 # domain it accesses is recorded by the platform in accessed_domains.txt of
 # the node's result.
-R_CRAN_DOMAINS = ["cloud.r-project.org"]
+# cloud.r-project.org is CRAN itself; packagemanager.posit.co serves the same
+# packages as Linux binaries, which the script prefers when it recognises
+# the image's distribution (no compilation, so far fewer failures).
+R_CRAN_DOMAINS = ["cloud.r-project.org", "packagemanager.posit.co"]
 
 # Packages the node installs from CRAN at runtime (those the built-in R
 # environment already provides are only loaded) and then loads with library().
@@ -1935,17 +1938,19 @@ _R_PACKAGES_SCRIPT = r'''#######################################################
 __INPUT_SOURCES__
 #
 # What it does:
-#   1. Installs the packages listed in PACKAGES from CRAN at run time - the node
-#      is allowed outbound access to cloud.r-project.org ONLY, and the platform
-#      records every domain it reaches in accessed_domains.txt of the result.
-#      Packages the environment already provides are not reinstalled. The
-#      outcome per package goes to r_packages_status.csv (already available /
-#      installed / FAILED), with the seconds its installation and its loading
-#      took; the totals are printed and written to README.txt. Installing from
-#      CRAN compiles most packages from
-#      source: expect the first run to take a long time, and a package that
-#      needs a system library the environment lacks to fail - the analyses
-#      below only use a package when it loaded.
+#   1. Installs the packages listed in PACKAGES at run time, into a library of
+#      its own under R's temp dir (the image's site library is read-only).
+#      The node is allowed outbound access to packagemanager.posit.co and
+#      cloud.r-project.org ONLY, and the platform records every domain it
+#      reaches in accessed_domains.txt of the result. Posit Package Manager
+#      serves ready-built Linux binaries and is used when the image's
+#      distribution is recognised; CRAN (source packages, compiled here) is
+#      the fallback. Packages the environment already provides are not
+#      reinstalled. The outcome per package goes to r_packages_status.csv
+#      (already available / installed / FAILED, with the reason), with the
+#      seconds its installation and its loading took; the totals are printed
+#      and written to README.txt. The analyses below only use a package when
+#      it loaded.
 #   2. Loads every available package with library().
 #   3. Runs basic statistics and plots over each input, writing AGGREGATES ONLY
 #      to /output (never data rows):
@@ -1979,12 +1984,72 @@ note <- function(...) {
   notes <<- c(notes, msg)
 }
 
-# ---- 1. install what is missing, from CRAN -----------------------------------
+# ---- 0. where packages can go, and whether the repositories are reachable ----
+# Run every expression with its warnings and messages collected (not hidden),
+# so the status table can say WHY an install failed.
+capture <- function(expr) {
+  msgs <- character(0)
+  value <- withCallingHandlers(
+    tryCatch(expr, error = function(e) { msgs <<- c(msgs, paste("error:", conditionMessage(e))); NULL }),
+    warning = function(w) { msgs <<- c(msgs, conditionMessage(w)); invokeRestart("muffleWarning") },
+    message = function(m) { msgs <<- c(msgs, trimws(conditionMessage(m))); invokeRestart("muffleMessage") })
+  list(value = value, messages = unique(msgs))
+}
+one_line <- function(x, n = 240) {
+  x <- gsub("[[:space:]]+", " ", paste(x, collapse = " | "))
+  if (nchar(x) > n) paste0(substr(x, 1, n), "...") else x
+}
+
+cat(R.version.string, "on", R.version$platform, "\n")
+cat("Library paths:\n")
+for (lp in .libPaths()) cat("  ", lp, if (file.access(lp, 2) == 0) "(writable)" else "(read-only)", "\n")
+# The image's site library is usually read-only: install into a library of
+# our own under R's temp dir (always writable) and put it first on the path.
+LIB <- file.path(tempdir(), "rlib")
+dir.create(LIB, showWarnings = FALSE, recursive = TRUE)
+.libPaths(c(LIB, .libPaths()))
+cat("Packages are installed into", LIB, "\n")
+
+proxy <- Sys.getenv(c("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_proxy", "NO_PROXY"), unset = NA)
+proxy <- proxy[!is.na(proxy) & proxy != ""]
+cat("Proxy environment:", if (length(proxy) == 0) "(none set)" else paste(names(proxy), proxy, sep = "=", collapse = "  "), "\n")
+
+# Prefer Posit Package Manager's Linux binaries when the distribution is
+# known (installs in seconds, no compiler needed); CRAN source otherwise.
+os <- tryCatch(readLines("/etc/os-release", warn = FALSE), error = function(e) character(0))
+field <- function(key) { v <- sub(paste0("^", key, "="), "", grep(paste0("^", key, "="), os, value = TRUE)); gsub('"', "", v)[1] }
+distro <- field("ID"); codename <- field("VERSION_CODENAME")
+cat("Distribution:", if (is.na(distro)) "(unknown)" else paste(distro, codename), "\n")
+PPM <- if (!is.na(distro) && !is.na(codename) && distro %in% c("ubuntu", "debian")) {
+  sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", codename)
+} else NULL
+if (!is.null(PPM)) {
+  # The user agent tells Package Manager which R / platform to serve binaries for.
+  options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
+                                  paste(getRversion(), R.version$platform, R.version$arch, R.version$os)))
+}
+REPOS <- c(if (!is.null(PPM)) c(PPM = PPM), CRAN = CRAN)
+options(repos = REPOS)
+
+reachable <- character(0)
+for (nm in names(REPOS)) {
+  r <- capture(available.packages(repos = REPOS[[nm]]))
+  n <- if (is.null(r$value)) 0 else nrow(r$value)
+  cat(nm, "(", REPOS[[nm]], "): ", if (n > 0) paste(n, "packages listed") else paste("NOT reachable -", one_line(r$messages)), "\n", sep = "")
+  if (n > 0) reachable <- c(reachable, nm)
+}
+if (length(reachable) == 0) {
+  note("No package repository is reachable from this node: nothing can be installed. ",
+       "Check the node's internet access (proxy allow-list) and accessed_domains.txt in this result.")
+}
+REPOS <- REPOS[reachable]
+
+# ---- 1. install what is missing ---------------------------------------------
 available <- function(pkg) suppressWarnings(requireNamespace(pkg, quietly = TRUE))
 
 status <- data.frame(package = PACKAGES, status = NA_character_,
                      install_seconds = NA_real_, load_seconds = NA_real_,
-                     stringsAsFactors = FALSE)
+                     reason = "", stringsAsFactors = FALSE)
 t_install <- Sys.time()
 for (i in seq_along(PACKAGES)) {
   pkg <- PACKAGES[i]
@@ -1992,15 +2057,23 @@ for (i in seq_along(PACKAGES)) {
     status$status[i] <- "already available"
     next
   }
+  if (length(REPOS) == 0) {
+    status$status[i] <- "FAILED"
+    status$reason[i] <- "no repository reachable"
+    next
+  }
   t0 <- Sys.time()
-  cat("Installing", pkg, "from CRAN ...\n")
-  tryCatch(
-    suppressWarnings(install.packages(pkg, repos = CRAN, quiet = TRUE,
-                                      dependencies = c("Depends", "Imports", "LinkingTo"))),
-    error = function(e) cat("  install.packages(", pkg, ") raised: ", conditionMessage(e), "\n", sep = "")
-  )
+  cat("Installing", pkg, "...\n")
+  r <- capture(install.packages(pkg, lib = LIB, repos = REPOS, quiet = TRUE,
+                                dependencies = c("Depends", "Imports", "LinkingTo")))
   status$install_seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1)
-  status$status[i] <- if (available(pkg)) "installed" else "FAILED"
+  if (available(pkg)) {
+    status$status[i] <- "installed"
+  } else {
+    status$status[i] <- "FAILED"
+    status$reason[i] <- one_line(if (length(r$messages) > 0) r$messages else "no message from install.packages; see the console log above")
+    cat("  FAILED:", status$reason[i], "\n")
+  }
 }
 total_install <- round(as.numeric(difftime(Sys.time(), t_install, units = "secs")), 1)
 
