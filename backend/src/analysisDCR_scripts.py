@@ -1996,7 +1996,12 @@ __PROXY_NOTE__
 #      code install; the status file names each failure's reason, and a
 #      package that needs compiling has to be added to the image by
 #      Decentriq. Packages the environment already provides are not
-#      reinstalled. The outcome per package goes to r_packages_status.csv
+#      reinstalled and never upgraded, even when a package to install wants
+#      a newer version of one of them: a newer copy would shadow the image's,
+#      which the other provided packages were built against (one run upgraded
+#      scales under ggplot2 and died loading it); such a package is reported
+#      FAILED with the version it needs. Nothing is loaded before every
+#      install is done. The outcome per package goes to r_packages_status.csv
 #      (already available / installed / FAILED, with the reason), with the
 #      seconds its installation and its loading took; the totals are printed
 #      and written to README.txt. The analyses below only use a package when
@@ -2167,7 +2172,26 @@ if (length(reachable) == 0) {
 REPOS <- REPOS[reachable]
 
 # ---- 1. install what is missing ---------------------------------------------
-available <- function(pkg) suppressWarnings(requireNamespace(pkg, quietly = TRUE))
+# Installed-or-not is answered from the library paths, without loading anything:
+# requireNamespace() would load the package and its imports, and a namespace
+# loaded now cannot be swapped for another version later.
+is_installed <- function(pkg, where = .libPaths()) nzchar(system.file(package = pkg, lib.loc = where))
+
+# The packages the image provides are never upgraded. install.packages() would
+# fetch a newer version of a dependency it finds too old; a pure-R one (scales,
+# say) installs fine into our library, which comes first on the path, and then
+# shadows the version the image's other packages (ggplot2) were built against.
+# Hiding the provided packages from the list of what the repositories offer
+# keeps them out of the dependency resolution: a package that needs a newer
+# version of one of them fails to install, with that requirement as the reason.
+PROVIDED <- rownames(installed.packages())
+AVAILABLE <- NULL
+if (length(REPOS) > 0) {
+  AVAILABLE <- available.packages(repos = REPOS)
+  AVAILABLE <- AVAILABLE[!(rownames(AVAILABLE) %in% PROVIDED), , drop = FALSE]
+  cat(length(PROVIDED), "provided packages are excluded from installation and upgrade;",
+      nrow(AVAILABLE), "others can be installed\n")
+}
 
 status <- data.frame(package = PACKAGES, status = NA_character_,
                      install_seconds = NA_real_, load_seconds = NA_real_,
@@ -2175,7 +2199,7 @@ status <- data.frame(package = PACKAGES, status = NA_character_,
 t_install <- Sys.time()
 for (i in seq_along(PACKAGES)) {
   pkg <- PACKAGES[i]
-  if (available(pkg)) {
+  if (is_installed(pkg)) {
     status$status[i] <- "already available"
     next
   }
@@ -2186,18 +2210,14 @@ for (i in seq_along(PACKAGES)) {
   }
   t0 <- Sys.time()
   cat("Installing", pkg, "...\n")
-  r <- capture(install.packages(pkg, lib = LIB, repos = REPOS, quiet = TRUE,
+  r <- capture(install.packages(pkg, lib = LIB, repos = REPOS, available = AVAILABLE, quiet = TRUE,
                                 dependencies = c("Depends", "Imports", "LinkingTo")))
   status$install_seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1)
-  # A binary can install and still not load, when it needs a system library
-  # the enclave lacks: the load error is the reason to report then.
-  ld <- capture(requireNamespace(pkg, quietly = TRUE))
-  if (isTRUE(ld$value)) {
+  if (is_installed(pkg, LIB)) {
     status$status[i] <- "installed"
   } else {
     status$status[i] <- "FAILED"
-    msgs <- c(r$messages, ld$messages)
-    status$reason[i] <- one_line(if (length(msgs) > 0) msgs else "no message from install.packages; see the console log above")
+    status$reason[i] <- one_line(if (length(r$messages) > 0) r$messages else "no message from install.packages; see the console log above")
     cat("  FAILED:", status$reason[i], "\n")
   }
 }
@@ -2208,11 +2228,20 @@ loaded <- character(0)
 t_load <- Sys.time()
 for (i in seq_along(PACKAGES)) {
   pkg <- PACKAGES[i]
-  if (available(pkg)) {
-    t0 <- Sys.time()
-    suppressPackageStartupMessages(library(pkg, character.only = TRUE))
-    status$load_seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
+  if (!is_installed(pkg)) next
+  t0 <- Sys.time()
+  # A package can be installed and still not load (a system library the enclave
+  # lacks, a dependency version it does not like): that is a FAILED row with
+  # the load error as its reason, never the end of the run.
+  err <- tryCatch({ suppressPackageStartupMessages(library(pkg, character.only = TRUE)); NULL },
+                  error = function(e) conditionMessage(e))
+  status$load_seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
+  if (is.null(err)) {
     loaded <- c(loaded, pkg)
+  } else {
+    status$status[i] <- "FAILED"
+    status$reason[i] <- one_line(paste("installed but does not load:", err))
+    cat("Loading", pkg, "... FAILED:", status$reason[i], "\n")
   }
 }
 total_load <- round(as.numeric(difftime(Sys.time(), t_load, units = "secs")), 1)
