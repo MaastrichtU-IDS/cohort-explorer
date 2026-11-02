@@ -2,7 +2,7 @@
 
 import React, {useEffect, useState} from 'react';
 import Link from 'next/link';
-import {Settings, Shield, AlertTriangle, ArrowRight} from 'react-feather';
+import {Settings, Shield, AlertTriangle, ArrowRight, Database} from 'react-feather';
 import {SparklesIcon} from '@/components/Icons';
 import {useCohorts} from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
@@ -20,6 +20,52 @@ export default function AdminSettingsPage() {
   const [togglingCodeExplain, setTogglingCodeExplain] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Read-only SPARQL console (POST /admin/sparql)
+  const DEFAULT_SPARQL = `SELECT ?g (COUNT(*) AS ?triples)
+WHERE { GRAPH ?g { ?s ?p ?o } }
+GROUP BY ?g
+ORDER BY DESC(?triples)`;
+  const [sparqlQuery, setSparqlQuery] = useState(DEFAULT_SPARQL);
+  const [sparqlRunning, setSparqlRunning] = useState(false);
+  const [sparqlError, setSparqlError] = useState<string | null>(null);
+  const [sparqlResult, setSparqlResult] = useState<any>(null);
+
+  const runSparql = async () => {
+    if (!sparqlQuery.trim()) return;
+    setSparqlRunning(true);
+    setSparqlError(null);
+    setSparqlResult(null);
+    try {
+      const res = await fetch(`${apiUrl}/admin/sparql`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({query: sparqlQuery}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `Query failed (HTTP ${res.status})`);
+      setSparqlResult(data);
+    } catch (err: any) {
+      setSparqlError(err.message);
+    } finally {
+      setSparqlRunning(false);
+    }
+  };
+
+  const downloadSparqlCsv = () => {
+    if (!sparqlResult || sparqlResult.kind !== 'bindings') return;
+    const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [sparqlResult.vars.map(esc).join(',')].concat(
+      sparqlResult.rows.map((r: any[]) => r.map(esc).join(','))
+    );
+    const blob = new Blob([lines.join('\n')], {type: 'text/csv;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'sparql_results.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
   // Check if the user is an admin
   useEffect(() => {
@@ -299,6 +345,86 @@ export default function AdminSettingsPage() {
             </div>
             <ArrowRight size={18} className="shrink-0 text-primary" />
           </Link>
+        </div>
+      </div>
+
+      {/* SPARQL console */}
+      <div className="card bg-base-200 shadow-md mt-6">
+        <div className="card-body">
+          <h2 className="card-title text-lg flex items-center gap-2">
+            <Database size={18} /> SPARQL query
+          </h2>
+          <p className="text-sm text-base-content/70 mb-2">
+            Runs against the Oxigraph triplestore through the backend. Read-only: SELECT, ASK, CONSTRUCT and
+            DESCRIBE are accepted; updates are refused by the store. Results are capped at 5000 rows and 120 s.
+          </p>
+          <textarea
+            className="textarea textarea-bordered font-mono text-xs w-full h-40"
+            value={sparqlQuery}
+            onChange={e => setSparqlQuery(e.target.value)}
+            onKeyDown={e => {
+              if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runSparql();
+            }}
+            spellCheck={false}
+          />
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
+            <button className="btn btn-primary btn-sm" onClick={runSparql} disabled={sparqlRunning || !sparqlQuery.trim()}>
+              {sparqlRunning ? <span className="loading loading-spinner loading-xs"></span> : 'Run query'}
+            </button>
+            <span className="text-xs text-base-content/50">Ctrl/Cmd + Enter also runs it</span>
+            {sparqlResult && (
+              <span className="text-xs text-base-content/70 ml-auto">
+                {sparqlResult.kind === 'bindings' &&
+                  `${sparqlResult.total} row${sparqlResult.total === 1 ? '' : 's'}${sparqlResult.truncated ? ` (showing ${sparqlResult.rows.length})` : ''}`}
+                {sparqlResult.kind === 'boolean' && `ASK → ${sparqlResult.value ? 'true' : 'false'}`}
+                {sparqlResult.kind === 'graph' && 'Graph result (Turtle)'}
+                {` · ${sparqlResult.duration_s} s`}
+              </span>
+            )}
+            {sparqlResult?.kind === 'bindings' && sparqlResult.rows.length > 0 && (
+              <button className="btn btn-ghost btn-xs" onClick={downloadSparqlCsv}>
+                Download CSV
+              </button>
+            )}
+          </div>
+          {sparqlError && (
+            <pre className="alert alert-error text-xs whitespace-pre-wrap mt-3 font-mono">{sparqlError}</pre>
+          )}
+          {sparqlResult?.kind === 'bindings' && (
+            <div className="overflow-auto max-h-[32rem] mt-3 rounded border border-base-300 bg-base-100">
+              <table className="table table-xs table-zebra table-pin-rows">
+                <thead>
+                  <tr>
+                    <th className="w-10">#</th>
+                    {sparqlResult.vars.map((v: string) => (
+                      <th key={v}>?{v}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sparqlResult.rows.map((row: any[], i: number) => (
+                    <tr key={i}>
+                      <td className="text-base-content/50">{i + 1}</td>
+                      {row.map((cell, j) => (
+                        <td key={j} className="font-mono text-xs whitespace-nowrap max-w-md truncate" title={cell ?? ''}>
+                          {cell === null ? <span className="text-base-content/30">—</span> : cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {sparqlResult.rows.length === 0 && (
+                <p className="text-sm text-base-content/60 p-4">No results.</p>
+              )}
+            </div>
+          )}
+          {sparqlResult?.kind === 'graph' && (
+            <pre className="mt-3 p-3 rounded border border-base-300 bg-base-100 text-xs font-mono overflow-auto max-h-[32rem]">
+              {sparqlResult.text}
+              {sparqlResult.truncated && '\n… (output truncated)'}
+            </pre>
+          )}
         </div>
       </div>
     </div>

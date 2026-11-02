@@ -3,9 +3,12 @@
 import json
 import logging
 import os
-from typing import Any
+import time
+from typing import Any, Optional
 
+import requests
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from starlette.status import HTTP_403_FORBIDDEN
 
 from src.auth import get_current_user
@@ -191,3 +194,85 @@ def toggle_timechf_testing(user: Any = Depends(get_current_user)) -> dict:
     return {
         "timechf_testing_enabled": not currently_enabled,
     }
+
+
+# ------------------------------------------------------------------
+# POST /admin/sparql — run a read-only SPARQL query against the triplestore
+# ------------------------------------------------------------------
+# The query text is sent to Oxigraph's /query endpoint, which only accepts
+# queries (SELECT, ASK, CONSTRUCT, DESCRIBE); updates belong to /update and are
+# refused there with HTTP 400, so nothing an admin types here can change data.
+SPARQL_ADMIN_MAX_ROWS = 5000
+SPARQL_ADMIN_TIMEOUT_S = 120
+
+
+class SparqlQueryRequest(BaseModel):
+    query: str
+    max_rows: Optional[int] = None
+
+
+@router.post("/sparql")
+def run_admin_sparql(body: SparqlQueryRequest, user: Any = Depends(get_current_user)) -> dict:
+    admin_email = _require_admin(user)
+    query = (body.query or "").strip()
+    if not query:
+        raise HTTPException(status_code=422, detail="Empty query")
+    max_rows = min(body.max_rows or SPARQL_ADMIN_MAX_ROWS, SPARQL_ADMIN_MAX_ROWS)
+
+    logging.info("Admin %s runs SPARQL (%d chars): %s", admin_email, len(query), query[:200].replace("\n", " "))
+    start = time.time()
+    try:
+        resp = requests.post(
+            settings.query_endpoint,
+            data=query.encode("utf-8"),
+            headers={
+                "Content-Type": "application/sparql-query",
+                # SELECT/ASK come back as JSON, CONSTRUCT/DESCRIBE as Turtle
+                "Accept": "application/sparql-results+json, text/turtle;q=0.9",
+            },
+            timeout=SPARQL_ADMIN_TIMEOUT_S,
+        )
+    except requests.Timeout:
+        raise HTTPException(status_code=504, detail=f"The triplestore did not answer within {SPARQL_ADMIN_TIMEOUT_S} s")
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Could not reach the triplestore: {exc}")
+    duration = round(time.time() - start, 3)
+
+    if resp.status_code >= 400:
+        # Oxigraph answers syntax errors and refused updates with a plain-text message
+        raise HTTPException(status_code=400, detail=resp.text.strip()[:2000] or f"Triplestore returned HTTP {resp.status_code}")
+
+    content_type = resp.headers.get("Content-Type", "")
+    if "json" in content_type:
+        data = resp.json()
+        if "boolean" in data:
+            return {"kind": "boolean", "value": bool(data["boolean"]), "duration_s": duration}
+        variables = data.get("head", {}).get("vars", [])
+        bindings = data.get("results", {}).get("bindings", [])
+        rows = []
+        for b in bindings[:max_rows]:
+            row = []
+            for v in variables:
+                cell = b.get(v)
+                if cell is None:
+                    row.append(None)
+                else:
+                    value = cell.get("value", "")
+                    if cell.get("type") == "literal":
+                        if cell.get("xml:lang"):
+                            value = f'"{value}"@{cell["xml:lang"]}'
+                        elif cell.get("datatype"):
+                            dt = cell["datatype"].rsplit("#", 1)[-1]
+                            if dt not in ("string",):
+                                value = f"{value} ({dt})"
+                    row.append(value)
+            rows.append(row)
+        return {
+            "kind": "bindings",
+            "vars": variables,
+            "rows": rows,
+            "total": len(bindings),
+            "truncated": len(bindings) > max_rows,
+            "duration_s": duration,
+        }
+    return {"kind": "graph", "text": resp.text[:2_000_000], "truncated": len(resp.text) > 2_000_000, "duration_s": duration}
