@@ -63,6 +63,10 @@ export function Nav() {
   // internet access) and runs basic statistics and plots on the pooled data,
   // or on each cohort's data when the DCR has no merge/pool nodes.
   const [includeRPackagesNode, setIncludeRPackagesNode] = useState(false);
+  // Diagnostic: give the R node a liberal proxy (any domain) instead of the
+  // allow-list, so the result's accessed_domains.txt lists every host the
+  // package installs contact. Default off.
+  const [rPackagesProxyLiberal, setRPackagesProxyLiberal] = useState(false);
   const mergeChainAvailable = Object.keys(dataCleanRoom?.cohorts || {}).length >= 2;
   const mergeChainOn = mergeChainAvailable && includeMergeChain;
   // The effective per-cohort choice for EVERY selected cohort, defaults included:
@@ -506,7 +510,8 @@ export function Nav() {
                 .map(m => ({ filename: m.filename, display_name: m.display_name, cohorts: m.cohorts }))
             : [],
           merge_use_shuffled: mergeChainOn ? mergeUseShuffled : false,
-          include_r_packages_node: includeRPackagesNode
+          include_r_packages_node: includeRPackagesNode,
+          r_packages_proxy_liberal: includeRPackagesNode && rPackagesProxyLiberal
         })
       });
       
@@ -1393,6 +1398,23 @@ export function Nav() {
                             No
                           </button>
                         </div>
+                        {includeRPackagesNode && (
+                          <div className="form-control mt-3">
+                            <label className="label cursor-pointer justify-start gap-3">
+                              <input
+                                type="checkbox"
+                                className="checkbox checkbox-warning"
+                                checked={rPackagesProxyLiberal}
+                                onChange={(e) => setRPackagesProxyLiberal(e.target.checked)}
+                              />
+                              <span className="label-text text-sm">
+                                Diagnostic: let the R node reach <strong>any</strong> domain (liberal proxy) instead of the two package
+                                repositories. Use once, in a test room, to read in the node&apos;s result which hosts the package installs
+                                contact (accessed_domains.txt); the allow-list is then set from that list.
+                              </span>
+                            </label>
+                          </div>
+                        )}
                       </div>
                     </>
                   )}
@@ -1436,7 +1458,7 @@ export function Nav() {
                           </div>
                         )}
                         <div className="p-3 bg-base-200 rounded-lg">
-                          <strong>R compute node (load-R-packages):</strong> {includeRPackagesNode ? 'Included' : 'Not included'}
+                          <strong>R compute node (load-R-packages):</strong> {includeRPackagesNode ? (rPackagesProxyLiberal ? 'Included, internet access to ANY domain (diagnostic)' : 'Included, internet access to the package repositories only') : 'Not included'}
                         </div>
                       </div>
                       

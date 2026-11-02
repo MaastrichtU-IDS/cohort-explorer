@@ -1901,8 +1901,12 @@ R_PACKAGES = [
 ]
 
 
-def r_packages_script(inputs: list[dict]) -> str:
+def r_packages_script(inputs: list[dict], liberal_proxy: bool = False) -> str:
     """The R script of the "load-R-packages" node.
+
+    `liberal_proxy` says the node was given ProxyConfiguration.liberal() (any
+    domain) instead of the allow-list, a diagnostic mode: the script header
+    says so, since the header is what participants read.
 
     `inputs` lists the dataset(s) the node analyses, one per cohort, each a dict with
       - 'label':    short tag used in the output file names (the cohort's node id)
@@ -1928,11 +1932,22 @@ def r_packages_script(inputs: list[dict]) -> str:
         for i in inputs
     )
     sources = "\n".join(f"#   - {i['label']}: {i['source']}" for i in inputs)
+    proxy_note = (
+        "#      DIAGNOSTIC MODE: the node may reach ANY domain (liberal proxy), so\n"
+        "#      that accessed_domains.txt of the result lists every host the\n"
+        "#      package installs actually contact; the allow-list of the regular\n"
+        "#      node is then set from that list."
+        if liberal_proxy else
+        "#      The node is allowed outbound access to packagemanager.posit.co and\n"
+        "#      cloud.r-project.org ONLY (a transparent SNI filter; a host outside\n"
+        "#      the list is cut off during the TLS handshake)."
+    )
     packages = ", ".join(f'"{p}"' for p in R_PACKAGES)
     return _R_PACKAGES_SCRIPT.replace("__INPUT_SOURCES__", sources) \
                              .replace("__INPUTS__", r_inputs) \
                              .replace("__PACKAGES__", packages) \
-                             .replace("__CRAN__", f"https://{R_CRAN_DOMAINS[0]}")
+                             .replace("__CRAN__", f"https://{R_CRAN_DOMAINS[0]}") \
+                             .replace("__PROXY_NOTE__", proxy_note)
 
 
 _R_PACKAGES_SCRIPT = r'''###############################################################################
@@ -1953,9 +1968,9 @@ __INPUT_SOURCES__
 # What it does:
 #   1. Installs the packages listed in PACKAGES at run time, into a library of
 #      its own under R's temp dir (the image's site library is read-only).
-#      The node is allowed outbound access to packagemanager.posit.co and
-#      cloud.r-project.org ONLY, and the platform records every domain it
-#      reaches in accessed_domains.txt of the result. The enclave has no
+__PROXY_NOTE__
+#      The platform records every domain the node reaches in
+#      accessed_domains.txt of the result. The enclave has no
 #      compiler, so packages come as ready-built Linux binaries from Posit
 #      Package Manager (for the image's distribution, Ubuntu 22.04 assumed
 #      when unknown); CRAN is only a last resort for pure-R packages. A
@@ -1991,7 +2006,10 @@ __INPUTS__
 )
 OUT <- "/output"
 dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
-options(repos = c(CRAN = CRAN), warn = 1, timeout = 600, width = 160)
+options(repos = c(CRAN = CRAN), warn = 1, timeout = 600, width = 160,
+        # libcurl for every download, so the server name (SNI) the egress
+        # filter checks is always sent, and redirects are followed
+        download.file.method = "libcurl", url.method = "libcurl")
 
 notes <- character(0)
 note <- function(...) {
