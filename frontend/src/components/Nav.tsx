@@ -1365,8 +1365,8 @@ export function Nav() {
                         <p className="text-xs text-base-content/60 mb-3">
                           Adds a node named <code>load-R-packages</code> that installs a set of R packages from CRAN at run time
                           (survival, dplyr, data.table, ggplot2, glmnet, xgboost, caret, mgcv and others) and runs a few basic
-                          statistics and plots on {mergeChainOn ? 'the pooled dataset' : "each cohort's data"}, as a starting point for
-                          analyses in R. The node is allowed outbound internet access to cloud.r-project.org only; every domain it
+                          statistics and plots on each cohort&apos;s data, using the shuffled sample of a cohort whose full data is not
+                          uploaded yet, as a starting point for analyses in R. The node is allowed outbound internet access to cloud.r-project.org only; every domain it
                           reaches is recorded by Decentriq in the node&apos;s result. Installing the packages makes its first run slow.
                         </p>
                         <div className="flex gap-2">

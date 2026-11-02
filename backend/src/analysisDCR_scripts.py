@@ -1904,25 +1904,30 @@ R_PACKAGES = [
 def r_packages_script(inputs: list[dict]) -> str:
     """The R script of the "load-R-packages" node.
 
-    `inputs` lists the CSV file(s) the node analyses, each a dict with
-      - 'label':  short tag used in the output file names (e.g. "merged")
-      - 'path':   the file inside the node (e.g. /input/<merge_node>/pooled_dataset.csv)
-      - 'source': what the file is, in words, for the script header
+    `inputs` lists the dataset(s) the node analyses, one per cohort, each a dict with
+      - 'label':    short tag used in the output file names (the cohort's node id)
+      - 'path':     the cohort's full data file inside the node (/input/<data node>), or None
+      - 'fallback': the cohort's shuffled sample (/input/<shuffled node>), or None; used
+                    when the full data file is absent (not uploaded yet)
+      - 'source':   what the input is, in words, for the script header
 
     The script installs the packages of R_PACKAGES from CRAN (skipping those the
     environment ships with), loads them, and runs a few basic statistics and
-    plots with some of them over each input: per-column summary statistics,
+    plots with some of them over each cohort's data - the full file when
+    uploaded, the shuffled sample otherwise: per-column summary statistics,
     missingness per column, distributions of the most complete numeric
     columns, pairwise correlations, and - when a follow-up time and an event
     column can be recognised - a Kaplan-Meier curve and a logistic regression.
     Every file it writes holds aggregates only: no data rows leave the node.
     """
+    def q(v):
+        return str(v or "").replace('"', "")
     r_inputs = ",\n".join(
-        '  list(label = "{label}", path = "{path}")'.format(
-            label=str(i["label"]).replace('"', ""), path=str(i["path"]).replace('"', ""))
+        '  list(label = "{label}", path = "{path}", fallback = "{fallback}")'.format(
+            label=q(i["label"]), path=q(i.get("path")), fallback=q(i.get("fallback")))
         for i in inputs
     )
-    sources = "\n".join(f"#   - {i['path']}  ({i['source']})" for i in inputs)
+    sources = "\n".join(f"#   - {i['label']}: {i['source']}" for i in inputs)
     packages = ", ".join(f'"{p}"' for p in R_PACKAGES)
     return _R_PACKAGES_SCRIPT.replace("__INPUT_SOURCES__", sources) \
                              .replace("__INPUTS__", r_inputs) \
@@ -1934,8 +1939,16 @@ _R_PACKAGES_SCRIPT = r'''#######################################################
 # LOAD R PACKAGES - an R compute node you can run as is and copy
 #
 # This node shows how to work in R, with packages beyond the built-in R
-# environment, on the data of this clean room. Its input file(s):
+# environment, on the data of this clean room. Its inputs, one per cohort:
 __INPUT_SOURCES__
+# For each cohort the script reads the FULL data file when the data owner has
+# uploaded it, and the cohort's SHUFFLED SAMPLE otherwise (as long as the room
+# has one), so it can be run before every dataset is in. A shuffled sample is
+# real values shuffled independently per column: distributions and
+# missingness per column are those of the real data, but every relation
+# between columns is destroyed, so correlations, survival curves and
+# regressions computed on it are meaningless - the outputs say which source
+# each cohort's figures come from.
 #
 # What it does:
 #   1. Installs the packages listed in PACKAGES at run time, into a library of
@@ -1962,10 +1975,11 @@ __INPUT_SOURCES__
 #        kaplan_meier_<input>.png/.csv    survival curve when a follow-up time and an event
 #                                         column are recognised by name (survival)
 #        logistic_regression_<input>.csv  event ~ most complete numeric columns (glm)
+#        data_sources_used.csv            per cohort: full data or shuffled sample, rows, columns
 #        README.txt                       what ran and what was skipped, and why
 #
-# To use it on the airlock fragment in the Development tab instead, point the
-# path in INPUTS at /input/<airlock node>/dataset.csv.
+# To use it on an airlock fragment in the Development tab instead, point the
+# path of that cohort in INPUTS at /input/<airlock node>/dataset.csv.
 ###############################################################################
 
 PACKAGES <- c(__PACKAGES__)
@@ -2107,14 +2121,21 @@ if (nrow(slowest) > 0) note("Slowest to load: ", paste0(slowest$package, " (", s
 has <- function(pkg) pkg %in% loaded
 
 # ---- helpers ----------------------------------------------------------------
+present <- function(path) nzchar(path) && file.exists(path) && !dir.exists(path) && file.size(path) > 0
 read_table <- function(path) {
-  if (!file.exists(path)) stop("input not found: ", path)
   na <- c("", "NA", "NaN", "null", "NULL", "None")
   if (has("data.table")) {
     as.data.frame(data.table::fread(path, na.strings = na, showProgress = FALSE))
   } else {
     read.csv(path, na.strings = na, check.names = FALSE, stringsAsFactors = FALSE)
   }
+}
+# The file to analyse for one input: the full data when uploaded, else the
+# shuffled sample; NULL (with a note) when neither is there.
+pick_source <- function(inp) {
+  if (present(inp$path)) return(list(path = inp$path, kind = "full data"))
+  if (present(inp$fallback)) return(list(path = inp$fallback, kind = "shuffled sample"))
+  NULL
 }
 
 # Columns that look like a follow-up time / an event indicator / a study label,
@@ -2159,12 +2180,21 @@ save_plot <- function(p, file, width = 10, height = 6) {
 }
 
 # ---- 3. basic statistics and plots per input ---------------------------------
+sources_used <- data.frame(cohort = character(0), source = character(0), file = character(0), rows = integer(0), columns = integer(0))
 for (inp in INPUTS) {
   label <- inp$label
-  cat("\n==== ", label, " (", inp$path, ") ====\n", sep = "")
-  df <- tryCatch(read_table(inp$path), error = function(e) { note(label, ": could not read - ", conditionMessage(e)); NULL })
+  src <- pick_source(inp)
+  if (is.null(src)) {
+    note(label, ": neither the full data file (", inp$path, ") nor a shuffled sample (",
+         if (nzchar(inp$fallback)) inp$fallback else "none in this room", ") is available yet - skipped")
+    next
+  }
+  cat("\n==== ", label, " - ", src$kind, " (", src$path, ") ====\n", sep = "")
+  df <- tryCatch(read_table(src$path), error = function(e) { note(label, ": could not read ", src$path, " - ", conditionMessage(e)); NULL })
   if (is.null(df)) next
-  note(label, ": ", nrow(df), " rows x ", ncol(df), " columns")
+  note(label, ": ", src$kind, ", ", nrow(df), " rows x ", ncol(df), " columns",
+       if (src$kind == "shuffled sample") " (values shuffled per column: only per-column figures are meaningful)" else "")
+  sources_used <- rbind(sources_used, data.frame(cohort = label, source = src$kind, file = src$path, rows = nrow(df), columns = ncol(df)))
 
   num_cols <- names(df)[vapply(df, is.numeric, logical(1))]
   complete <- vapply(df, function(x) sum(!is.na(x)), numeric(1))
@@ -2297,7 +2327,11 @@ for (inp in INPUTS) {
   }
 }
 
-writeLines(c("load-R-packages - run summary", paste0("R ", R.version.string), "", notes),
+write.csv(sources_used, file.path(OUT, "data_sources_used.csv"), row.names = FALSE)
+writeLines(c("load-R-packages - run summary", paste0("R ", R.version.string), "",
+             "Data source per cohort (full data, or the shuffled sample while the full data is not uploaded):",
+             if (nrow(sources_used) > 0) paste0("  ", sources_used$cohort, ": ", sources_used$source) else "  (none available)",
+             "", notes),
            file.path(OUT, "README.txt"))
 cat("\nDone. Files in", OUT, ":\n")
 print(list.files(OUT))

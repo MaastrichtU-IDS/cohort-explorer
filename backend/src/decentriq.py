@@ -1337,26 +1337,34 @@ async def get_compute_dcr_definition(
         merge_warnings.append(msg)
 
     # Optional R compute node (wizard question on the Merging & Pooling step).
-    # It installs a fixed list of R packages from CRAN at run time - the only
-    # outbound access it has (ProxyConfiguration.allow_list, recorded by the
-    # platform in accessed_domains.txt of its result) - loads them, and runs a
-    # few basic statistics and plots with some of them. Like the merged-data
-    # example node it reads the pooled dataset directly (so running it
-    # triggers the merge) and writes aggregates only; without a merge chain it
-    # reads the full data file of every cohort instead, like the per-cohort
-    # visualization scripts. Every participant can run it. Not in no-code
+    # It installs a fixed list of R packages at run time - its only outbound
+    # access being the package repositories in R_CRAN_DOMAINS
+    # (ProxyConfiguration.allow_list, recorded by the platform in
+    # accessed_domains.txt of its result) - loads them, and runs a few basic
+    # statistics and plots with some of them over every cohort: the full data
+    # file when the owner has uploaded it, the cohort's shuffled sample
+    # otherwise. So it depends on the data and shuffled-sample nodes directly,
+    # never on the merge node (which needs every full dataset), and can be run
+    # before all the data is in. Writes aggregates only, like the per-cohort
+    # visualization scripts; every participant can run it. Not in no-code
     # rooms, which carry no starter scripts.
     if include_r_packages_node and not nocode_room:
-        if studies_info:
-            r_inputs = [{"label": "merged",
-                         "path": f"/input/{merge_node_name}/pooled_dataset.csv",
-                         "source": f"the pooled dataset written by the '{merge_node_name}' node"}]
-            r_dependencies = [merge_node_name]
-        else:
-            r_inputs = [{"label": node_id, "path": f"/input/{node_id}",
-                         "source": f"the full data file of cohort {node_id} (a CSV is expected)"}
-                        for node_id in data_nodes]
-            r_dependencies = list(data_nodes)
+        r_inputs, r_dependencies = [], []
+        for cohort_id in selected_cohorts.keys():
+            node_id = cohort_id.replace(" ", "-")
+            full = node_id if node_id in data_nodes else None
+            shuffled = shuffled_nodes.get(cohort_id)
+            if not full and not shuffled:
+                continue
+            r_inputs.append({
+                "label": node_id,
+                "path": f"/input/{full}" if full else None,
+                "fallback": f"/input/{shuffled}" if shuffled else None,
+                "source": (f"full data file /input/{full}" if full else "no full data node") +
+                          (f", shuffled sample /input/{shuffled} while the full data is not uploaded" if shuffled else ", no shuffled sample in this room"),
+            })
+            r_dependencies += [n for n in (full, shuffled) if n]
+        r_dependencies = list(dict.fromkeys(r_dependencies))
         if r_inputs:
             builder.add_node_definition(
                 RComputeNodeDefinition(
@@ -1372,7 +1380,7 @@ async def get_compute_dcr_definition(
                 participants[p_email]["analyst_of"].add(R_PACKAGES_NODE_NAME)
             logging.info(
                 f"Added R compute node '{R_PACKAGES_NODE_NAME}' (CRAN access: {', '.join(R_CRAN_DOMAINS)}) "
-                f"reading {[i['path'] for i in r_inputs]}; every participant may run it"
+                f"reading {[i['path'] or i['fallback'] for i in r_inputs]} (shuffled samples as fallback); every participant may run it"
             )
         else:
             msg = f"R compute node '{R_PACKAGES_NODE_NAME}' NOT added: the room has no data node for it to read."
