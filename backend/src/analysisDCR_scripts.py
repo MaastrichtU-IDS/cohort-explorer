@@ -1940,7 +1940,9 @@ __INPUT_SOURCES__
 #      records every domain it reaches in accessed_domains.txt of the result.
 #      Packages the environment already provides are not reinstalled. The
 #      outcome per package goes to r_packages_status.csv (already available /
-#      installed / FAILED). Installing from CRAN compiles most packages from
+#      installed / FAILED), with the seconds its installation and its loading
+#      took; the totals are printed and written to README.txt. Installing from
+#      CRAN compiles most packages from
 #      source: expect the first run to take a long time, and a package that
 #      needs a system library the environment lacks to fail - the analyses
 #      below only use a package when it loaded.
@@ -1980,8 +1982,10 @@ note <- function(...) {
 # ---- 1. install what is missing, from CRAN -----------------------------------
 available <- function(pkg) suppressWarnings(requireNamespace(pkg, quietly = TRUE))
 
-status <- data.frame(package = PACKAGES, status = NA_character_, seconds = NA_real_,
+status <- data.frame(package = PACKAGES, status = NA_character_,
+                     install_seconds = NA_real_, load_seconds = NA_real_,
                      stringsAsFactors = FALSE)
+t_install <- Sys.time()
 for (i in seq_along(PACKAGES)) {
   pkg <- PACKAGES[i]
   if (available(pkg)) {
@@ -1995,24 +1999,38 @@ for (i in seq_along(PACKAGES)) {
                                       dependencies = c("Depends", "Imports", "LinkingTo"))),
     error = function(e) cat("  install.packages(", pkg, ") raised: ", conditionMessage(e), "\n", sep = "")
   )
-  status$seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1)
+  status$install_seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1)
   status$status[i] <- if (available(pkg)) "installed" else "FAILED"
 }
-write.csv(status, file.path(OUT, "r_packages_status.csv"), row.names = FALSE)
-cat("\nPackage status:\n")
-print(status, row.names = FALSE)
+total_install <- round(as.numeric(difftime(Sys.time(), t_install, units = "secs")), 1)
 
-# ---- 2. load every available package ----------------------------------------
+# ---- 2. load every available package, timing each library() call -----------
 loaded <- character(0)
-for (pkg in PACKAGES) {
+t_load <- Sys.time()
+for (i in seq_along(PACKAGES)) {
+  pkg <- PACKAGES[i]
   if (available(pkg)) {
+    t0 <- Sys.time()
     suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+    status$load_seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
     loaded <- c(loaded, pkg)
   }
 }
+total_load <- round(as.numeric(difftime(Sys.time(), t_load, units = "secs")), 1)
+
+write.csv(status, file.path(OUT, "r_packages_status.csv"), row.names = FALSE)
+cat("\nPackage status (seconds to install / to load):\n")
+print(status, row.names = FALSE)
 note("Loaded packages: ", paste(loaded, collapse = ", "))
 failed <- status$package[status$status == "FAILED"]
 if (length(failed) > 0) note("Not available (install failed): ", paste(failed, collapse = ", "))
+note("Total time to install the missing packages: ", total_install, " s (",
+     sum(status$status == "installed"), " installed, ", sum(status$status == "already available"),
+     " already available, ", length(failed), " failed)")
+note("Total time to load the ", length(loaded), " available packages: ", total_load, " s")
+slowest <- status[!is.na(status$load_seconds), ]
+slowest <- head(slowest[order(-slowest$load_seconds), ], 5)
+if (nrow(slowest) > 0) note("Slowest to load: ", paste0(slowest$package, " (", slowest$load_seconds, " s)", collapse = ", "))
 has <- function(pkg) pkg %in% loaded
 
 # ---- helpers ----------------------------------------------------------------
