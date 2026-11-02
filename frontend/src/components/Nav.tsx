@@ -847,11 +847,11 @@ export function Nav() {
             {/* Concept clusters heatmap. Two short lines in a smaller font, so the
                 longer label takes no more width than its neighbours. */}
             <Link href="/concept-clusters-heatmap" className={pathname === '/concept-clusters-heatmap' ? 'active' : ''}
-                  title="Inter-study comparison: which concepts each cohort records, as a heatmap">
+                  title="Concept coverage: which concepts each cohort records, as a heatmap">
               <Grid size={24} />
               <span className="flex flex-col leading-none gap-[3px] text-[11px]">
-                <span>Inter-study</span>
-                <span>Comparison</span>
+                <span>Concept</span>
+                <span>Coverage</span>
               </span>
             </Link>
           </li>
@@ -889,7 +889,7 @@ export function Nav() {
           <ul tabIndex={0} className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
             <li><Link href="/upload">Upload</Link></li>
             <li><Link href="/cohorts">Explore</Link></li>
-            <li><Link href="/concept-clusters-heatmap">Inter-study Comparison</Link></li>
+            <li><Link href="/concept-clusters-heatmap">Concept Coverage</Link></li>
             <li><Link href="/mapping">Mapping</Link></li>
             <li><Link href="/dcrs">My DCRs</Link></li>
             {aiNavEnabled && <li><Link href="/ai">iCARE-AI</Link></li>}
