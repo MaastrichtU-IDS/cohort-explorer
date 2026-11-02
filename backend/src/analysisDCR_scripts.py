@@ -1890,8 +1890,26 @@ R_PACKAGES_NODE_NAME = "load-R-packages"
 # the image's distribution (no compilation, so far fewer failures).
 R_CRAN_DOMAINS = ["cloud.r-project.org", "packagemanager.posit.co"]
 
+# The node's R image is a Nix-built R (4.3.2 at the time of writing) whose
+# OpenSSL has no certificate store: without one, every https fetch fails with
+# "STORE routines::unregistered scheme" (seen 2026-11-02). The node therefore
+# carries Mozilla's CA bundle, from the certifi package of this backend, as an
+# additional file; the platform mounts such files at /input/code/<name>.
+R_CA_BUNDLE_FILE = "cacert.pem"
+
+
+def r_ca_bundle_content() -> str:
+    """Mozilla's CA bundle (PEM), as shipped by the certifi package."""
+    import certifi
+    with open(certifi.where(), encoding="utf-8") as fh:
+        return fh.read()
+
+
 # Packages the node installs from CRAN at runtime (those the built-in R
 # environment already provides are only loaded) and then loads with library().
+# The image ships no compiler, so only packages without compiled code (and
+# whose missing dependencies have none) can be installed this way; the rest
+# need Decentriq to add them to the image.
 R_PACKAGES = [
     "survival", "LTRCtrees", "LTRCforests", "ksamplesLTRC", "dplyr", "data.table",
     "miceRanger", "ggplot2", "Amelia", "plotly", "grf", "readr", "pROC", "glmnet",
@@ -1947,7 +1965,8 @@ def r_packages_script(inputs: list[dict], liberal_proxy: bool = False) -> str:
                              .replace("__INPUTS__", r_inputs) \
                              .replace("__PACKAGES__", packages) \
                              .replace("__CRAN__", f"https://{R_CRAN_DOMAINS[0]}") \
-                             .replace("__PROXY_NOTE__", proxy_note)
+                             .replace("__PROXY_NOTE__", proxy_note) \
+                             .replace("__CA_BUNDLE_FILE__", R_CA_BUNDLE_FILE)
 
 
 _R_PACKAGES_SCRIPT = r'''###############################################################################
@@ -1970,12 +1989,13 @@ __INPUT_SOURCES__
 #      its own under R's temp dir (the image's site library is read-only).
 __PROXY_NOTE__
 #      The platform records every domain the node reaches in
-#      accessed_domains.txt of the result. The enclave has no
-#      compiler, so packages come as ready-built Linux binaries from Posit
-#      Package Manager (for the image's distribution, Ubuntu 22.04 assumed
-#      when unknown); CRAN is only a last resort for pure-R packages. A
-#      package needing a system library the enclave lacks still fails to
-#      load - the status file gives the reason. Packages the environment already provides are not
+#      accessed_domains.txt of the result. The image is a Nix-built R whose
+#      OpenSSL has no certificate store, so the node brings Mozilla's CA
+#      bundle along (/input/code/cacert.pem) and points R at it. The image
+#      has no compiler either, so from CRAN only packages WITHOUT compiled
+#      code install; the status file names each failure's reason, and a
+#      package that needs compiling has to be added to the image by
+#      Decentriq. Packages the environment already provides are not
 #      reinstalled. The outcome per package goes to r_packages_status.csv
 #      (already available / installed / FAILED, with the reason), with the
 #      seconds its installation and its loading took; the totals are printed
@@ -2035,8 +2055,11 @@ one_line <- function(x, n = 240) {
 }
 
 cat(R.version.string, "on", R.version$platform, "\n")
-cat("Library paths:\n")
-for (lp in .libPaths()) cat("  ", lp, if (file.access(lp, 2) == 0) "(writable)" else "(read-only)", "\n")
+lps <- .libPaths()
+nix_r <- any(grepl("^/nix/store/", lps))
+cat(length(lps), "library paths", if (nix_r) "(a Nix-built R: one store path per package)" else "", "\n")
+cat("  first:", lps[1], "\n  last: ", lps[length(lps)], "\n")
+cat("  packages already provided:", length(unique(unlist(lapply(lps, list.files)))), "\n")
 # The image's site library is usually read-only: install into a library of
 # our own under R's temp dir (always writable) and put it first on the path.
 LIB <- file.path(tempdir(), "rlib")
@@ -2048,26 +2071,45 @@ proxy <- Sys.getenv(c("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", 
 proxy <- proxy[!is.na(proxy) & proxy != ""]
 cat("Proxy environment:", if (length(proxy) == 0) "(none set)" else paste(names(proxy), proxy, sep = "=", collapse = "  "), "\n")
 
-# The enclave ships no compiler, so CRAN's source packages cannot be built
-# here: packages come from Posit Package Manager's pre-built Linux binaries.
-# The binaries are per distribution; the image's own is read from
-# /etc/os-release when present, otherwise Ubuntu 22.04 (jammy) is assumed, as
-# in Decentriq's example. CRAN stays as the last resort for pure-R packages.
-os <- tryCatch(readLines("/etc/os-release", warn = FALSE), error = function(e) character(0))
+# Certificate authorities for https. The image's OpenSSL has no certificate
+# store (every https fetch failed with "STORE routines::unregistered scheme"),
+# so the node carries Mozilla's CA bundle as an additional file, mounted by
+# the platform under /input/code. R's libcurl reads CURL_CA_BUNDLE, OpenSSL
+# itself reads SSL_CERT_FILE; both are set before the first download.
+ca_candidates <- c("/input/code/__CA_BUNDLE_FILE__", "./__CA_BUNDLE_FILE__",
+                   Sys.getenv("SSL_CERT_FILE"), Sys.getenv("CURL_CA_BUNDLE"),
+                   "/etc/ssl/certs/ca-certificates.crt", "/etc/ssl/certs/ca-bundle.crt", "/etc/pki/tls/certs/ca-bundle.crt",
+                   Sys.glob("/nix/store/*cacert*/etc/ssl/certs/ca-bundle.crt"))
+ca_candidates <- ca_candidates[nzchar(ca_candidates)]
+CA_BUNDLE <- ca_candidates[file.exists(ca_candidates)][1]
+if (is.na(CA_BUNDLE)) {
+  note("No CA bundle found (looked for ", paste(unique(ca_candidates), collapse = ", "), "): https downloads will fail certificate verification")
+} else {
+  Sys.setenv(CURL_CA_BUNDLE = CA_BUNDLE, SSL_CERT_FILE = CA_BUNDLE)
+  cat("CA bundle:", CA_BUNDLE, "(", file.size(CA_BUNDLE), "bytes )\n")
+}
+
+# Where packages come from. The image ships no compiler, so from CRAN only
+# packages without compiled code can be installed (R builds the rest from
+# source and fails). Posit Package Manager's pre-built binaries would avoid
+# that, but they are built for Debian/Ubuntu system libraries: they are
+# used only when /etc/os-release says the image is one of those, which the
+# Nix-built R image is not.
+os <- if (file.exists("/etc/os-release")) readLines("/etc/os-release", warn = FALSE) else character(0)
 field <- function(key) { v <- sub(paste0("^", key, "="), "", grep(paste0("^", key, "="), os, value = TRUE)); gsub('"', "", v)[1] }
 distro <- field("ID"); codename <- field("VERSION_CODENAME")
-if (is.na(distro) || is.na(codename) || !(distro %in% c("ubuntu", "debian"))) {
-  cat("Distribution:", if (is.na(distro)) "unknown (no /etc/os-release)" else paste(distro, codename),
-      "- assuming Ubuntu 22.04 (jammy) binaries\n")
-  codename <- "jammy"
+if (!is.na(distro) && !is.na(codename) && distro %in% c("ubuntu", "debian")) {
+  cat("Distribution:", distro, codename, "- Posit Package Manager binaries first\n")
+  PPM <- sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", codename)
+  options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
+                                  paste(getRversion(), R.version$platform, R.version$arch, R.version$os)))
+  REPOS <- c(PPM = PPM, CRAN = CRAN)
 } else {
-  cat("Distribution:", distro, codename, "\n")
+  cat("Distribution:", if (length(os) == 0) "no /etc/os-release" else paste(distro, codename),
+      if (nix_r) "(Nix-built R)" else "", "- CRAN sources; packages with compiled code cannot be installed here\n")
+  PPM <- NULL
+  REPOS <- c(CRAN = CRAN)
 }
-PPM <- sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", codename)
-# The user agent tells Package Manager which R / platform to serve binaries for.
-options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
-                                paste(getRversion(), R.version$platform, R.version$arch, R.version$os)))
-REPOS <- c(PPM = PPM, CRAN = CRAN)
 options(repos = REPOS)
 
 reachable <- character(0)
@@ -2110,9 +2152,10 @@ if (length(reachable) == 0) {
     probe("https CRAN, certificate verification OFF", "https://cloud.r-project.org/src/contrib/PACKAGES", ssl_verifypeer = FALSE, ssl_verifyhost = FALSE)
     probe("https CRAN, TLS 1.2 only               ", "https://cloud.r-project.org/src/contrib/PACKAGES", sslversion = 6L)
     probe("http  CRAN (no TLS)                    ", "http://cloud.r-project.org/src/contrib/PACKAGES")
-    probe("https Posit PM, verification on        ", paste0(PPM, "/src/contrib/PACKAGES"))
-    probe("https Posit PM, verification OFF       ", paste0(PPM, "/src/contrib/PACKAGES"), ssl_verifypeer = FALSE, ssl_verifyhost = FALSE)
-    probe("http  Posit PM (no TLS)                ", sub("^https://", "http://", paste0(PPM, "/src/contrib/PACKAGES")))
+    if (!is.null(PPM)) {
+      probe("https Posit PM, verification on        ", paste0(PPM, "/src/contrib/PACKAGES"))
+      probe("https Posit PM, verification OFF       ", paste0(PPM, "/src/contrib/PACKAGES"), ssl_verifypeer = FALSE, ssl_verifyhost = FALSE)
+    }
   } else {
     cat("The 'curl' R package is not available; falling back to download.file probes\n")
     for (u in c("http://cloud.r-project.org/src/contrib/PACKAGES", "https://cloud.r-project.org/src/contrib/PACKAGES")) {

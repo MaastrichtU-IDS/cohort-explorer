@@ -14,6 +14,7 @@ import decentriq_platform as dq
 from decentriq_platform.analytics import (
     AnalyticsDcrBuilder,
     Column,
+    FileContent,
     FormatType,
     PreviewComputeNodeDefinition,
     PythonComputeNodeDefinition,
@@ -30,7 +31,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
-from src.analysisDCR_scripts import data_fragment_script, visualization_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script, r_packages_script, R_PACKAGES_NODE_NAME, R_CRAN_DOMAINS
+from src.analysisDCR_scripts import data_fragment_script, visualization_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script, r_packages_script, r_ca_bundle_content, R_PACKAGES_NODE_NAME, R_CRAN_DOMAINS, R_CA_BUNDLE_FILE
 from src.mapping import resolve_selected_mapping_files
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata, split_emails
@@ -1375,6 +1376,9 @@ async def get_compute_dcr_definition(
                 RComputeNodeDefinition(
                     name=R_PACKAGES_NODE_NAME,
                     script=r_packages_script(r_inputs, liberal_proxy=r_packages_proxy_liberal),
+                    # Mozilla's CA bundle, mounted at /input/code/cacert.pem: the
+                    # image's OpenSSL has no certificate store of its own.
+                    additional_files=[FileContent(name=R_CA_BUNDLE_FILE, content=r_ca_bundle_content())],
                     dependencies=r_dependencies,
                     enable_logs_on_error=True,
                     enable_logs_on_success=True,
