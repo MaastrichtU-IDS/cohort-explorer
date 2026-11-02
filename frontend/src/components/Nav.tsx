@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Grid} from 'react-feather';
 import NocodeWizard from '@/components/nocode/NocodeWizard';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon, SparklesIcon} from '@/components/Icons';
@@ -844,6 +844,18 @@ export function Nav() {
             </Link>
           </li>
           <li>
+            {/* Concept clusters heatmap. Two short lines in a smaller font, so the
+                longer label takes no more width than its neighbours. */}
+            <Link href="/concept-clusters-heatmap" className={pathname === '/concept-clusters-heatmap' ? 'active' : ''}
+                  title="Inter-study comparison: which concepts each cohort records, as a heatmap">
+              <Grid size={24} />
+              <span className="flex flex-col leading-none gap-[3px] text-[11px]">
+                <span>Inter-study</span>
+                <span>Comparison</span>
+              </span>
+            </Link>
+          </li>
+          <li>
             <Link href="/mapping" className={pathname === '/mapping' ? 'active' : ''}>
               <Map size={24} />
               <span className="text-base">Mapping</span>
@@ -877,6 +889,7 @@ export function Nav() {
           <ul tabIndex={0} className="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
             <li><Link href="/upload">Upload</Link></li>
             <li><Link href="/cohorts">Explore</Link></li>
+            <li><Link href="/concept-clusters-heatmap">Inter-study Comparison</Link></li>
             <li><Link href="/mapping">Mapping</Link></li>
             <li><Link href="/dcrs">My DCRs</Link></li>
             {aiNavEnabled && <li><Link href="/ai">iCARE-AI</Link></li>}
