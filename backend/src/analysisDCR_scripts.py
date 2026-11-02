@@ -2062,6 +2062,46 @@ for (nm in names(REPOS)) {
 if (length(reachable) == 0) {
   note("No package repository is reachable from this node: nothing can be installed. ",
        "Check the node's internet access (proxy allow-list) and accessed_domains.txt in this result.")
+  # ---- network diagnostics: what exactly fails between this node and the repositories?
+  # Each probe is one request; together they tell a certificate-trust problem
+  # (verification off succeeds), a protocol problem (TLS 1.2 only succeeds)
+  # and an HTTPS-only block (plain http succeeds) apart.
+  cat("\n-- Network diagnostics --\n")
+  env <- Sys.getenv(); nm <- names(env)
+  sel <- nm[grepl("proxy|ssl|cert|curl|ca_bundle|decentriq", nm, ignore.case = TRUE)]
+  cat("Environment variables mentioning proxy/ssl/cert/curl:",
+      if (length(sel) > 0) paste(sel, env[sel], sep = "=", collapse = "  ") else "(none)", "\n")
+  for (d in c("/etc/ssl/certs", "/etc/pki", "/usr/local/share/ca-certificates", "/usr/share/ca-certificates", "/run/secrets", "/etc/decentriq")) {
+    if (dir.exists(d)) {
+      f <- list.files(d, pattern = "[.](crt|pem)$", recursive = TRUE, full.names = TRUE)
+      cat("  ", d, ": ", length(f), " certificate file(s)", if (length(f) > 0) paste0(", e.g. ", paste(head(basename(f), 4), collapse = ", ")) else "", "\n", sep = "")
+    }
+  }
+  if (requireNamespace("curl", quietly = TRUE)) {
+    cv <- curl::curl_version()
+    cat("libcurl ", cv$version, " with ", cv$ssl_version, "\n", sep = "")
+    probe <- function(label, url, ...) {
+      r <- tryCatch({
+        h <- curl::new_handle(timeout = 30, ...)
+        res <- curl::curl_fetch_memory(url, handle = h)
+        paste0("HTTP ", res$status_code, ", ", length(res$content), " bytes")
+      }, error = function(e) paste("FAILED:", conditionMessage(e)))
+      cat("  ", label, ": ", one_line(r, 160), "\n", sep = "")
+    }
+    probe("https CRAN, certificate verification on ", "https://cloud.r-project.org/src/contrib/PACKAGES")
+    probe("https CRAN, certificate verification OFF", "https://cloud.r-project.org/src/contrib/PACKAGES", ssl_verifypeer = FALSE, ssl_verifyhost = FALSE)
+    probe("https CRAN, TLS 1.2 only               ", "https://cloud.r-project.org/src/contrib/PACKAGES", sslversion = 6L)
+    probe("http  CRAN (no TLS)                    ", "http://cloud.r-project.org/src/contrib/PACKAGES")
+    probe("https Posit PM, verification on        ", paste0(PPM, "/src/contrib/PACKAGES"))
+    probe("https Posit PM, verification OFF       ", paste0(PPM, "/src/contrib/PACKAGES"), ssl_verifypeer = FALSE, ssl_verifyhost = FALSE)
+    probe("http  Posit PM (no TLS)                ", sub("^https://", "http://", paste0(PPM, "/src/contrib/PACKAGES")))
+  } else {
+    cat("The 'curl' R package is not available; falling back to download.file probes\n")
+    for (u in c("http://cloud.r-project.org/src/contrib/PACKAGES", "https://cloud.r-project.org/src/contrib/PACKAGES")) {
+      r <- capture(download.file(u, tempfile(), quiet = TRUE))
+      cat("  ", u, ": ", if (is.null(r$value)) one_line(r$messages, 160) else "OK", "\n", sep = "")
+    }
+  }
 }
 REPOS <- REPOS[reachable]
 
