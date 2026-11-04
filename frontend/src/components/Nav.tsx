@@ -1514,11 +1514,11 @@ export function Nav() {
                 <div className="mt-2 text-left">
                   <button
                     type="button"
-                    className="btn btn-ghost btn-xs px-1 gap-1.5 text-base-content/50 hover:text-base-content font-normal"
+                    className="btn btn-ghost h-9 min-h-0 px-2 gap-2 text-lg text-base-content/50 hover:text-base-content font-normal"
                     onClick={() => setWizardMode('nocode')}
                   >
                     Or: switch to no-code DCRs
-                    <span className="badge badge-warning badge-xs font-semibold uppercase tracking-wide">Beta</span>
+                    <span className="badge badge-warning badge-sm font-semibold uppercase tracking-wide">Beta</span>
                   </button>
                 </div>
                 
