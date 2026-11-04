@@ -506,7 +506,7 @@ async def recompute_mapping_pair(
     target_study: str = Body(...),
     user: Any = Depends(get_current_user),
 ):
-    """Recompute one cached pair, ignoring its cached CSV. Admins only.
+    """Recompute one cached pair, ignoring its cached CSV.
 
     The pair is forced through generate_mapping_csv with force_targets, so a
     target that belongs to a study family does not drag its siblings along.
@@ -515,11 +515,6 @@ async def recompute_mapping_pair(
     """
     from CohortVarLinker.main import generate_mapping_csv, find_cached_csv
     from CohortVarLinker.src.config import settings as cohort_linker_settings
-
-    # A recompute replaces a shared cache file and occupies the LLM for up to
-    # 35 minutes, so only admins (ADMINS list) may trigger it.
-    if (user.get("email") or "").lower() not in settings.admins_list:
-        raise HTTPException(status_code=403, detail="Only admins can re-compute a cached pair")
 
     source_study = source_study.strip().lower()
     target_study = target_study.strip().lower()
