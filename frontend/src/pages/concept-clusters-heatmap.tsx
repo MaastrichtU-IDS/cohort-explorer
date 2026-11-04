@@ -824,11 +824,6 @@ export default function ConceptCoverageHeatmapPage() {
   const hiddenRowKeys = useMemo(() => new Set(hiddenRows.map(h => h.key)), [hiddenRows]);
   const hiddenColKeys = useMemo(() => new Set(hiddenCols.map(h => h.key)), [hiddenCols]);
 
-  const visibleClusters = useMemo(
-    () => thresholdClusters.filter(c => isClusterSelected(c.key) && !hiddenColKeys.has(c.key)),
-    [thresholdClusters, clusterFilter, hiddenColKeys]
-  );
-
   const rows: HeatRow[] = useMemo(() => {
     const out: HeatRow[] = [];
     for (const cohortId of selectedCohorts) {
@@ -843,6 +838,27 @@ export default function ConceptCoverageHeatmapPage() {
     }
     return out;
   }, [selectedCohorts, model, cohortInfo, hiddenRowKeys]);
+
+  // Cluster keys with at least one cell in the rows shown. The threshold is
+  // counted over all cohorts, so without this a column whose entries all sit
+  // in deselected cohorts (or hidden rows) would stay as a column of dots.
+  const clustersWithEntries = useMemo(() => {
+    const rowPrefixes = new Set(rows.map(r => `${r.cohortId}||${r.visitKey}||`));
+    const present = new Set<string>();
+    for (const key of model.cells.keys()) {
+      const split = key.indexOf('||', key.indexOf('||') + 2) + 2; // after `${cohortId}||${visitKey}||`
+      if (rowPrefixes.has(key.slice(0, split))) present.add(key.slice(split));
+    }
+    return present;
+  }, [rows, model]);
+
+  const visibleClusters = useMemo(
+    () =>
+      thresholdClusters.filter(
+        c => isClusterSelected(c.key) && !hiddenColKeys.has(c.key) && clustersWithEntries.has(c.key)
+      ),
+    [thresholdClusters, clusterFilter, hiddenColKeys, clustersWithEntries]
+  );
 
   // Highest count per cohort type in the matrix shown: each colour scale
   // spans its own range.
