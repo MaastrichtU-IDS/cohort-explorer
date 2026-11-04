@@ -511,7 +511,7 @@ export function Nav() {
             : [],
           merge_use_shuffled: mergeChainOn ? mergeUseShuffled : false,
           include_r_packages_node: includeRPackagesNode,
-          r_packages_proxy_liberal: includeRPackagesNode && rPackagesProxyLiberal
+          r_packages_proxy_liberal: includeRPackagesNode && isAdmin && rPackagesProxyLiberal
         })
       });
       
@@ -1359,13 +1359,14 @@ export function Nav() {
 
                       {/* Optional R compute node */}
                       <div className="mt-6 pt-4 border-t">
-                        <p className="text-sm font-semibold mb-1">Should the DCR include an R compute node?</p>
+                        <p className="text-sm font-semibold mb-1">Are you planning to use R for analysis scripts?</p>
                         <p className="text-xs text-base-content/60 mb-3">
-                          Adds a node named <code>load-R-packages</code> that installs a set of R packages from CRAN at run time
-                          (survival, dplyr, data.table, ggplot2, glmnet, xgboost, caret, mgcv and others) and runs a few basic
-                          statistics and plots on each cohort&apos;s data, using the shuffled sample of a cohort whose full data is not
-                          uploaded yet, as a starting point for analyses in R. The node is allowed outbound internet access to cloud.r-project.org only; every domain it
-                          reaches is recorded by Decentriq in the node&apos;s result. Installing the packages makes its first run slow.
+                          If yes, a node named <code>load-R-packages</code> will be added. Its purpose is to install a set of R packages
+                          from CRAN at run time (survival, dplyr, data.table, ggplot2, glmnet, xgboost, caret, mgcv and others) and to run
+                          a few basic statistics and plots on each cohort&apos;s data, using the shuffled sample of a cohort whose full data
+                          is not uploaded yet, as a starting point for analyses in R. The node is allowed outbound internet access to
+                          cloud.r-project.org only; every domain it reaches is recorded by Decentriq in the node&apos;s result. Installing
+                          the packages makes its first run slow.
                         </p>
                         <div className="flex gap-2">
                           <button
@@ -1391,7 +1392,8 @@ export function Nav() {
                             No
                           </button>
                         </div>
-                        {includeRPackagesNode && (
+                        {/* The liberal-proxy diagnostic is an admin tool: hidden from other users */}
+                        {includeRPackagesNode && isAdmin && (
                           <div className="form-control mt-3">
                             <label className="label cursor-pointer justify-start gap-3">
                               <input
