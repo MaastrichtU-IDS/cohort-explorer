@@ -1423,6 +1423,15 @@ export default function MappingPage() {
   const [loadingCacheAction, setLoadingCacheAction] = useState<string | null>(null);
   // Forced recompute of one cached pair from the cached pairs panel
   const [recomputingPair, setRecomputingPair] = useState<{filename: string, label: string} | null>(null);
+  // Download and re-compute in the cached pairs panel are admin-only (ADMINS list);
+  // the backend refuses a re-compute from anyone else, this only hides the buttons.
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    fetch(`${apiUrl}/admin/check`, { credentials: 'include' })
+      .then(r => (r.ok ? r.json() : { is_admin: false }))
+      .then(d => setIsAdmin(!!d.is_admin))
+      .catch(() => setIsAdmin(false));
+  }, []);
   const [recomputeNotice, setRecomputeNotice] = useState<{kind: 'success' | 'error', text: string} | null>(null);
   
   // Reference to the mapping output section
@@ -2024,21 +2033,26 @@ export default function MappingPage() {
                             >
                               {loadingCacheAction === file.filename ? <span className="loading loading-spinner loading-xs"></span> : 'Show graph'}
                             </button>
-                            <button
-                              className="btn btn-xs btn-outline"
-                              onClick={() => handleCacheDownload(file)}
-                              disabled={loadingCacheAction === file.filename}
-                            >
-                              Download
-                            </button>
-                            <button
-                              className="btn btn-xs btn-outline border-red-300 text-red-700 bg-red-50 hover:bg-red-100 hover:border-red-400 hover:text-red-800"
-                              onClick={() => handleCacheRecompute(file)}
-                              disabled={recomputingPair !== null || loadingCacheAction === file.filename}
-                              title="Map this pair again from scratch, ignoring the cached result. The cached file is replaced when the new run succeeds."
-                            >
-                              {recomputingPair?.filename === file.filename ? <span className="loading loading-spinner loading-xs"></span> : 'Re-compute'}
-                            </button>
+                            {isAdmin && (
+                              <>
+                                <button
+                                  className="btn btn-ghost h-5 min-h-0 px-1.5 text-[10px] font-normal normal-case border border-dashed border-gray-400 text-gray-600 hover:bg-gray-100 hover:border-gray-500 self-center"
+                                  onClick={() => handleCacheDownload(file)}
+                                  disabled={loadingCacheAction === file.filename}
+                                  title="Admin only: download the cached mapping file as CSV"
+                                >
+                                  ⤓ CSV
+                                </button>
+                                <button
+                                  className="btn btn-xs btn-outline border-red-300 text-red-700 bg-red-50 hover:bg-red-100 hover:border-red-400 hover:text-red-800"
+                                  onClick={() => handleCacheRecompute(file)}
+                                  disabled={recomputingPair !== null || loadingCacheAction === file.filename}
+                                  title="Admin only: map this pair again from scratch, ignoring the cached result. The cached file is replaced when the new run succeeds."
+                                >
+                                  {recomputingPair?.filename === file.filename ? <span className="loading loading-spinner loading-xs"></span> : 'Re-compute'}
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
