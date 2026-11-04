@@ -912,17 +912,10 @@ export function Nav() {
       <div className="navbar-end">
         {/* Desktop */}
         <div className="menu menu-horizontal my-0 py-0 space-x-6 pr-6 items-center">
-          {(pathname === '/' ||
-            pathname === '/cohorts' ||
-            pathname === '/mapping' ||
-            pathname === '/dcrs' ||
-            pathname === '/concept-coverage' ||
-            pathname === '/ai' ||
-            pathname.startsWith('/ai/')) && (
-            <button id="dcr-button" onClick={openDcrWizard} className="btn bg-white border-2 border-gray-300 shadow-md hover:shadow-lg hover:bg-gray-50 transition-all duration-200 py-3 px-6" style={{ minWidth: '280px' }}>
-              Create a Data Clean Room <div className="badge badge-neutral badge-sm">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
-            </button>
-          )}
+          {/* On every page: the basket follows the user around the explorer */}
+          <button id="dcr-button" onClick={openDcrWizard} className="btn bg-white border-2 border-gray-300 shadow-md hover:shadow-lg hover:bg-gray-50 transition-all duration-200 py-3 px-6" style={{ minWidth: '280px' }}>
+            Create a Data Clean Room <div className="badge badge-neutral badge-sm">{Object.keys(dataCleanRoom?.cohorts).length || 0}</div>
+          </button>
 
           {userEmail ? (
             <button onClick={handleLogout} className="flex items-center space-x-2 p-2 rounded-lg hover:bg-neutral-300">
