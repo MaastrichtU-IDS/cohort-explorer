@@ -276,3 +276,123 @@ def run_admin_sparql(body: SparqlQueryRequest, user: Any = Depends(get_current_u
             "duration_s": duration,
         }
     return {"kind": "graph", "text": resp.text[:2_000_000], "truncated": len(resp.text) > 2_000_000, "duration_s": duration}
+
+
+# ------------------------------------------------------------------
+# GET /admin/omop-concept — what the upload validator knows about a concept
+# ------------------------------------------------------------------
+# The Athena/OMOP validation of an uploaded dictionary (validate_cde.py) asks
+# the local OMOP graph first and only falls back to Athena when the id is not
+# in the graph. This endpoint shows both sides for one (code, id) pair, so a
+# "concept_id and concept_code do not match" complaint can be checked against
+# the graph's own record of the id, the code index, and what Athena says.
+ATHENA_CONCEPT_URL = "https://athena.ohdsi.org/api/v1/concepts"
+
+
+def _file_info(path: str) -> dict:
+    try:
+        st = os.stat(path)
+        return {"path": path, "exists": True, "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                "size_mb": round(st.st_size / 1e6, 1)}
+    except OSError:
+        return {"path": path, "exists": False}
+
+
+@router.get("/omop-concept")
+def lookup_omop_concept(
+    code: Optional[str] = None,
+    omop_id: Optional[str] = None,
+    user: Any = Depends(get_current_user),
+) -> dict:
+    """Look up a prefixed concept code (e.g. UCUM:ng/mL) and/or an OMOP id in the
+    local OMOP graph and in Athena, and give the validator's verdict for the pair."""
+    admin_email = _require_admin(user)
+    from CohortVarLinker.validate_cde import (  # noqa: WPS433 - lazy, heavy import
+        get_omop_graph, split_code_prefixed, to_int_or_none, fetch_athena, rows_to_simple, _ATHENA_HEADERS,
+    )
+    from CohortVarLinker.src.config import settings as cvl_settings
+    from CohortVarLinker.src.omop_graph_nx import _code_key
+
+    code = (code or "").strip()
+    vocab, bare_code = split_code_prefixed(code) if code else (None, None)
+    vocabs = [v for v in (vocab if isinstance(vocab, list) else [vocab]) if v]
+    cid = to_int_or_none(omop_id)
+    if not bare_code and cid is None:
+        raise HTTPException(status_code=422, detail="Give a prefixed concept code (e.g. UCUM:ng/mL), an OMOP id, or both")
+    logging.info("Admin %s looks up OMOP concept code=%r id=%r", admin_email, code, cid)
+
+    out: dict[str, Any] = {
+        "input": {"code": code or None, "vocabulary": vocabs or None, "bare_code": bare_code, "omop_id": cid},
+        "graph": {"pickle": _file_info(cvl_settings.omop_graph_pickle_path),
+                  "source_csv": _file_info(cvl_settings.concepts_file_path)},
+    }
+
+    # --- local graph ---
+    t0 = time.time()
+    g = get_omop_graph()
+    meta = g.graph.graph.get("meta")
+    code_index = g.graph.graph.get("code_index") or {}
+    out["graph"]["concepts"] = int(len(meta)) if meta is not None else 0
+    out["graph"]["load_s"] = round(time.time() - t0, 1)
+
+    def meta_row(concept_id: int) -> Optional[dict]:
+        if meta is None or concept_id not in meta.index:
+            return None
+        r = meta.loc[concept_id]
+        return {"concept_id": int(concept_id),
+                "vocabulary": str(r.get("concept_vocabulary", "")),
+                "code": str(r.get("concept_code", "")),
+                "name": str(r.get("concept_name", "")),
+                "class": str(r.get("concept_class", "")) if "concept_class" in meta.columns else None,
+                "domain": str(r.get("concept_domain", "")) if "concept_domain" in meta.columns else None}
+
+    out["graph"]["by_id"] = meta_row(cid) if cid is not None else None
+
+    by_code: list[dict] = []
+    if bare_code and vocabs and meta is not None:
+        for v in vocabs:
+            exact = code_index.get(_code_key(v, bare_code))
+            if exact is not None:
+                row = meta_row(int(exact))
+                if row:
+                    by_code.append(dict(row, match="exact"))
+        if not by_code:
+            # Case-insensitive fallback: tells a case difference (ng/ml vs ng/mL) apart from a wrong code.
+            vocab_mask = meta["concept_vocabulary"].astype(str).str.lower().isin([v.lower() for v in vocabs])
+            codes = meta.loc[vocab_mask, "concept_code"].astype(str)
+            hits = codes[codes.str.lower() == bare_code.lower()]
+            for concept_id in list(hits.index)[:10]:
+                row = meta_row(int(concept_id))
+                if row:
+                    by_code.append(dict(row, match="case-insensitive"))
+    out["graph"]["by_code"] = by_code
+
+    if cid is not None and bare_code and vocabs:
+        flag, status = g.concept_exists(cid, bare_code, vocabs)
+        out["verdict"] = {"status": status, "pass": bool(flag),
+                          "meaning": {"correct": "the graph agrees: this id carries this code",
+                                      "incorrect": "the graph has this id with another code or vocabulary - the upload fails with 'concept_id and concept_code do not match'",
+                                      "not found": "the id is not in the graph - the upload validator asks Athena instead"}.get(status, status)}
+    else:
+        out["verdict"] = None
+
+    # --- Athena ---
+    athena: dict[str, Any] = {"by_id": None, "by_code": [], "error": None}
+    try:
+        if cid is not None:
+            r = requests.get(f"{ATHENA_CONCEPT_URL}/{cid}", headers=_ATHENA_HEADERS, timeout=20)
+            if r.ok:
+                d = r.json()
+                athena["by_id"] = {"concept_id": d.get("id"), "code": d.get("code"), "name": d.get("name"),
+                                   "vocabulary": d.get("vocabularyId"), "domain": d.get("domainId"),
+                                   "class": d.get("conceptClassId"), "standard": d.get("standardConcept"),
+                                   "invalid_reason": d.get("invalidReason")}
+            else:
+                athena["error"] = f"Athena returned HTTP {r.status_code} for id {cid}"
+        if bare_code and vocabs:
+            athena["by_code"] = [c for c in rows_to_simple(fetch_athena(bare_code, vocabs)) if c["code"] == bare_code] \
+                or rows_to_simple(fetch_athena(bare_code, vocabs))
+    except requests.RequestException as exc:
+        athena["error"] = f"Could not reach Athena: {exc}"
+    out["athena"] = athena
+    return out

@@ -2,7 +2,7 @@
 
 import React, {useEffect, useState} from 'react';
 import Link from 'next/link';
-import {Settings, Shield, AlertTriangle, ArrowRight, Database} from 'react-feather';
+import {Settings, Shield, AlertTriangle, ArrowRight, Database, Search} from 'react-feather';
 import {SparklesIcon} from '@/components/Icons';
 import {useCohorts} from '@/components/CohortsContext';
 import {apiUrl} from '@/utils';
@@ -30,6 +30,32 @@ ORDER BY DESC(?triples)`;
   const [sparqlRunning, setSparqlRunning] = useState(false);
   const [sparqlError, setSparqlError] = useState<string | null>(null);
   const [sparqlResult, setSparqlResult] = useState<any>(null);
+  // OMOP concept lookup: what the upload validator's local graph and Athena say about a code / id
+  const [conceptCode, setConceptCode] = useState('');
+  const [conceptId, setConceptId] = useState('');
+  const [conceptRunning, setConceptRunning] = useState(false);
+  const [conceptError, setConceptError] = useState<string | null>(null);
+  const [conceptResult, setConceptResult] = useState<any>(null);
+
+  const lookupConcept = async () => {
+    if (!conceptCode.trim() && !conceptId.trim()) return;
+    setConceptRunning(true);
+    setConceptError(null);
+    setConceptResult(null);
+    try {
+      const params = new URLSearchParams();
+      if (conceptCode.trim()) params.set('code', conceptCode.trim());
+      if (conceptId.trim()) params.set('omop_id', conceptId.trim());
+      const res = await fetch(`${apiUrl}/admin/omop-concept?${params.toString()}`, {credentials: 'include'});
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      setConceptResult(data);
+    } catch (e: any) {
+      setConceptError(e.message || 'Lookup failed');
+    } finally {
+      setConceptRunning(false);
+    }
+  };
 
   const runSparql = async () => {
     if (!sparqlQuery.trim()) return;
@@ -427,6 +453,115 @@ ORDER BY DESC(?triples)`;
           )}
         </div>
       </div>
+
+      {/* OMOP concept lookup */}
+      <div className="card bg-base-200 shadow-md mt-6">
+        <div className="card-body">
+          <h2 className="card-title text-lg flex items-center gap-2">
+            <Search size={18} /> OMOP concept lookup
+          </h2>
+          <p className="text-sm text-base-content/70 mb-2">
+            What the upload validator knows about a concept. The Athena check of an uploaded dictionary asks the
+            local OMOP graph first and only falls back to Athena when the id is unknown there, so a
+            &quot;concept_id and concept_code do not match&quot; error is the graph&apos;s verdict. Enter the row&apos;s
+            prefixed code and OMOP id to see the graph&apos;s record of the id, the id the graph has for the code,
+            the verdict for the pair, and what Athena returns. The first lookup loads the graph pickle and can take a
+            minute.
+          </p>
+          <div className="flex items-end gap-3 flex-wrap">
+            <label className="form-control">
+              <span className="label-text text-xs mb-1">Concept code (prefixed)</span>
+              <input
+                className="input input-bordered input-sm font-mono w-64"
+                placeholder="UCUM:ng/mL"
+                value={conceptCode}
+                onChange={e => setConceptCode(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') lookupConcept(); }}
+                spellCheck={false}
+              />
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs mb-1">OMOP id</span>
+              <input
+                className="input input-bordered input-sm font-mono w-40"
+                placeholder="8842"
+                value={conceptId}
+                onChange={e => setConceptId(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') lookupConcept(); }}
+                spellCheck={false}
+              />
+            </label>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={lookupConcept}
+              disabled={conceptRunning || (!conceptCode.trim() && !conceptId.trim())}
+            >
+              {conceptRunning ? <span className="loading loading-spinner loading-xs"></span> : 'Look up'}
+            </button>
+          </div>
+          {conceptError && (
+            <div className="alert alert-error text-sm mt-3 whitespace-pre-wrap">{conceptError}</div>
+          )}
+          {conceptResult && (
+            <div className="mt-3 space-y-3 text-sm">
+              {conceptResult.verdict && (
+                <div className={`alert ${conceptResult.verdict.pass ? 'alert-success' : conceptResult.verdict.status === 'not found' ? 'alert-info' : 'alert-warning'} text-sm`}>
+                  <span>
+                    <strong>Validator verdict: {conceptResult.verdict.status}.</strong> {conceptResult.verdict.meaning}
+                  </span>
+                </div>
+              )}
+              <div className="grid md:grid-cols-2 gap-3">
+                {[
+                  ['Local OMOP graph', conceptResult.graph.by_id, conceptResult.graph.by_code],
+                  ['Athena', conceptResult.athena.by_id, conceptResult.athena.by_code],
+                ].map(([title, byId, byCode]: any) => (
+                  <div key={title} className="rounded border border-base-300 bg-base-100 p-3">
+                    <h3 className="font-semibold mb-2">{title}</h3>
+                    <p className="text-xs text-base-content/60 mb-1">By id{conceptResult.input.omop_id != null ? ` ${conceptResult.input.omop_id}` : ''}</p>
+                    {byId ? (
+                      <ConceptLine c={byId} />
+                    ) : (
+                      <p className="text-xs text-base-content/40 mb-2">{conceptResult.input.omop_id == null ? 'no id given' : 'not found'}</p>
+                    )}
+                    <p className="text-xs text-base-content/60 mb-1 mt-2">By code{conceptResult.input.bare_code ? ` ${conceptResult.input.bare_code}` : ''}</p>
+                    {byCode && byCode.length > 0 ? (
+                      byCode.map((c: any, i: number) => <ConceptLine key={i} c={c} />)
+                    ) : (
+                      <p className="text-xs text-base-content/40">{conceptResult.input.bare_code ? 'not found' : 'no code given'}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {conceptResult.athena.error && (
+                <p className="text-xs text-warning">{conceptResult.athena.error}</p>
+              )}
+              <p className="text-xs text-base-content/50">
+                Graph: {conceptResult.graph.concepts?.toLocaleString()} concepts · pickle{' '}
+                {conceptResult.graph.pickle.exists ? `${conceptResult.graph.pickle.modified} (${conceptResult.graph.pickle.size_mb} MB)` : 'missing'}
+                {' '}· source CSV{' '}
+                {conceptResult.graph.source_csv.exists ? conceptResult.graph.source_csv.modified : 'missing'}
+                {' '}· loaded in {conceptResult.graph.load_s} s
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// One concept as a line: id, vocabulary, code (monospace, case preserved), name; the
+// by-code matches say whether they matched exactly or only ignoring case.
+function ConceptLine({c}: {c: any}) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2 text-sm mb-1">
+      <span className="font-mono">{c.concept_id}</span>
+      <span className="badge badge-ghost badge-sm">{c.vocabulary}</span>
+      <code className="font-mono bg-base-200 px-1 rounded">{c.code}</code>
+      <span className="text-base-content/80">{c.name}</span>
+      {c.match === 'case-insensitive' && <span className="badge badge-warning badge-sm">case differs</span>}
+      {c.invalid_reason && <span className="badge badge-error badge-sm">{c.invalid_reason}</span>}
     </div>
   );
 }
