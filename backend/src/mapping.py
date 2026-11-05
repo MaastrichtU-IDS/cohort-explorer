@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 import logging
 
 import requests
@@ -360,13 +360,19 @@ async def get_available_mapping_files(
 @router.get("/get-cached-mapping-file/{filename}")
 async def get_cached_mapping_file(
     filename: str,
+    format: Optional[str] = Query(None, description="'json' converts a cached CSV into the JSON a mapping run writes"),
+    source: Optional[str] = Query(None),
+    target: Optional[str] = Query(None),
     user: Any = Depends(get_current_user),
 ):
-    """Return the JSON content of a cached mapping file by filename.
-    
-    Returns the raw JSON directly (not wrapped in another JSON envelope)
-    to avoid double-serialization overhead on large files.
-    The filename is returned via the X-Filename response header.
+    """Return a cached mapping file by filename, as stored (CSV or JSON).
+
+    With ?format=json a cached pair CSV is folded into the JSON the mapping
+    run writes for a source and its targets (see _combine_cross_mapping_json
+    in CohortVarLinker.main): keyed by source variable, each with "from" and a
+    "mappings" list carrying target_study and every CSV column but "source".
+    The source and target names come from the query, else from the filename.
+    The content is returned raw, with the filename in the X-Filename header.
     """
     from CohortVarLinker.src.config import settings as cohort_linker_settings
     
@@ -381,6 +387,29 @@ async def get_cached_mapping_file(
     if safe_filename.endswith('.meta.json'):
         raise HTTPException(status_code=400, detail="Cannot download sidecar meta files directly")
     
+    if safe_filename.endswith('.csv') and (format or "").lower() == "json":
+        import pandas as pd
+        stem = safe_filename[:-len('.csv')]
+        parts = stem.split('_')
+        src = (source or (parts[0] if parts else stem)).strip()
+        tgt = (target or (parts[1] if len(parts) > 1 else "")).strip()
+        df = pd.read_csv(filepath)
+        df = df.astype(object).where(pd.notna(df), None)
+        mappings: dict[str, list] = {}
+        for row in df.to_dict(orient="records"):
+            src_var = str(row.get("source") or "").strip()
+            if not src_var:
+                continue
+            mappings.setdefault(src_var, []).append(
+                {"target_study": tgt, **{k: v for k, v in row.items() if k != "source"}})
+        payload = {k: {"from": src, "mappings": v} for k, v in mappings.items()}
+        json_name = stem + ".json"
+        return Response(
+            content=json.dumps(payload, indent=2, ensure_ascii=False, default=str),
+            media_type="application/json",
+            headers={"X-Filename": json_name, "Access-Control-Expose-Headers": "X-Filename"},
+        )
+
     with open(filepath, 'r', encoding='utf-8') as f:
         file_content = f.read()
     

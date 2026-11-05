@@ -1563,11 +1563,19 @@ export default function MappingPage() {
     }
   };
 
-  // Handle download of a cached mapping file
-  const handleCacheDownload = async (file: any) => {
+  // Handle download of a cached mapping file, as stored (CSV) or folded into
+  // the JSON a mapping run writes (format 'json'; the backend converts).
+  const handleCacheDownload = async (file: any, format: 'csv' | 'json' = 'csv') => {
     setLoadingCacheAction(file.filename);
     try {
-      const response = await fetch(`${apiUrl}/api/get-cached-mapping-file/${encodeURIComponent(file.filename)}`, {
+      const params = new URLSearchParams();
+      if (format === 'json') {
+        params.set('format', 'json');
+        if (file.cohorts?.[0]) params.set('source', file.cohorts[0]);
+        if (file.cohorts?.[1]) params.set('target', file.cohorts[1]);
+      }
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const response = await fetch(`${apiUrl}/api/get-cached-mapping-file/${encodeURIComponent(file.filename)}${query}`, {
         credentials: 'include',
       });
       if (!response.ok) throw new Error('Failed to fetch file');
@@ -2031,6 +2039,14 @@ export default function MappingPage() {
                               title="Download the cached mapping file as CSV"
                             >
                               ⤓ CSV
+                            </button>
+                            <button
+                              className="btn btn-ghost h-5 min-h-0 px-1.5 text-[10px] font-normal normal-case border border-dashed border-gray-400 text-gray-600 hover:bg-gray-100 hover:border-gray-500 self-center"
+                              onClick={() => handleCacheDownload(file, 'json')}
+                              disabled={loadingCacheAction === file.filename}
+                              title="Download this pair as JSON, in the shape a mapping run produces (keyed by source variable)"
+                            >
+                              ⤓ JSON
                             </button>
                             <button
                               className="btn btn-xs btn-outline border-red-300 text-red-700 bg-red-50 hover:bg-red-100 hover:border-red-400 hover:text-red-800"
