@@ -2020,6 +2020,7 @@ __PROXY_NOTE__
 #        data_sources_used.csv            per cohort: full data or shuffled sample, rows, columns
 #        README.txt                       what ran and what was skipped, and why
 #        install_logs/<package>.out       R CMD INSTALL output of every package attempted
+#        provided_packages.csv            the image's own packages with their versions
 #        missing_packages_request.txt     the packages that cannot be installed here, grouped
 #                                         by cause (compiler, newer R, image package versions)
 #
@@ -2077,6 +2078,12 @@ nix_r <- any(grepl("^/nix/store/", lps))
 cat(length(lps), "library paths", if (nix_r) "(a Nix-built R: one store path per package)" else "", "\n")
 cat("  first:", lps[1], "\n  last: ", lps[length(lps)], "\n")
 cat("  packages already provided:", length(unique(unlist(lapply(lps, list.files)))), "\n")
+# The image's packages with their versions, for the record and for choosing
+# replacements: a package is installable here only when everything it pulls in
+# is either pure R or already in this list (at a version it accepts).
+ip <- installed.packages()
+write.csv(data.frame(package = ip[, "Package"], version = ip[, "Version"], stringsAsFactors = FALSE)[order(ip[, "Package"]), ],
+          file.path(OUT, "provided_packages.csv"), row.names = FALSE)
 # The image's site library is usually read-only: install into a library of
 # our own under R's temp dir (always writable) and put it first on the path.
 LIB <- file.path(tempdir(), "rlib")
