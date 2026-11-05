@@ -446,7 +446,20 @@ def validate_component(label: str, code_prefixed: Optional[str], omop_id_str: Op
         if flag and status == "correct":
             return ValidationLog(status="PASS", description="concept_id and concept_code are the same.", vocabulary=vocab[0], label=lab, assigned_concept_id=cid, assigned_concept_code=code, matched_concept_id=cid, matched_concept_code=code)
         elif not flag and status == "incorrect":
-            return ValidationLog(status="FAIL", description="concept_id and concept_code do not match.", vocabulary=vocab[0], label=lab, assigned_concept_id=cid, assigned_concept_code=code, matched_concept_id=None, matched_concept_code=None)
+            # Say what the id actually is, and single out a code that differs only in
+            # capitalization: UCUM codes are case-sensitive (A = ampere, a = year), so
+            # 'ng/ml' is refused for 'ng/mL', and the message names the spelling to use.
+            rec = omop_graph_obj.concept_record(cid) or {}
+            g_code, g_vocab, g_name = rec.get("code", ""), rec.get("vocabulary", "").upper(), rec.get("name", "")
+            if g_code and g_vocab.lower() == str(vocab[0]).lower() and g_code.lower() == str(code).strip().lower():
+                description = (f"the code '{code}' differs from the OMOP code '{g_code}' of concept {cid} ({g_name}) only in "
+                               f"capitalization; {g_vocab} codes are case-sensitive, use '{g_vocab}:{g_code}'.")
+            elif g_code:
+                description = (f"concept_id and concept_code do not match: OMOP id {cid} is '{g_name}' with code "
+                               f"{g_vocab}:{g_code}, not '{vocab[0]}:{code}'.")
+            else:
+                description = "concept_id and concept_code do not match."
+            return ValidationLog(status="FAIL", description=description, vocabulary=vocab[0], label=lab, assigned_concept_id=cid, assigned_concept_code=code, matched_concept_id=None, matched_concept_code=None)
         else:
             try:
                     # print(f"validate_component: label='{lab}', code='{code}', cid={cid} -> flag={flag}, status={status}, context={context}")

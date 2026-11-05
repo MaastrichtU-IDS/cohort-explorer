@@ -1,7 +1,7 @@
 import networkx as nx
 import pandas as pd
 import pickle, os, gzip, zlib, time
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 from collections import deque, OrderedDict
 from .data_model import MappingRelation
 
@@ -875,6 +875,18 @@ class OmopGraphNX:
         # ATC code still matches, while UCUM keeps A (ampere) != a (year).
         ok = nv in vocabulary and _code_key(nv, nc) == _code_key(nv, code)
         return (True, "correct") if ok else (False, "incorrect")
+
+    def concept_record(self, cid: int) -> Optional[Dict[str, str]]:
+        """The graph's own record of a concept id: vocabulary, code (as OMOP spells it)
+        and name, or None when the id is not in the graph. Used to word a mismatch
+        message with what the id actually is."""
+        meta = self.graph.graph.get('meta')
+        if meta is None or cid not in meta.index:
+            return None
+        row = meta.loc[cid]
+        return {"vocabulary": str(row.get('concept_vocabulary', '')).strip(),
+                "code": str(row.get('concept_code', '')).strip(),
+                "name": str(row.get('concept_name', '')).strip()}
 
     def get_vocabulary_stats(self):
         meta = self.graph.graph.get('meta')
