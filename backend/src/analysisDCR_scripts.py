@@ -2019,6 +2019,9 @@ __PROXY_NOTE__
 #        logistic_regression_<input>.csv  event ~ most complete numeric columns (glm)
 #        data_sources_used.csv            per cohort: full data or shuffled sample, rows, columns
 #        README.txt                       what ran and what was skipped, and why
+#        install_logs/<package>.out       R CMD INSTALL output of every package attempted
+#        missing_packages_request.txt     the packages that cannot be installed here, grouped
+#                                         by cause (compiler, newer R, image package versions)
 #
 # To use it on an airlock fragment in the Development tab instead, point the
 # path of that cohort in INPUTS at /input/<airlock node>/dataset.csv.
@@ -2035,6 +2038,15 @@ options(repos = c(CRAN = CRAN), warn = 1, timeout = 600, width = 160,
         # libcurl for every download, so the server name (SNI) the egress
         # filter checks is always sent, and redirects are followed
         download.file.method = "libcurl", url.method = "libcurl")
+
+# The image has fontconfig but no default fonts.conf and no writable cache, so
+# every plot printed "Fontconfig error: Cannot load default config file". Point
+# it at a config from the store when there is one, and at a temp dir for its cache.
+if (!nzchar(Sys.getenv("FONTCONFIG_FILE"))) {
+  fc <- Sys.glob(c("/etc/fonts/fonts.conf", "/nix/store/*fontconfig*/etc/fonts/fonts.conf"))
+  if (length(fc) > 0) Sys.setenv(FONTCONFIG_FILE = fc[1])
+}
+if (!nzchar(Sys.getenv("XDG_CACHE_HOME"))) Sys.setenv(XDG_CACHE_HOME = file.path(tempdir(), "cache"))
 
 notes <- character(0)
 note <- function(...) {
@@ -2193,9 +2205,44 @@ if (length(REPOS) > 0) {
       nrow(AVAILABLE), "others can be installed\n")
 }
 
+INSTALL_LOGS <- file.path(OUT, "install_logs")
+dir.create(INSTALL_LOGS, showWarnings = FALSE)
+
+# Why an install failed, from install.packages()'s messages and the .out files
+# of the packages it attempted (the failing one is usually a dependency):
+#   compiler      - the image has no C/C++/Fortran toolchain, so any package
+#                   with compiled code fails ("gcc: not found", "make: not found")
+#   newer R       - CRAN only has a build for a newer R than the image's
+#   image package - a dependency needs a newer version of a package the image
+#                   provides, which this node never upgrades (see PROVIDED)
+#   other         - anything else: the .out file says what
+failure_cause <- function(pkg, msgs) {
+  m <- paste(msgs, collapse = " ")
+  if (grepl("not available for this version of R", m)) return("newer R")
+  if (grepl("dependenc(y|ies) '.*' (is|are) not available", m)) {
+    need <- regmatches(m, regexpr("dependenc(y|ies) '[^|]*' (is|are) not available", m))
+    deps <- regmatches(need, gregexpr("'[^']+'", need))[[1]]
+    deps <- gsub("'", "", deps)
+    if (length(deps) > 0 && all(deps %in% PROVIDED)) return(paste0("image package (", paste(deps, collapse = ", "), ")"))
+  }
+  # the packages whose install was attempted for this one: their .out files
+  tried <- regmatches(m, gregexpr("installation of package '[^']+' had non-zero exit status", m))[[1]]
+  tried <- unique(c(gsub("installation of package '([^']+)'.*", "\\1", tried), pkg))
+  for (dep in tried) {
+    f <- file.path(INSTALL_LOGS, paste0(dep, ".out"))
+    if (!file.exists(f)) next
+    txt <- paste(readLines(f, warn = FALSE), collapse = "\n")
+    if (grepl("(gcc|cc|g\\+\\+|gfortran|make|clang)[^\n]*(not found|No such file)|no acceptable C compiler|C\\+\\+ compiler cannot create|cannot run C compiled programs", txt))
+      return(paste0("compiler (", dep, ")"))
+    if (grepl("fatal error: [^\n]*\\.h: No such file|configure: error", txt))
+      return(paste0("system library (", dep, ")"))
+  }
+  "other"
+}
+
 status <- data.frame(package = PACKAGES, status = NA_character_,
                      install_seconds = NA_real_, load_seconds = NA_real_,
-                     reason = "", stringsAsFactors = FALSE)
+                     cause = "", reason = "", stringsAsFactors = FALSE)
 t_install <- Sys.time()
 for (i in seq_along(PACKAGES)) {
   pkg <- PACKAGES[i]
@@ -2210,15 +2257,22 @@ for (i in seq_along(PACKAGES)) {
   }
   t0 <- Sys.time()
   cat("Installing", pkg, "...\n")
+  # keep_outputs: R CMD INSTALL runs as a child process, so its output (the
+  # compiler error, the missing header) never reaches capture(); R writes it to
+  # <package>.out in that directory instead, one file per package it attempts,
+  # dependencies included. The files go to /output/install_logs.
   r <- capture(install.packages(pkg, lib = LIB, repos = REPOS, available = AVAILABLE, quiet = TRUE,
-                                dependencies = c("Depends", "Imports", "LinkingTo")))
+                                dependencies = c("Depends", "Imports", "LinkingTo"),
+                                keep_outputs = INSTALL_LOGS))
   status$install_seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1)
   if (is_installed(pkg, LIB)) {
     status$status[i] <- "installed"
   } else {
     status$status[i] <- "FAILED"
-    status$reason[i] <- one_line(if (length(r$messages) > 0) r$messages else "no message from install.packages; see the console log above")
-    cat("  FAILED:", status$reason[i], "\n")
+    msgs <- if (length(r$messages) > 0) r$messages else "no message from install.packages; see the console log above"
+    status$cause[i] <- failure_cause(pkg, msgs)
+    status$reason[i] <- one_line(msgs)
+    cat("  FAILED (", status$cause[i], "): ", status$reason[i], "\n", sep = "")
   }
 }
 total_install <- round(as.numeric(difftime(Sys.time(), t_install, units = "secs")), 1)
@@ -2247,8 +2301,32 @@ for (i in seq_along(PACKAGES)) {
 total_load <- round(as.numeric(difftime(Sys.time(), t_load, units = "secs")), 1)
 
 write.csv(status, file.path(OUT, "r_packages_status.csv"), row.names = FALSE)
-cat("\nPackage status (seconds to install / to load):\n")
-print(status, row.names = FALSE)
+cat("\nPackage status (seconds to install / to load; full reasons in r_packages_status.csv):\n")
+shown <- status
+shown$reason <- ifelse(nchar(shown$reason) > 70, paste0(substr(shown$reason, 1, 70), "..."), shown$reason)
+print(shown, row.names = FALSE)
+
+# What to ask the image maintainers for, grouped by cause: the packages the
+# node cannot install here and why. Written to missing_packages_request.txt.
+failed_rows <- status[status$status == "FAILED", ]
+if (nrow(failed_rows) > 0) {
+  kind <- sub(" \\(.*", "", failed_rows$cause)
+  req <- c(paste("R", R.version$major, R.version$minor, "image, run of", format(Sys.time(), "%Y-%m-%d")),
+           paste(nrow(failed_rows), "of", length(PACKAGES), "requested packages cannot be installed in this image:"), "")
+  for (k in c("compiler", "system library", "newer R", "image package", "other")) {
+    rows <- failed_rows[kind == k, ]
+    if (nrow(rows) == 0) next
+    head_line <- switch(k,
+      "compiler" = "Need a C/C++/Fortran compiler (the image has none), or the packages pre-installed:",
+      "system library" = "Need a system library or header the image lacks (see install_logs/<package>.out):",
+      "newer R" = paste0("Need a newer R than ", R.version$major, ".", R.version$minor, " (CRAN has no build for this version):"),
+      "image package" = "Need a newer version of a package the image provides (this node never upgrades those):",
+      "Failed for another reason (see install_logs/<package>.out):")
+    req <- c(req, head_line, paste0("  ", rows$package, ifelse(nchar(rows$cause) > nchar(k), paste0("  [", sub("^[^(]*\\(", "", sub("\\)$", "", rows$cause)), "]"), "")), "")
+  }
+  writeLines(req, file.path(OUT, "missing_packages_request.txt"))
+  cat("\n", paste(req, collapse = "\n"), "\n", sep = "")
+}
 note("Loaded packages: ", paste(loaded, collapse = ", "))
 failed <- status$package[status$status == "FAILED"]
 if (length(failed) > 0) note("Not available (install failed): ", paste(failed, collapse = ", "))
