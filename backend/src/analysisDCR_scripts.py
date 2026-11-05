@@ -2311,7 +2311,7 @@ print(shown, row.names = FALSE)
 failed_rows <- status[status$status == "FAILED", ]
 if (nrow(failed_rows) > 0) {
   kind <- sub(" \\(.*", "", failed_rows$cause)
-  req <- c(paste("R", R.version$major, R.version$minor, "image, run of", format(Sys.time(), "%Y-%m-%d")),
+  req <- c(paste0("R ", R.version$major, ".", R.version$minor, " image, run of ", format(Sys.time(), "%Y-%m-%d")),
            paste(nrow(failed_rows), "of", length(PACKAGES), "requested packages cannot be installed in this image:"), "")
   for (k in c("compiler", "system library", "newer R", "image package", "other")) {
     rows <- failed_rows[kind == k, ]
