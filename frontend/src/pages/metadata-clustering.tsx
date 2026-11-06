@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {Layers, Play, RefreshCw} from 'react-feather';
 import {apiUrl} from '@/utils';
 import LoginPrompt from '@/components/LoginPrompt';
+import ThemeVocabularyManager from '@/components/ThemeVocabularyManager';
 import {AiExplanation, MatchList, MetadataElement, MetadataMatch, SourceBadge} from '@/components/MetadataMatches';
 
 interface FieldGroup {
@@ -370,6 +371,16 @@ export default function MetadataClusteringPage() {
               {results.themes_rebuilt ? `, rebuilt ${new Date(results.themes_rebuilt).toLocaleString()}` : ''}.
             </span>
           </div>
+          {results.themes?.themes && (
+            <details className="collapse collapse-arrow bg-base-200 shadow mb-4">
+              <summary className="collapse-title font-semibold">
+                Manage the theme vocabulary <span className="text-sm font-normal text-base-content/60">(rename, move, merge, nest, hide; two levels: groups and themes)</span>
+              </summary>
+              <div className="collapse-content">
+                <ThemeVocabularyManager onChanged={() => loadResults().catch(e => setError(e.message))} />
+              </div>
+            </details>
+          )}
           <div className="stats stats-vertical sm:stats-horizontal shadow mb-4 w-full">
             <div className="stat py-3">
               <div className="stat-title">Studies</div>

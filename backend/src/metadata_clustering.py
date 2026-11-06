@@ -40,6 +40,9 @@ parameters, so the review page and the cohort pages load them instantly.
 Endpoints (prefix /api):
   POST /metadata-clustering/run        {instructions?}   admin, starts the job
   POST /metadata-clustering/rebuild-themes               admin, themes only, on stored results
+  GET  /metadata-clustering/vocabulary                   the two-level theme vocabulary with carriers
+  POST /metadata-clustering/vocabulary/edit  {op, ...}   admin: merge / move / nest / rename / delete_parent
+  POST /metadata-clustering/vocabulary/undo              admin: restore the results from before the last edit
   GET  /metadata-clustering/status                       job state
   GET  /metadata-clustering/results                      the whole result
 """
@@ -789,11 +792,268 @@ def _theme_stage(client: Any, model: str, elements: list[dict[str, Any]],
 
 # Themes an admin took out of the views (not out of the stored results).
 _EXCLUDED_PATH = os.path.join(_DIR, "excluded_themes.json")
+# Admin edits of the vocabulary (merge, move, nest, rename, delete a parent):
+# applied to the stored results at once and kept as label-based rules, so a
+# rebuild or a new run re-applies them (best effort: a rule whose labels no
+# longer exist is skipped). Each edit snapshots the results first, for undo.
+_EDITS_PATH = os.path.join(_DIR, "theme_edits.json")
+_KEEP_EDIT_SNAPSHOTS = 10
 
 
 def excluded_themes() -> set[str]:
     data = _read_json(_EXCLUDED_PATH)
     return set(data.get("excluded") or [])
+
+
+# ---------------------------------------------------------------------------
+# Admin edits of the vocabulary (two levels: parents and themes)
+# ---------------------------------------------------------------------------
+
+def _pair_records_from_matches(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """The unordered pair records behind the symmetric match lists."""
+    elements = data["elements"]
+    index = {e["id"]: k for k, e in enumerate(elements)}
+    seen: set[tuple[int, int]] = set()
+    out: list[dict[str, Any]] = []
+    for eid, lst in data["matches"].items():
+        for m in lst:
+            i, j = index[eid], index[m["element_id"]]
+            key = (min(i, j), max(i, j))
+            if key in seen:
+                continue
+            seen.add(key)
+            rec = {k: m.get(k) for k in ("source", "score", "fuzzy", "tfidf", "same_field", "ai_strength",
+                                          "ai_reason", "ai_reason_parts", "ai_votes")}
+            rec["themes"] = list(m.get("themes") or [])
+            if "theme_ids" in m:
+                rec["theme_ids"] = list(m.get("theme_ids") or [])
+            rec["i"], rec["j"] = key
+            out.append(rec)
+    return out
+
+
+def _vocab_of(data: dict[str, Any]) -> dict[str, Any]:
+    block = data.setdefault("themes", {})
+    block.setdefault("parents", [])
+    block.setdefault("themes", [])
+    block.setdefault("raw_to_theme", {})
+    return block
+
+
+def _unsorted_parent(vocab: dict[str, Any]) -> str:
+    for p in vocab["parents"]:
+        if p["id"] == "p-unsorted":
+            return p["id"]
+    vocab["parents"].append({"id": "p-unsorted", "label": "unsorted themes"})
+    return "p-unsorted"
+
+
+def _parent_for_label(vocab: dict[str, Any], label: str) -> str:
+    """The parent with this label, created when missing."""
+    label = _norm_label(label)
+    for p in vocab["parents"]:
+        if p["label"] == label:
+            return p["id"]
+    pid = "p-" + _slug(label)
+    if any(p["id"] == pid for p in vocab["parents"]):
+        pid = f"{pid}-{len(vocab['parents']) + 1}"
+    vocab["parents"].append({"id": pid, "label": label})
+    return pid
+
+
+def _theme_by(vocab: dict[str, Any], theme_id: Optional[str] = None, label: Optional[str] = None) -> Optional[dict[str, Any]]:
+    for t in vocab["themes"]:
+        if (theme_id and t["id"] == theme_id) or (label and t["label"] == _norm_label(label)):
+            return t
+    return None
+
+
+def _parent_by(vocab: dict[str, Any], parent_id: Optional[str] = None, label: Optional[str] = None) -> Optional[dict[str, Any]]:
+    for p in vocab["parents"]:
+        if (parent_id and p["id"] == parent_id) or (label and p["label"] == _norm_label(label)):
+            return p
+    return None
+
+
+def _replace_theme_id(data: dict[str, Any], old: str, new: Optional[str]) -> None:
+    """Point every match's theme_ids from old to new (dropped when new is None)."""
+    for lst in data["matches"].values():
+        for m in lst:
+            ids = m.get("theme_ids")
+            if not ids or old not in ids:
+                continue
+            out: list[str] = []
+            for t in ids:
+                t2 = new if t == old else t
+                if t2 and t2 not in out:
+                    out.append(t2)
+            m["theme_ids"] = out
+
+
+def apply_vocab_edit(data: dict[str, Any], op: dict[str, Any]) -> dict[str, Any]:
+    """Apply one edit to the results in place and return the label-based rule
+    that re-applies it later. Raises ValueError on a bad request. Ops:
+      merge         {source, target}        theme source folds into theme target
+      move          {theme, parent | parent_label}   theme goes under a parent (created from the label when new)
+      nest          {theme, under}          theme goes under a parent named after theme `under`,
+                                            which moves there too (a theme cannot hold themes: two levels)
+      rename        {theme | parent, label}
+      delete_parent {parent}                its themes go to "unsorted themes"
+    Ids in the op; the rule records labels."""
+    vocab = _vocab_of(data)
+    kind = str(op.get("op") or "")
+    rule: dict[str, Any] = {"op": kind}
+    if kind == "merge":
+        src, dst = _theme_by(vocab, op.get("source")), _theme_by(vocab, op.get("target"))
+        if not src or not dst or src is dst:
+            raise ValueError("merge needs two different existing themes")
+        for r in src["raw"]:
+            if r not in dst["raw"]:
+                dst["raw"].append(r)
+            vocab["raw_to_theme"][r] = dst["id"]
+        vocab["themes"] = [t for t in vocab["themes"] if t is not src]
+        _replace_theme_id(data, src["id"], dst["id"])
+        rule.update(source=src["label"], target=dst["label"])
+    elif kind == "move":
+        t = _theme_by(vocab, op.get("theme"))
+        if not t:
+            raise ValueError("unknown theme")
+        if op.get("parent_label"):
+            pid = _parent_for_label(vocab, str(op["parent_label"]))
+        else:
+            p = _parent_by(vocab, op.get("parent"))
+            if not p:
+                raise ValueError("unknown parent")
+            pid = p["id"]
+        t["parent"] = pid
+        rule.update(theme=t["label"], parent_label=_parent_by(vocab, pid)["label"])
+    elif kind == "nest":
+        t, under = _theme_by(vocab, op.get("theme")), _theme_by(vocab, op.get("under"))
+        if not t or not under or t is under:
+            raise ValueError("nest needs two different existing themes")
+        pid = _parent_for_label(vocab, under["label"])
+        under["parent"] = pid
+        t["parent"] = pid
+        rule.update(theme=t["label"], under=under["label"])
+    elif kind == "rename":
+        label = _norm_label(op.get("label"))
+        if not label:
+            raise ValueError("a label is required")
+        if op.get("theme"):
+            t = _theme_by(vocab, op.get("theme"))
+            if not t:
+                raise ValueError("unknown theme")
+            if _theme_by(vocab, label=label):
+                raise ValueError(f"a theme named '{label}' exists already: merge instead")
+            rule.update(theme=t["label"], label=label)
+            t["label"] = label
+        else:
+            p = _parent_by(vocab, op.get("parent"))
+            if not p:
+                raise ValueError("unknown parent")
+            rule.update(parent=p["label"], label=label)
+            p["label"] = label
+    elif kind == "delete_parent":
+        p = _parent_by(vocab, op.get("parent"))
+        if not p:
+            raise ValueError("unknown parent")
+        if p["id"] == "p-unsorted":
+            raise ValueError("the unsorted group cannot be deleted")
+        rule.update(parent=p["label"])
+        vocab["parents"] = [q for q in vocab["parents"] if q is not p]
+        unsorted = _unsorted_parent(vocab)
+        for t in vocab["themes"]:
+            if t["parent"] == p["id"]:
+                t["parent"] = unsorted
+    else:
+        raise ValueError(f"unknown op '{kind}'")
+    # Parents left without themes disappear (the unsorted group stays only while used).
+    used = {t["parent"] for t in vocab["themes"]}
+    vocab["parents"] = [p for p in vocab["parents"] if p["id"] in used]
+    return rule
+
+
+def _rule_to_op(vocab: dict[str, Any], rule: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """A stored label rule as an id-based op against the current vocabulary, or
+    None when its labels are gone."""
+    kind = rule.get("op")
+    if kind == "merge":
+        s_, d = _theme_by(vocab, label=rule.get("source")), _theme_by(vocab, label=rule.get("target"))
+        return {"op": kind, "source": s_["id"], "target": d["id"]} if s_ and d and s_ is not d else None
+    if kind == "move":
+        t = _theme_by(vocab, label=rule.get("theme"))
+        return {"op": kind, "theme": t["id"], "parent_label": rule.get("parent_label")} if t and rule.get("parent_label") else None
+    if kind == "nest":
+        t, u = _theme_by(vocab, label=rule.get("theme")), _theme_by(vocab, label=rule.get("under"))
+        return {"op": kind, "theme": t["id"], "under": u["id"]} if t and u and t is not u else None
+    if kind == "rename":
+        if rule.get("theme"):
+            t = _theme_by(vocab, label=rule.get("theme"))
+            return {"op": kind, "theme": t["id"], "label": rule.get("label")} if t and not _theme_by(vocab, label=rule.get("label")) else None
+        p = _parent_by(vocab, label=rule.get("parent"))
+        return {"op": kind, "parent": p["id"], "label": rule.get("label")} if p else None
+    if kind == "delete_parent":
+        p = _parent_by(vocab, label=rule.get("parent"))
+        return {"op": kind, "parent": p["id"]} if p else None
+    return None
+
+
+def _rebuild_table(data: dict[str, Any]) -> None:
+    data["themes"]["table"] = build_study_themes(data["elements"], _pair_records_from_matches(data), data["themes"])
+
+
+def apply_theme_edits(data: dict[str, Any]) -> int:
+    """Re-apply the stored admin rules to freshly built results; the number applied."""
+    rules = (_read_json(_EDITS_PATH).get("rules") or [])
+    if not rules or not data.get("themes"):
+        return 0
+    applied = 0
+    for rule in rules:
+        op = _rule_to_op(data["themes"], rule)
+        if not op:
+            continue
+        try:
+            apply_vocab_edit(data, op)
+            applied += 1
+        except ValueError as exc:
+            logger.info("[metadata_clustering] stored vocabulary rule skipped (%s): %s", exc, rule)
+    if applied:
+        _rebuild_table(data)
+    return applied
+
+
+def _snapshot_before_edit() -> Optional[str]:
+    """Copy the results aside before an edit; returns the snapshot path."""
+    if not os.path.exists(_RESULT_PATH):
+        return None
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S%f")
+    path = os.path.join(_DIR, f"results_before_edit_{stamp}.json")
+    import shutil
+    shutil.copyfile(_RESULT_PATH, path)
+    olds = sorted(f for f in os.listdir(_DIR) if f.startswith("results_before_edit_"))
+    for f in olds[:-_KEEP_EDIT_SNAPSHOTS]:
+        try:
+            os.remove(os.path.join(_DIR, f))
+        except OSError:
+            pass
+    return path
+
+
+def vocabulary_view(data: dict[str, Any]) -> dict[str, Any]:
+    """Parents with their themes, each theme with its carriers and raw tags."""
+    vocab = _vocab_of(data)
+    table = vocab.get("table") or {}
+    excluded = excluded_themes()
+    carriers: dict[str, int] = {}
+    for study, row in table.items():
+        for tid in row:
+            carriers[tid] = carriers.get(tid, 0) + 1
+    themes = [{"id": t["id"], "label": t["label"], "parent": t["parent"], "raw": t.get("raw") or [],
+               "studies": carriers.get(t["id"], 0), "excluded": t["id"] in excluded} for t in vocab["themes"]]
+    edits = _read_json(_EDITS_PATH)
+    return {"parents": vocab["parents"], "themes": themes, "n_studies": len({e["cohort"] for e in data.get("elements") or []}),
+            "rules": edits.get("rules") or [], "undo_available": bool(edits.get("last_snapshot")) and os.path.exists(str(edits.get("last_snapshot") or "")),
+            "built": vocab.get("built"), "rebuilt": data.get("themes_rebuilt")}
 
 
 def theme_balance(n: int, n_total: int) -> float:
@@ -962,6 +1222,9 @@ def run_clustering(instructions: str = "") -> None:
             "matches": matches,
             "themes": themes_block,
         }
+        applied = apply_theme_edits(result)
+        if applied:
+            logger.info("[metadata_clustering] %d stored vocabulary edits re-applied", applied)
         _write_json(_RESULT_PATH, result)
         state = _update_state(running=False, phase="done", finished=datetime.now().isoformat(), error=None,
                               counts=result["counts"], duration_seconds=result["duration_seconds"])
@@ -1013,6 +1276,9 @@ def rebuild_themes() -> None:
                 m["theme_ids"] = by_key[(min(i, j), max(i, j))].get("theme_ids", [])
         data["themes"] = themes_block
         data["themes_rebuilt"] = datetime.now().isoformat()
+        applied = apply_theme_edits(data)
+        if applied:
+            logger.info("[metadata_clustering] %d stored vocabulary edits re-applied", applied)
         _write_json(_RESULT_PATH, data)
         state = _update_state(running=False, phase="done", finished=datetime.now().isoformat(), error=None,
                               counts=data.get("counts"), duration_seconds=round(time.time() - started))
@@ -1107,6 +1373,60 @@ async def exclude_theme(body: dict[str, Any], user: Any = Depends(get_current_us
     _write_json(_EXCLUDED_PATH, {"excluded": sorted(excluded), "updated_at": datetime.now().isoformat(),
                                  "updated_by": user["email"]})
     return {"excluded": sorted(excluded)}
+
+
+@router.get("/metadata-clustering/vocabulary")
+async def vocabulary(user: Any = Depends(get_current_user)):
+    _require_admin(user)
+    data = _read_json(_RESULT_PATH)
+    if not data or not data.get("themes"):
+        raise HTTPException(status_code=404, detail="No theme vocabulary yet: run the matching or rebuild the themes.")
+    return vocabulary_view(data)
+
+
+@router.post("/metadata-clustering/vocabulary/edit")
+async def edit_vocabulary(body: dict[str, Any], user: Any = Depends(get_current_user)):
+    """One admin edit of the vocabulary: merge, move, nest, rename or delete_parent.
+    Applied to the stored results at once (snapshot taken first) and recorded as
+    a label rule that later runs re-apply."""
+    _require_admin(user)
+    if check_stalled().get("running"):
+        raise HTTPException(status_code=409, detail="A metadata clustering job is in progress; edit the vocabulary when it is done.")
+    with _write_lock:
+        data = _read_json(_RESULT_PATH)
+        if not data or not data.get("themes"):
+            raise HTTPException(status_code=404, detail="No theme vocabulary yet.")
+        snapshot = _snapshot_before_edit()
+        try:
+            rule = apply_vocab_edit(data, body or {})
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        _rebuild_table(data)
+        _write_json(_RESULT_PATH, data)
+        edits = _read_json(_EDITS_PATH)
+        rules = edits.get("rules") or []
+        rules.append({**rule, "at": datetime.now().isoformat(), "by": user["email"]})
+        _write_json(_EDITS_PATH, {"rules": rules, "last_snapshot": snapshot, "updated_at": datetime.now().isoformat()})
+    logging.info("[metadata_clustering] vocabulary edit by %s: %s", user["email"], rule)
+    return vocabulary_view(data)
+
+
+@router.post("/metadata-clustering/vocabulary/undo")
+async def undo_vocabulary_edit(user: Any = Depends(get_current_user)):
+    """Restore the results from before the last edit and drop its rule."""
+    _require_admin(user)
+    if check_stalled().get("running"):
+        raise HTTPException(status_code=409, detail="A metadata clustering job is in progress.")
+    with _write_lock:
+        edits = _read_json(_EDITS_PATH)
+        snapshot = str(edits.get("last_snapshot") or "")
+        if not snapshot or not os.path.exists(snapshot):
+            raise HTTPException(status_code=404, detail="Nothing to undo: only the last edit can be undone, once.")
+        os.replace(snapshot, _RESULT_PATH)
+        rules = (edits.get("rules") or [])[:-1]
+        _write_json(_EDITS_PATH, {"rules": rules, "last_snapshot": None, "updated_at": datetime.now().isoformat()})
+        data = _read_json(_RESULT_PATH)
+    return vocabulary_view(data)
 
 
 @router.get("/metadata-clustering/results")
