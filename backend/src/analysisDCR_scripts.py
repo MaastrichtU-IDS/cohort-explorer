@@ -1888,7 +1888,11 @@ R_PACKAGES_NODE_NAME = "load-R-packages"
 # cloud.r-project.org is CRAN itself; packagemanager.posit.co serves the same
 # packages as Linux binaries, which the script prefers when it recognises
 # the image's distribution (no compilation, so far fewer failures).
-R_CRAN_DOMAINS = ["cloud.r-project.org", "packagemanager.posit.co"]
+# rspm-sync.rstudio.com: Posit Package Manager answers a binary download with
+# a redirect to this host (seen in the run of 2026-11-06: every package, pure-R
+# ones included, failed with "Couldn't resolve host name" on
+# rspm-sync.rstudio.com/bin/4.3-jammy/<hash>.tar.gz), so it must be reachable too.
+R_CRAN_DOMAINS = ["cloud.r-project.org", "packagemanager.posit.co", "rspm-sync.rstudio.com"]
 
 # The node's R image is a Nix-built R (4.3.2 at the time of writing) whose
 # OpenSSL has no certificate store: without one, every https fetch fails with
@@ -2223,6 +2227,7 @@ is_installed <- function(pkg, where = .libPaths()) nzchar(system.file(package = 
 # version of one of them fails to install, with that requirement as the reason.
 PROVIDED <- rownames(installed.packages())
 AVAILABLE <- NULL
+AVAILABLE_CRAN <- NULL  # the CRAN-only index, fetched on the first source retry
 if (length(REPOS) > 0) {
   AVAILABLE <- available.packages(repos = REPOS)
   AVAILABLE <- AVAILABLE[!(rownames(AVAILABLE) %in% PROVIDED), , drop = FALSE]
@@ -2244,6 +2249,10 @@ dir.create(INSTALL_LOGS, showWarnings = FALSE)
 failure_cause <- function(pkg, msgs) {
   m <- paste(msgs, collapse = " ")
   if (grepl("not available for this version of R", m)) return("newer R")
+  if (grepl("Couldn't resolve host|Could not resolve host|SSL connect error|Connection timed out|Failed to connect", m)) {
+    host <- regmatches(m, regexpr("https?://[A-Za-z0-9.-]+", m))
+    return(paste0("network (", if (length(host) > 0) sub("^https?://", "", host[1]) else "host not reachable", ")"))
+  }
   if (grepl("dependenc(y|ies) '.*' (is|are) not available", m)) {
     need <- regmatches(m, regexpr("dependenc(y|ies) '[^|]*' (is|are) not available", m))
     deps <- regmatches(need, gregexpr("'[^']+'", need))[[1]]
@@ -2293,6 +2302,22 @@ for (i in seq_along(PACKAGES)) {
   r <- capture(install.packages(pkg, lib = LIB, repos = REPOS, available = AVAILABLE, quiet = TRUE,
                                 dependencies = c("Depends", "Imports", "LinkingTo"),
                                 keep_outputs = INSTALL_LOGS))
+  # A download that failed (a redirect to a host outside the allow-list, a
+  # binary Posit has not built) must not cost the package: the same install
+  # is tried again from CRAN sources alone, which is what the node did before
+  # the binaries were tried first. Pure-R packages always install this way.
+  if (!is_installed(pkg, LIB) && "PPM" %in% names(REPOS) &&
+      grepl("cannot open URL|Couldn't resolve host|download of package|status was", paste(r$messages, collapse = " "))) {
+    cat("  binary download failed; retrying", pkg, "from CRAN sources\n")
+    if (is.null(AVAILABLE_CRAN)) {
+      AVAILABLE_CRAN <- available.packages(repos = c(CRAN = CRAN))
+      AVAILABLE_CRAN <- AVAILABLE_CRAN[!(rownames(AVAILABLE_CRAN) %in% PROVIDED), , drop = FALSE]
+    }
+    r2 <- capture(install.packages(pkg, lib = LIB, repos = c(CRAN = CRAN), available = AVAILABLE_CRAN, quiet = TRUE,
+                                   dependencies = c("Depends", "Imports", "LinkingTo"),
+                                   keep_outputs = INSTALL_LOGS))
+    r$messages <- unique(c(r$messages, paste("source retry:", r2$messages)))
+  }
   status$install_seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1)
   if (is_installed(pkg, LIB)) {
     status$status[i] <- "installed"
@@ -2344,7 +2369,7 @@ if (nrow(failed_rows) > 0) {
   kind <- sub(" \\(.*", "", failed_rows$cause)
   req <- c(paste0("R ", R.version$major, ".", R.version$minor, " image, run of ", format(Sys.time(), "%Y-%m-%d")),
            paste(nrow(failed_rows), "of", length(PACKAGES), "requested packages cannot be installed in this image:"), "")
-  for (k in c("compiler", "system library", "newer R", "image package", "load error", "other")) {
+  for (k in c("compiler", "system library", "newer R", "image package", "network", "load error", "other")) {
     rows <- failed_rows[kind == k, ]
     if (nrow(rows) == 0) next
     head_line <- switch(k,
@@ -2352,6 +2377,7 @@ if (nrow(failed_rows) > 0) {
       "system library" = "Need a system library or header the image lacks (see install_logs/<package>.out):",
       "newer R" = paste0("Need a newer R than ", R.version$major, ".", R.version$minor, " (CRAN has no build for this version):"),
       "image package" = "Need a newer version of a package the image provides (this node never upgrades those):",
+      "network" = "A download was refused by the node's internet allow-list (the host in brackets must be allowed; accessed_domains.txt lists it):",
       "load error" = "Installed (prebuilt binary) but failed to load for another reason (see r_packages_status.csv):",
       "Failed for another reason (see install_logs/<package>.out):")
     req <- c(req, head_line, paste0("  ", rows$package, ifelse(nchar(rows$cause) > nchar(k), paste0("  [", sub("^[^(]*\\(", "", sub("\\)$", "", rows$cause)), "]"), "")), "")
