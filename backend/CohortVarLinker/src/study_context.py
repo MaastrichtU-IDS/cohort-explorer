@@ -11,7 +11,6 @@ from .utils import execute_query
 
 logger = logging.getLogger(__name__)
 
-
 def fetch_study_context(study_id: str) -> Optional[Dict[str, str]]:
     """Run the study-context SPARQL query and flatten the single result row."""
     query = SPARQLQueryBuilder.build_study_context_query(study_id.strip().lower())

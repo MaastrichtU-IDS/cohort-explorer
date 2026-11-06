@@ -1,0 +1,296 @@
+from dataclasses import dataclass, field
+from typing import List, Set, Dict, Any
+import os
+from dotenv import load_dotenv
+
+
+load_dotenv()  # reads .env into os.environ
+@dataclass(frozen=True)
+class Settings:
+    # Thresholds
+    ADAPTIVE_THRESHOLD: float = 0.5 # minimum score for adaptive retrival from vector db, use 0.45 for NE for article results
+    ADAPTIVE_ALPHA = 0.75 # upper bound, use 0.8 to reproduce article results
+    LIMIT: int = 10 # limit for adaptive retrival from vector db
+
+    DATE_HINTS: List[str] = field(default_factory=lambda: ["visit date", "date of visit", "date of event", "event date"])
+    # TOGETHER_API_KEY: str = field(default_factory=lambda: os.getenv("TOGETHER_API_KEY"))   
+    OPENROUTER_API_KEY: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY"))
+    FIREWORKS_API_KEY: str = field(default_factory=lambda: os.getenv("FIREWORKS_API_KEY"))
+    FIREWORKS_BASE_URL: str = "https://api.fireworks.ai/inference/v1"
+    # The LiteLLM proxy the app's AI chat uses (backend/src/config.py reads the
+    # same variables). No built-in URL: an unset LITELLM_BASE_URL fails loudly
+    # in llm_call.py instead of silently calling a stale server.
+    LITELLM_BASE_URL: str = field(default_factory=lambda: os.getenv("LITELLM_BASE_URL", ""))
+    LITELLM_API_KEY: str = field(default_factory=lambda: os.getenv("LITELLM_API_KEY", ""))
+    # reasoning_effort sent with every mapping LLM call through LiteLLM. Empty
+    # (the default) sends none: the proxy applies the model's own default, and a
+    # value the model group does not accept makes LiteLLM reject every call
+    # with a 400 (qwen3.8-g2 accepts low / medium / xhigh, not "high").
+    LITELLM_REASONING_EFFORT: str = field(default_factory=lambda: os.getenv("LITELLM_REASONING_EFFORT", "").strip())
+    OLLAMA_URL = "localhost:11434"
+    CROSS_CATS: Set[str] = field(default_factory=lambda: {
+        "measurement", "observation", "condition_occurrence", 
+        "condition_era", "observation_period"
+    })
+    LLM_CACHE_DIR: str = field(default_factory=lambda: os.getenv("LLM_CACHE_DIR", ".llm_cache"))
+    
+    DEFAULT_GRAPH_DEPTH: int = 1 # additional cross-vocabulary depth is automatically added for concepts across vocabularies, but this is the default depth for all concepts
+    
+    # External Resources
+    OPENAI_API_KEY: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
+    GEMINI_API_KEY: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
+    # Provider keys referenced by src/llm_call.py and src/embed_model.py. Kept as
+    # env-backed fields (main's convention) so the frozen Settings never raises
+    # AttributeError when a non-default provider client is constructed.
+    OPENROUTER_API_KEY: str = field(default_factory=lambda: os.getenv("OPENROUTER_API_KEY", ""))
+    TOGETHER_API_KEY: str = field(default_factory=lambda: os.getenv("TOGETHER_API_KEY", ""))
+    ANTHROPIC_API_KEY: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
+    FIREWORKS_API_KEY: str = field(default_factory=lambda: os.getenv("FIREWORKS_API_KEY", ""))
+    FIREWORKS_BASE_URL: str = "https://api.fireworks.ai/inference/v1"
+    GRAPH_REPO: str = "https://w3id.org/CMEO/graph"
+
+    DATA_DOMAINS: List[str] = field(default_factory=lambda: ["drug_exposure","condition_occurrence","condition_era","observation","observation_era","measurement","visit_occurrence","procedure_occurrence","device_exposure","person"])
+
+    # Derived Variable Rules (Example)
+    DERIVED_VARIABLES_LIST: List[Dict[str, Any]] = field(default_factory=lambda: [
+    {
+        "name": "BMI",
+        "omop_id": 3038553,
+        "code": "loinc:39156-5",
+        "label": "Body mass index (BMI) [Ratio]",
+        "unit": "ucum:kg/m2",
+        "required_omops": [3036277, 3025315],  #  Body Height, Body Weight
+        "category": "measurement",
+        "data_type": "continuous_variable"
+    },
+    {
+        "name": "eGFR_CG",
+        "omop_id": 37169169,
+        "code": "snomed:1556501000000100",
+        "label": "Estimated creatinine clearance calculated using actual body weight Cockcroft-Gault formula",
+        "unit": "ucum:ml/min",
+        "required_omops": [3036277, 3025315, 3022304, 46235213,4324383],  # Height, Weight,  Age/Gender proxy, Creatinine
+        "category": "measurement",
+        "data_type": "continuous_variable"
+    },
+    {
+        "name": "eGFR_CKD_EPI", # 2021 CKD-EPI is race-free
+        "omop_id": 37393011,                                  
+        "code": "snomed:1011481000000105",
+        "label": "eGFR (estimated glomerular filtration rate) using creatinine Chronic Kidney Disease Epidemiology Collaboration equation per 1.73 square metres",
+        "unit": "ucum:mL/min/{1.73_m2}",
+        "required_omops": [3025315, 3016723, 3022304, 46235213],  # Weight, Serum creatinine, Age, Sex/Gender proxy
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "CKD-EPI 2021 race-free: 142*min(Scr/k,1)^a*max(Scr/k,1)^-1.200*0.9938^Age*1.012[F] ; k=0.7[F]/0.9[M], a=-0.241[F]/-0.302[M]"
+    },
+    {
+        "name": "eGFR_MDRD",
+        "omop_id": 46236952,
+        "code": "loinc:77147-7",
+        "label": "Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)/1.73 sq M",
+        "unit": "ucum:mL/min/{1.73_m2}",
+        "required_omops": [4324383, 3022304, 46235213],        # Creatinine, Age, Sex assigned at birth
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "175 * Scr^-1.154 * Age^-0.203 * 0.742[F] * 1.212[Black]"
+    },
+    {
+        "name": "MAP",
+        "omop_id": 4239021,                                  # verify
+        "code": "snomed:6797001",
+        "label": "Mean blood pressure",
+        "unit": "ucum:mm[Hg]",
+        "required_omops": [4152194, 4154790],                 # SBP, DBP
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "MAP = DBP + (SBP - DBP)/3"
+    },
+    {
+        "name": "Pulse_Pressure",
+        "omop_id": 3559113,                                   # SNOMED 
+        "code": "snomed:811751000000106",
+        "label": "Pulse pressure",
+        "unit": "ucum:mm[Hg]",
+        "required_omops": [4152194, 4154790],                 # SBP, DBP
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "PP = SBP - DBP"
+    },
+    {
+        "name": "Body_Surface_Area_m2",
+        "omop_id": 4201235,
+        "code": "snomed:301898006",
+        "label": "Body surface area",
+        "unit": "ucum:m2",
+        "required_omops": [3025315, 3036277],                 # Body Weight, Body Height 
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "DuBois: BSA = 0.007184 * W(kg)^0.425 * H(cm)^0.725"
+    },
+    {
+        "name": "Waist_Hip_Ratio",
+        "omop_id": 4087501,                                   # LOINC 9844-2 — verify
+        "code": "snomed:248367009",
+        "label": "Ratio of waist circumference to hip circumference",
+        "unit": "ucum:1",
+        "required_omops": [4172830, 4111665],                 # Waist circumference, Hip circumference — verify
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "WHR = waist / hip"
+    },
+    {
+        "name": "LDL_Friedewald", # Friedewald is invalid when triglycerides ≥ 400 mg/dL or in non-fasting samples
+        "omop_id": 3028288,
+        "code": "loinc:13457-7",
+        "label": "Cholesterol in LDL [Mass/volume] in Serum or Plasma by calculation",
+        "unit": "ucum:mg/dL",
+        "required_omops": [3027114, 3007070, 3022192],        # Cholesterol [Mass/volume] in Serum or Plasma, Cholesterol in HDL [Mass/volume] in Serum or Plasma, Triglyceride [Mass/volume] in Serum or Plasma
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "LDL = TC - HDL - TG/5 ; invalid if TG >= 400 mg/dL (use Martin-Hopkins or direct LDL)",
+        # checked against the triglyceride min/max (src/derived_variables.py)
+        "condition": {"input": 3022192, "op": "<", "value": 400, "unit": "mg/dL",
+                      "converted": {"mmol/L": 4.52}, "note": "fasting sample"},
+    },
+    {
+        "name": "Non_HDL_Cholesterol",
+        "omop_id": 3044491,                                  # verify
+        "code": "loinc:43396-1",
+        "label": "Cholesterol non HDL [Mass/volume] in Serum or Plasma",
+        "unit": "ucum:mg/dL",
+        "required_omops": [3027114, 3007070],                 # Cholesterol [Mass/volume] in Serum or Plasmat, Cholesterol in HDL [Mass/volume] in Serum or Plasma
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "Non-HDL = TC - HDL"
+    },
+    {
+        "name": "QTc_Bazett",
+        "omop_id": 46235174,                                   
+        "code": "loinc:76635-2",
+        "label": "Q-T interval corrected based on Bazett formula",
+        "unit": "ucum:ms",
+        "required_omops": [4216826, 3027018],                 # QT interval feature, heart rate  — verify
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "QTc = QT_ms / sqrt(RR_s) ; RR_s = 60/HR"
+    },
+    {
+    "name": "Eosinophils",
+    "omop_id": 3013115,                                    # Eosinophils [#/volume] in blood
+    "code": "loinc:26449-9",
+    "label": "Eosinophils [#/volume] in blood",
+    "unit": "ucum:/nL",                                    # CSV stored 'ucum:/nl' — confirm casing
+    "required_omops": [43055367,4298431],    # Eosinophils/Leukocytes number fraction, Leukocytes [#/volume]  — verify
+    "category": "measurement",
+    "data_type": "continuous_variable",
+    "formula": "Eos[#/vol] = Eos_fraction × Leukocytes[#/vol] ; Eos_fraction = pct/100 when reported in %"
+    },
+    {
+        "name": "Age",
+        "omop_id": 3022304,
+        "code": "loinc:30525-0",
+        "label": "Age",
+        "unit": "ucum:a",
+        "required_omops": [
+            4083587,  # Date of birth
+            4231970,  # Date of visit
+        ],
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "completed calendar years between date of birth and baseline date",
+    }
+
+    ])
+    admins: str = field(default_factory=lambda: os.getenv("ADMINS", ""))
+
+    data_folder: str = field(default_factory=lambda: os.getenv("DATA_FOLDER", "./data"))
+    sparql_endpoint: str = field(default_factory=lambda: os.getenv("SPARQL_ENDPOINT", "http://localhost:7879"))
+
+    EMBEDDING_MODEL_NAME: str = "sapbert"
+    FULL_EMBEDDING_MODEL_NAME: str = "cambridgeltl/SapBERT-from-PubMedBERT-fulltext"
+    MODEL_CACHE_DIR: str = "../data/models"
+    @property
+    def auth_audience(self) -> str:
+        # if self.dev_mode:
+        #     return "https://other-ihi-app"
+        # else:
+        return "https://explorer.icare4cvd.eu"
+
+    @property
+    def query_endpoint(self) -> str:
+        return f"{self.sparql_endpoint}/query"
+
+    @property
+    def update_endpoint(self) -> str:
+        return f"{self.sparql_endpoint}/update"
+
+
+    @property
+    def admins_list(self) -> list[str]:
+        return self.admins.split(",")
+
+    @property
+    def logs_filepath(self) -> str:
+        return os.path.join(self.data_folder, "../logs.log")
+    
+    @property
+    def sqlite_db_filepath(self) -> str:
+        return "vocab.db"
+    
+    @property
+    def vector_db_path(self) -> str:
+        """Qdrant host. Env-driven, defaulting to 'qdrant' (the docker-compose
+        service name) so the containerized deployment reaches the Qdrant
+        container over the compose network with no extra env wiring.
+
+        Default is 'qdrant' because until Aug 2026 the cross-mapping call site
+        hardcoded host="qdrant"; the rewrite in ec49aef swapped that literal for
+        this property. Keeping 'qdrant' as the fallback reproduces the working
+        pre-rewrite behavior without requiring VECTOR_DB_HOST in .env. For local
+        dev outside compose, set VECTOR_DB_HOST=localhost.
+        """
+        return os.getenv("VECTOR_DB_HOST", "qdrant")
+    @property
+    def concepts_file_path(self) -> str:
+        # return  "komal.qdrant.137.120.31.148.nip.io"
+        return  "../data/concept_relationship_enriched.csv"
+
+    @property
+    def output_dir(self) -> str:
+        """Where cross-mapping CSVs and the combined JSON are written.
+
+        Read directly by backend/src/mapping.py. Package-local rather than
+        data_folder-relative: DATA_FOLDER points at the shared /data volume,
+        while docker-compose mounts the mapping outputs under the package dir.
+        """
+        return os.getenv(
+            "MAPPING_OUTPUT_DIR",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                         "data", "mapping_output"),
+        )
+
+    @property
+    def omop_graph_pickle_path(self) -> str:
+        """Where the pickled OMOP graph is persisted (read by validate_cde.py).
+
+        Next to output_dir (volume-mounted) so the graph survives container
+        rebuilds and is shared across processes. Overridable via env.
+        """
+        explicit = os.getenv("OMOP_GRAPH_PICKLE_PATH")
+        if explicit:
+            return explicit
+        return os.path.join(os.path.dirname(self.output_dir), "graph_nx.pkl.gz")
+
+    @property
+    def cohort_folder(self) -> str:
+        """Directory holding per-cohort uploads (data dictionaries).
+
+        Read by backend/src/mapping.py (cache-check endpoint) and by
+        main._check_graphs_need_recreate. Mirrors _latest_dictionary_mtime's
+        layout of settings.data_folder/cohorts/<cohort_id>/.
+        """
+        return os.path.join(self.data_folder, "cohorts")
+
+
+settings = Settings()

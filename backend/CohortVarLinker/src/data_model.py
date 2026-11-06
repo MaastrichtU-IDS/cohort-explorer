@@ -104,11 +104,11 @@ class TransformationType(str, Enum):
     Using str Enum so values work as plain strings everywhere (Pydantic, dicts, etc.).
     """
     NONE = "None"
-    UNIT_CONVERSION = "Require Transformation forUnit Conversion"
+    UNIT_CONVERSION = "Require Transformation for Unit Conversion"
     UNIT_ALIGNMENT = "Require Transformation for Unit Alignment"  # one has unit, other doesn't
     VALUE_NORMALIZATION = "Require Transformation for Categorical Value Normalization"
     AGGREGATION_OR_EXPANSION = "Require Transformation for Categorical Aggregation/Expansion"
-    BINARY_EXTRACTION = "Require Transformation to compute binary variblable "
+    BINARY_EXTRACTION = "Require Transformation to compute binary variable"
     TIMEPOINT_ALIGNMENT = "Require Transformation for Timepoints Alignment"
     DERIVATION = "Require Transformation to compute derived variable"
     MANUAL_REVIEW = "Require Manual Review before harmonization"
@@ -509,8 +509,9 @@ class VariableNode(BaseModel):
             "stats_type": self.statistical_type.value if self.statistical_type else "",
             "data_type" :self.data_type,
             "unit_label": self.unit,
+            "description": self.description,
         }
-    
+
     def to_match_row_dict(self, target: "VariableNode", relation: str = "Symbolic Match") -> Dict[str, Any]:
         """
         Create a match row dict combining source and target for DataFrame creation.

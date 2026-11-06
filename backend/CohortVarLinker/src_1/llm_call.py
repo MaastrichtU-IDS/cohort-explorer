@@ -1,0 +1,2021 @@
+from __future__ import annotations
+import json, math, re, threading, time
+from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import dataclass, field
+
+from .utils import setup_logger
+from .config import settings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from .data_model import ContextMatchType, MappingType
+from . import llm_decisions
+
+import hashlib
+from pathlib import Path
+
+logger = setup_logger("llm_logs.log")
+_LABELS = {
+    "COMPLETE",
+    "COMPATIBLE",
+    "PARTIAL",
+    "IMPOSSIBLE",
+}
+
+_LABEL_ALIASES = {
+    "complete": "COMPLETE",
+    "compatible": "COMPATIBLE",
+    "partial": "PARTIAL",
+    "impossible": "IMPOSSIBLE",
+}
+
+_CODE_TO_LABEL = {"1": "COMPLETE", "2": "COMPATIBLE", "3": "PARTIAL", "4": "IMPOSSIBLE"}
+
+
+# ── Call failures ───────────────────────────────────────────────────────────
+# A failed call is classified rather than swallowed: temporary problems are
+# retried, permanent ones stop the run, and either way the reason reaches the
+# output instead of turning into an "IMPOSSIBLE" verdict.
+
+class LLMCallError(Exception):
+    """One failed LLM call. `kind` names the cause; `retryable` says whether
+    trying again can help."""
+
+    def __init__(self, kind: str, detail: str = "", retryable: bool = True):
+        super().__init__(f"{kind}: {detail}" if detail else kind)
+        self.kind, self.detail, self.retryable = kind, detail, retryable
+
+
+class LLMUnavailableError(RuntimeError):
+    """The LLM cannot be used for this run (bad credentials, unknown model,
+    requests rejected). Raised instead of producing verdicts without it."""
+
+
+def _http_status(e: BaseException) -> Optional[int]:
+    for obj in (e, getattr(e, "response", None)):
+        if obj is None:
+            continue
+        for attr in ("status_code", "code", "status"):
+            value = getattr(obj, attr, None)
+            if isinstance(value, int) and 100 <= value <= 599:
+                return value
+    return None
+
+
+def classify_call_error(e: BaseException) -> LLMCallError:
+    """Map an exception from any backend SDK to an LLMCallError."""
+    if isinstance(e, LLMCallError):
+        return e
+    status = _http_status(e)
+    name = type(e).__name__.lower()
+    detail = f"{type(e).__name__}: {str(e)[:200]}"
+    if status in (401, 403) or "authentication" in name or "permissiondenied" in name:
+        return LLMCallError("authentication", detail, retryable=False)
+    if status == 404 or "notfound" in name:
+        return LLMCallError("model_not_found", detail, retryable=False)
+    if status in (400, 422) or "badrequest" in name or "unprocessable" in name:
+        return LLMCallError("bad_request", detail, retryable=False)
+    if status == 429 or "ratelimit" in name or "resourceexhausted" in name:
+        return LLMCallError("rate_limit", detail)
+    if status == 408 or "timeout" in name:
+        return LLMCallError("timeout", detail)
+    if (status is not None and status >= 500) or "internalserver" in name or "unavailable" in name:
+        return LLMCallError("server_error", detail)
+    if "connection" in name:
+        return LLMCallError("connection", detail)
+    return LLMCallError("unknown_error", detail)
+
+
+class CircuitBreaker:
+    """Pauses LLM calls after repeated API failures instead of retrying pair by pair.
+
+    After `threshold` consecutive API failures the breaker opens: every caller
+    waits `cooldown_s` seconds, then calls resume. A failure right after a
+    cooldown opens it again. After `max_cooldowns` cooldowns without a single
+    success the breaker gives up, and further calls fail at once with kind
+    "circuit_open". Any success resets it. Shared by the worker threads.
+    """
+
+    def __init__(self, threshold: int = 5, cooldown_s: float = 30.0, max_cooldowns: int = 3,
+                 clock=time.monotonic, sleep=time.sleep):
+        self.threshold, self.cooldown_s, self.max_cooldowns = threshold, cooldown_s, max_cooldowns
+        self._clock, self._sleep = clock, sleep
+        self._lock = threading.Lock()
+        self.reset()
+
+    def reset(self) -> None:
+        with self._lock:
+            self._failures = 0
+            self._cooldowns = 0
+            self._open_until: Optional[float] = None
+            self._after_cooldown = False
+            self._gave_up = False
+
+    @property
+    def gave_up(self) -> bool:
+        with self._lock:
+            return self._gave_up
+
+    def give_up(self) -> None:
+        with self._lock:
+            self._gave_up = True
+
+    def before_call(self) -> None:
+        with self._lock:
+            if self._gave_up:
+                raise LLMCallError("circuit_open", "calls stopped after repeated API failures",
+                                   retryable=False)
+            wait = 0.0 if self._open_until is None else self._open_until - self._clock()
+        if wait > 0:
+            self._sleep(wait)
+
+    def record_success(self) -> None:
+        with self._lock:
+            self._failures = self._cooldowns = 0
+            self._open_until = None
+            self._after_cooldown = False
+
+    def record_failure(self) -> None:
+        with self._lock:
+            now = self._clock()
+            if self._open_until is not None:
+                if now < self._open_until:
+                    return              # in flight before the breaker opened; already counted
+                self._open_until = None
+                self._after_cooldown = True
+            self._failures += 1
+            if self._after_cooldown or self._failures >= self.threshold:
+                self._failures = 0
+                self._after_cooldown = False
+                if self._cooldowns >= self.max_cooldowns:
+                    self._gave_up = True
+                else:
+                    self._cooldowns += 1
+                    self._open_until = now + self.cooldown_s
+
+
+def _failure_result(status: str, attempts: int, cause: str) -> Tuple[None, int, float, str]:
+    """The (matched, ctx_type, conf, reason_json) tuple for a pair without a verdict."""
+    what = "LLM not reached" if status == "NOT_REACHED" else "LLM answer unreadable"
+    plural = "attempt" if attempts == 1 else "attempts"
+    tried = f" after {attempts} {plural}" if attempts else ""
+    return (None, ContextMatchType.PENDING.value, 0.0, json.dumps({
+        "status": status,
+        "reason": f"{what}{tried} ({cause})",
+        "attempts": attempts,
+        "cause": cause,
+    }))
+
+
+def _failure_status(result) -> str:
+    """'NOT_REACHED', 'UNREADABLE' or '' for a verdict tuple."""
+    if result is None:
+        return "NOT_REACHED"
+    matched, ctx_type, _, reason_json = result
+    if matched is not None and ctx_type != ContextMatchType.PENDING.value:
+        return ""
+    try:
+        status = str(json.loads(reason_json).get("status", "")).upper()
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        status = ""
+    return status if status in ("NOT_REACHED", "UNREADABLE") else "UNREADABLE"
+
+
+
+class LLMDiskCache:
+    def __init__(self, cache_dir: str = settings.LLM_CACHE_DIR):
+        self.root = Path(cache_dir)
+        self._sys_hash = ""
+
+    def set_system_prompt(self, sys_prompt: str):
+        """Call once when system prompt changes to invalidate stale entries."""
+        self._sys_hash = hashlib.sha256(sys_prompt.encode()).hexdigest()[:12]
+
+   
+    def _path(self, model: str, prompt: str, mode: str = "") -> Path:
+        name = model.split("/")[-1]
+        d = self.root / name
+        d.mkdir(parents=True, exist_ok=True)
+        key_material = f"{self._sys_hash}::{mode}::{model}::{prompt}"
+        return d / f"{hashlib.sha256(key_material.encode()).hexdigest()}.json"
+
+    def get(self, model: str, prompt: str, mode: str = "") -> str | None:
+        p = self._path(model, prompt, mode)
+        if not p.exists():
+            return None
+        try:
+            return json.loads(p.read_text())["r"]
+        except Exception:
+            p.unlink(missing_ok=True)
+            return None
+
+    def get_record(self, model: str, prompt: str, mode: str = "") -> dict | None:
+        p = self._path(model, prompt, mode)
+        if not p.exists():
+            return None
+        try:
+            data = json.loads(p.read_text())
+
+            # Backward compatibility with old cache format:
+            # {"prompt": ..., "r": "..."}
+            if "r" in data:
+                logger.info(f"cached = {data}")
+                return data
+
+            return None
+        except Exception:
+            p.unlink(missing_ok=True)
+            return None
+    def put_record(
+        self,
+        model: str,
+        prompt: str,
+        response: str,
+        mode: str = "",
+        logprob_dist: dict | None = None,
+        raw_logprobs: dict | None = None,
+    ):
+        self._path(model, prompt, mode).write_text(
+            json.dumps({
+                "prompt": prompt,
+                "r": response,
+                "logprob_dist": logprob_dist,
+                "raw_logprobs": raw_logprobs,
+            }, ensure_ascii=False)
+        )
+
+    def put(self, model: str, 
+          prompt: str, 
+          response: str, 
+          mode: str = ""):
+        self.put_record(model, prompt, response, mode=mode)
+
+    def delete(self, model: str, prompt: str, mode: str = ""):
+        self._path(model, prompt, mode).unlink(missing_ok=True)
+
+
+
+# _BATCH_INPUT_NE = """
+# # INPUT
+# One Source variable and multiple target variables are provided. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
+# Each variable has:
+# - description: variable label from study metadata
+# - unit: measurement unit, if available
+# - categories: allowed values in format [original value=readable label|original value=readable label]
+# """
+ 
+
+
+# _BATCH_INPUT_EV = """
+# # INPUT
+# One Source variable and multiple target variables are provided. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
+# Each variable may include:
+# - Description: short variable label
+# - Concepts: ordered concepts separated by " | "
+#   - first concept = primary concept (authoritative for meaning)
+#   - remaining concepts = refinements that may narrow or qualify meaning
+# - categories: allowed values in format [original value=readable label|original value=readable label]
+# - Unit: measurement unit, if available
+# - Graph evidence: hierarchical structure of primary standard concept from controlled vocabularies
+# """
+
+# _RULES_EV_ONLY = """- The first concept is authoritative for variable meaning. Treat additional concepts as refinements only if they materially change clinical interpretation; otherwise treat them as annotation context. 
+# - If Description and concepts conflict, use concepts as the primary meaning. 
+# """ 
+
+# _OUTPUT_PAIR = """
+# # OUTPUT CONSTRAINTS
+# - status_code: 1 | 2 | 3 | 4   (1=COMPLETE, 2=COMPATIBLE, 3=PARTIAL, 4=IMPOSSIBLE)
+# - status: COMPLETE | COMPATIBLE | PARTIAL | IMPOSSIBLE
+# - confidence: float 0.0-1.0
+# - reason: 50 words or fewer; prioritize clarity and explanation over word count. explain which rules you applied and why.
+# - transform: 40 words or fewer, or ""
+# - harmonized_variable: 12 words or fewer, snake_case, or ""
+# - alignment_direction: "bidirectional" | "source to target" | "target to source" | "both for derivation" | ""
+# """
+
+
+# _OUTPUT_BATCH = """
+# # OUTPUT CONSTRAINTS
+# - Each verdict has the same fields and limits as the single-pair schema.
+# - Evaluate each (Source, Target i) pair independently. Targets must not influence one another.
+# # OUTPUT FORMAT
+# Return ONLY one valid JSON array, one object per target, in the same order as Target 1 .. Target N:
+# [
+#   {{
+#     "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
+#     "confidence": <float>,
+#     "reason": "<50 words or fewer>",
+#     "transform": "<40 words or fewer, or empty>",
+#     "harmonized_variable": "<snake_case or empty>",
+#     "alignment_direction": "<direction or empty>"
+#   }}
+# ]
+# """
+
+_INPUT_NE = """
+# INPUT
+The input may begin with a "# STUDY CONTEXT" block describing the two cohorts; it describes the studies, not the variables.
+Two variables follow: Source and Target. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
+Each variable may include:
+- description: variable label from study metadata
+- unit: measurement unit, if available
+- categories: allowed values in format [original value=readable label|original value=readable label]
+"""
+
+_INPUT_EV = """
+# INPUT
+The input may begin with a "# STUDY CONTEXT" block describing the two cohorts; it describes the studies, not the variables.
+Two variables follow: Source and Target. Source/Target are positional labels only — they do not imply which side is finer or coarser, nor which side is the reference.
+Each variable may include:
+- Description: short variable label
+- Concepts: ordered concepts separated by pipe symbol "|"
+  - first concept = primary concept (authoritative for meaning)
+  - remaining concepts = refinements that may narrow or qualify meaning
+- categories: allowed values in format [original value=readable label|original value=readable label] (separated by pipe symbol "|")
+- Unit: measurement unit, if available
+- Graph evidence: optional hierarchical structure of primary standard concept from controlled vocabulary
+"""
+_OUTPUT_PAIR = """
+# OUTPUT FORMAT
+Return ONLY one valid JSON object:
+{
+  "status_code": <1|2|3|4> (1=COMPLETE, 2=COMPATIBLE, 3=PARTIAL, 4=IMPOSSIBLE),
+  "status": "<COMPLETE|COMPATIBLE|PARTIAL|IMPOSSIBLE>",
+  "confidence": <float>,
+  "reason": "<30 words or fewer; prioritize clarity and explanation over word count. explain which rules you applied and why.>",
+  "transform": <structured transformation object, or "">,
+   "harmonized_variable": "<5 words or fewer; snake_case or empty>",
+  "alignment_direction": "<direction or empty>"
+}
+"""
+_STUDY_CONTEXT_RULES = """
+
+# STUDY CONTEXT
+Use study metadata only when relevant to judging whether the harmonized variable is meaningful for pooled analysis.
+Use cohort population, inclusion criteria, and shared morbidities to identify variables that would be constant (zero variance), structurally non-informative , or non-comparable across cohorts. 
+"""
+_SHARED_BODY = """
+{study_context_block}
+
+# MANDATORY SEMANTIC GATES
+
+Assess harmonizability for pooled patient-level analysis, not surface semantic similarity. For each variable, identify where supported by metadata:
+1. Clinical entity — condition, measurement, medication, procedure, or event.
+2. Information axis — presence, severity, amount, dose, date, frequency, cause, method, or another attribute.
+3. Temporal context — history/ever, current state, specified test, incident event, cumulative period, or point-in-time assessment. For duration or time-to-event variables, compare start and end anchors, event meaning, direction, unit, and censoring. Different intervals are IMPOSSIBLE; missing duration means unknown or censored. Different representations of the same interval may be COMPATIBLE or PARTIAL.
+4. Anatomical scope — general, organ-specific, regional, unilateral, bilateral, or another site restriction.
+5. Composition — single entity, parent class, subtype/member, union, sum, aggregate, or residual field.
+6. Value support — explicitly represented clinical states and the meaning of missing values.
+
+Apply these decision gates before assigning a status.
+
+**Composite/component gate.** Applies only when one variable IS the aggregate or parent class — never construct one. Operator must preserve the axis: sum for additive quantities (dose, amount, count, duration), logical OR for presence, maximum for severity or extent. Aggregate vs the class it exhausts: COMPLETE if values and units align; COMPATIBLE if reversible recoding or conversion is needed; PARTIAL if lossy or externally referenced. Members that do not exhaust the class: PARTIAL, or IMPOSSIBLE if the shortfall cannot be quantified. Members may roll up to that class; components may not be inferred from a composite. IMPOSSIBLE: extracting a member from an aggregate; matching two aggregates; wrong operator for the axis; combining two members into an ancestor that is neither variable (a union).
+**Residual-field gate.** “Other X” or “remaining X” excludes separately recorded members, and its membership is unknown from the pair alone. It cannot align with an itemized member or total X and is therefore IMPOSSIBLE. A true parent variable such as “any X” is not residual; a specific member may map to it as PARTIAL.
+**Anatomical-scope gate.** Laterality and site restriction are defining when one variable may be positive while the other is negative for the same patient. Identical categories do not override an anatomical-scope difference.
+**Setting/default gate.** A qualifier such as posture, physiological state, specimen, provocation, or assay may be inferred from an unqualified variable only when a recognized clinical default exists. COMPLETE or COMPATIBLE is permitted only when the specified qualifier equals that default. Conflicting specified qualifiers are IMPOSSIBLE. When no recognized default exists, an omitted qualifier remains unresolved and must not be upgraded to COMPLETE.
+**Value-mapping gate.** Map every explicit value to a valid harmonized value or retain it as unknown. Never map missing, unrecorded, unassessed, or unsupported negative values to “No.” When a test finding is mapped to an underlying condition, a positive finding may support condition presence, but a negative finding remains unknown unless the test and metadata justify excluding the condition.
+
+# STATUS BOUNDARIES
+
+## COMPLETE
+Same clinical entity, information axis, temporal context, anatomical scope, granularity, and value meaning; values merge as-is, with no recoding, conversion, threshold reinterpretation, or category normalization. Mathematically equivalent unit notation is allowed only when the numeric values are unchanged.
+Examples:
+- source: systolic BP (mmHg) and target: sitting systolic BP (mmHg)  [seated position is implicit context when missing]
+- source: NT-proBNP (ug/L) and target: NT-proBNP (ng/mL)  [1 ug/L = 1 ng/mL]
+- source: history of atrial fibrillation (yes=yes|no=no) and target: presence of atrial fibrillation (yes=yes|no=no): values merge as-is — yes to yes; no to no.
+- source: central venous pressure > 6 cm H2O (0=no|1=yes) and target: jugular vein elevated (0=no|1=yes): values merge as-is — 1 to 1; 0 to 0.
+
+## COMPATIBLE
+The same six attributes as COMPLETE, but value representations differ and a deterministic, lossless, reversible transformation aligns them — unit conversion, or bijective recoding (equal number of distinct clinical states). Clinical association or approximate interchangeability is not sufficient; a surrogate qualifies only where the metadata or adjudication policy establishes equivalence and a deterministic mapping.
+**Examples**:
+- source: weight (kg) and target: weight (lb)
+- source: myocardial infarction (1=yes|0=no) and target: myocardial infarction (t=yes|f=no)  [recoding only]: target values are recoded into the source representation — t to 1; f to 0.
+- source: aspartate aminotransferase enzymatic activity (U/L) and target: AST enzymatic activity (µkat/L): target values are converted into the source representation — multiply by 60 because 1 µkat/L = 60 U/L.
+- source: jugular vein elevated (0=no|1=yes) and target: central venous pressure > 6 cm H2O (3=yes|1=no): target values are recoded into the source representation — 3 to 1; 1 to 0.
+
+##  PARTIAL
+One clinically meaningful variable for data pooling can be built through a lossy, directional, or externally supported transformation, provided that the derived variable delivers distinct clinical meaning and actionable utility for analysis considering the specific context of the pooled studies. All must hold:
+1. Same entity, or a subtype/member/scope-restriction relationship identifiable from the provided metadata.
+2. The harmonized variable is one clinical concept, not a union or sum. When one side is a subtype or scope restriction of the other, name the harmonized variable for the concept BOTH sides can produce: the parent class when the broader side records only presence and cannot express the subtype; the subtype when the broader side encodes it among its own categories and can be collapsed onto it.
+3. Every explicit observed value is mapped validly or retained as unknown.
+4. No unsupported negative or missing value becomes "No".
+5. The transformation names the information loss: category collapse, positive-only derivation, anatomical reduction, datetime approximation, or downstream external-reference conversion.
+**Examples**:
+- source: Year/date of diabetes diagnosis and target: diabetes history (0=no|1=yes): maps source-to-target (more complete direction) — recorded date maps to 1; missing date maps to unknown (positive-only derivation)
+- source: date of stroke event (dd/mm/yyyy) and target: year of stroke event (yyyy): maps source-to-target (more complete direction) — converted date (dd/mm/yyyy) maps to to year (yyyy);missing date maps to missing (datetime approximation).
+- source: LVEF <40% (1=yes|0=no) and target: LVEF category (1:<40%, 2:40-49%, 3:>=50%): maps target-to-source (more complete direction) — 1 maps to 1; 2 maps to 0; 3 maps to 0 (category collapse).
+- source: Ordinal pulmonary-rales extent (0=absent|1=basal|2=lower-third|3=upper-zones) and target: basal rales (1=yes|0=no): maps source-to-target (more complete direction) — 1 maps to 1; 0 maps to 0; 2 maps to 0; 3 maps to 0 (extent exceeds basal zone, category collapse)
+- source: Left-leg edema (0=no|1=yes) and target: lower-limb edema (0=no|1=yes): maps source-to-target (more complete direction) — 1 maps to 1; 0 maps to unknown (right-leg status is unavailable).
+- source: captopril dose (mg) and target: ACE-inhibitor dose (% target): maps source-to-target (more complete direction) — single member to parent class via downstream external target-dose conversion factor (external-reference conversion).
+- source: atrial fibrillation on ECG at baseline (t=yes|f=no) and target: history of atrial fibrillation at baseline (t=yes|f=no): maps source-to-target (more complete direction) — t maps to yes; f maps to unknown (a normal ECG does not exclude a prior episode; clinical-context abstraction).
+## IMPOSSIBLE
+No single pooled variable can be built without ambiguous decomposition or unsupported inference:
+**Examples**:
+- source: ARB-or-ACE use (yes/no) and target: ACE-inhibitor use (yes/no)  [union  maps to  component].
+- source: Sum of ACE-inhibitor and ARB dose and target: ARB dose  [aggregate  maps to  component].
+- source: "Other ARB" dose and target: total ARB dose  [residual; membership unknown].
+- source: captopril dose (mg) and target: trandolapril dose (mg)  [sibling drugs; raw mg not comparable across agents].
+- source: history of prostate disorder (yes/no) and target: history of chronic kidney disease (yes/no)  [sibling conditions; their common ancestor is neither variable — synthesized union].
+- source: disease severity and target: disease etiology  [different axes].
+- source: sitting systolic BP (mmHg) and target: standing systolic BP (mmHg)  [conflicting specified settings].
+- source: ALT (alanine aminotransferase) and AST (aspartate aminotransferase) [different lab test]
+
+# FINAL VERIFICATION
+For a PARTIAL match, is the proposed harmonized variable a single, clinically coherent concept meaningful across both study contexts and can both sides actually produce it??
+Is every explicit value mapped or safely retained as unknown?
+Did any missing or unsupported value become No?
+Does any composite, residual field, sibling relationship, anatomical restriction, temporal difference, or setting conflict invalidate the match?
+Is the transformation complete, deterministic, and explicit about information loss?
+
+# CONFIDENCE
+Certainty in the chosen status, whatever it is:
+- 0.95-1.00: unambiguous
+- 0.80-0.94: minor ambiguity (e.g., unit missing but inferable)
+- 0.60-0.79: meaningful ambiguity; manual review advised
+- below 0.60: low certainty; reconsider the verdict
+
+# TRANSFORMATION RULE
+For every COMPATIBLE or PARTIAL result, provide a complete, machine-readable transformation that:
+* defines the operation applied to the source and target variables;
+* maps every explicit categorical value;
+* maps unsupported or missing values to `unknown`, never `no`;
+* assigns exactly one harmonized output to each input value;
+* states the information loss for PARTIAL;
+* provides any required formula or external reference;
+* never include a "missing", "unknown" or empty key in value_mapping — missing values are covered by missing_mapping alone
+* uses `none` when a field is not applicable.
+**Examples**
+
+## Example 1 — COMPLETE
+
+Source: body weight (kg)
+Target: body weight (kg)
+"harmonized_variable": "body_weight_kg",
+"alignment_direction": "bidirectional",
+"transform": ""
+
+## Example 2 — COMPATIBLE: unit conversion
+
+Source: serum creatinine (µmol/L)
+Target: serum creatinine (mg/dL)
+
+"harmonized_variable": "creatinine_umol_per_l",
+"alignment_direction": "bidirectional",
+"transform": {{
+    "source_operation": "retain source values in µmol/L",
+    "target_operation": "convert target values from mg/dL to µmol/L",
+    "value_mapping": {{
+    "source": {{}},
+    "target": {{}}
+    }},
+    "numeric_rule": {{
+    "target": "target_µmol_per_L = target_value × 88.4"
+    }},
+    "missing_mapping": "unknown",
+    "information_loss": "none",
+    "reference": "1 mg/dL creatinine = 88.4 µmol/L"
+    }}
+
+
+## Example 3 — COMPATIBLE: categorical recoding
+
+Source: myocardial infarction (0=no|1=yes)
+Target: myocardial infarction (f=no|t=yes)
+"harmonized_variable": "myocardial_infarction_yes_no",
+"alignment_direction": "bidirectional",
+"transform": {{
+    "source_operation": "recode source categories",
+    "target_operation": "recode target categories",
+    "value_mapping": {{
+    "source": {{"0": "no","1": "yes"}},
+    "target": {{"f": "no","t": "yes"}}
+    }},
+    "numeric_rule": {{}},
+    "missing_mapping": "unknown",
+    "information_loss": "none",
+    "reference": "none"
+  }}
+
+
+## Example 4 — PARTIAL: category collapse
+
+Source: basal rales (0=no|1=yes)
+Target: rales extent (0=absent|1=basal zone|2=middle zone|3=upper zone)
+"harmonized_variable": "basal_rales_yes_no",
+"alignment_direction": "target to source",
+"transform": {{
+    "source_operation": "retain binary basal-rales categories",
+    "target_operation": "collapse rales extent to basal-rales presence",
+    "value_mapping": {{
+    "source": {{"0": "no","1": "yes"}},
+    "target": {{"0": "no","1": "yes", "2": "no", "3": "no"}}
+    }},
+    "numeric_rule": {{}},
+    "missing_mapping": "unknown",
+    "information_loss": "rales extent beyond the basal zone is discarded",
+    "reference": "none"
+ }}
+
+
+## Example 5 — PARTIAL: positive-only derivation
+
+Source: date of diabetes diagnosis
+Target: history of diabetes (0=no|1=yes)
+"harmonized_variable": "diabetes_yes_no",
+"alignment_direction": "source to target",
+"transform": {{
+    "source_operation": "derive diabetes presence from a recorded diagnosis date",
+    "target_operation": "retain target binary categories",
+    "value_mapping": {{
+        "source": {{ "present": "yes", "missing": "unknown"}},
+        "target": {{ "0": "no", "1": "yes"}}
+        }},
+    "numeric_rule": {{}},
+    "missing_mapping": "unknown",
+    "information_loss": "diabetes absence cannot be inferred from a missing diagnosis date",
+    "reference": "none"
+}}
+
+## Example 6 — PARTIAL: externally referenced conversion
+
+Source: captopril daily dose (mg/day)
+Target: ACE-inhibitor dose (% target dose)
+"harmonized_variable": "ace_inhibitor_dose_pct",
+"alignment_direction": "source to target",
+"transform": {{
+    "source_operation": "convert captopril mg/day to percentage of its target daily dose",
+    "target_operation": "retain target-dose percentage",
+    "value_mapping": {{
+    "source": {{}},
+    "target": {{}}
+    }},
+    "numeric_rule": {{
+    "source": "dose_percentage = source_value / guideline_target_daily_dose × 100"
+    }},
+    "missing_mapping": "unknown",
+    "information_loss": "drug-specific dose is generalized to ACE-inhibitor target-dose percentage",
+    "reference": "validated captopril target daily dose"
+    }}
+
+## Example 7 — IMPOSSIBLE
+Source: ALT measurement (U/L)
+Target: AST measurement (U/L)
+"harmonized_variable": "",
+"alignment_direction": "",
+"transform": ""
+
+# HARMONIZED VARIABLE
+- COMPLETE/COMPATIBLE/PARTIAL: snake_case, built from the primary concept plus the information axis — presence takes _yes_no, a quantity takes its unit ("heart_failure_yes_no", "body_weight_kg", "alanine aminotransferase enzymatic activity volume in blood" in U/L -> "alanine_aminotransferase_u_per_l"). Keep the concept's own wording and digits; shorten only by dropping trailing words, never by abbreviating or substituting a synonym.
+- IMPOSSIBLE: ""
+
+
+# ALIGNMENT DIRECTION
+Whether the transformation is invertible, and where it is not, how information flows. This is not a statement about which side's representation the pooled variable adopts.
+- COMPLETE: "bidirectional"
+- COMPATIBLE: "bidirectional" (COMPATIBLE requires a reversible transformation; if it is not reversible the status is PARTIAL, not COMPATIBLE)
+- PARTIAL: "source to target" (source finer) | "target to source" (target finer) | "both for derivation" (both contribute positive evidence to a broader variable)
+- IMPOSSIBLE: ""
+
+"""
+ 
+_PREAMBLE = """You are a clinical data harmonization expert assessing whether two variables from separate studies can be aligned into a common harmonized variable for pooled patient-level analysis. Determine whether the merge is clinically meaningful and whether any required transformation is supported by clinical guidelines or accepted domain knowledge.
+The source and target variables come from different cohorts. Harmonization pools different patients into a single patient-level analysis variable, one row per patient; therefore, the two sides are never repeated measurements of the same individual. "Source" and "Target" are simply positional labels for a directional path. You must determine the direction that preserves the most information, minimizes clinical inference, and produces a harmonized variable with distinct clinical meaning and actionable utility within the specific context of the pooled studies."""
+
+# _BATCH_PREAMBLE = """You are a clinical data harmonization expert assessing whether a single Source variable can be aligned to each of several candidate Target variables and merged into a common harmonized analysis variable for pooled statistical analysis. The source and target variables originate from separate studies. Harmonization pools these patients into a single patient-level analysis variable, one row per patient; the two sides are therefore never repeated measurements of the same individual.
+# You will receive ONE Source and multiple Targets in a single request. Evaluate each (Source, Target i) pair independently and in isolation, using the same rules and definitions as a single-pair assessment. A target's verdict must depend only on that target and the Source — never on the presence, similarity, or verdict of any other target in the batch. Do not normalize, balance, or rank verdicts across targets. Two targets that would each receive COMPLETE in isolation must each receive COMPLETE here.
+
+# """
+
+
+VERDICT_JSON_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "status_code",
+        "status",
+        "confidence",
+        "reason",
+        "transform",
+        "harmonized_variable",
+        "alignment_direction",
+    ],
+    "properties": {
+        "status_code": {"type": "integer", "enum": [1, 2, 3, 4]}, 
+
+        "status": {
+            "type": "string",
+            "enum": ["COMPLETE", "COMPATIBLE", "PARTIAL", "IMPOSSIBLE"],
+        },
+        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "reason": {"type": "string"},
+        "transform": {
+                "oneOf": [
+                    {
+                        "type": "string",
+                        "enum": [""]
+                    },
+                    {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "source_operation",
+                            "target_operation",
+                            "value_mapping",
+                            "missing_mapping",
+                            "information_loss",
+                            "reference"
+                        ],
+                        "properties": {
+                            "source_operation": {"type": "string"},
+                            "target_operation": {"type": "string"},
+                            "value_mapping": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "source": {"type": "object",
+                                               "additionalProperties": {"type": "string"}},
+                                    "target": {"type": "object",
+                                               "additionalProperties": {"type": "string"}},
+                                },
+                            },
+
+                            "numeric_rule": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "source": {"type": "string"},
+                                    "target": {"type": "string"},
+                                },
+                            },
+                            "missing_mapping": {
+                                "type": "string",
+                                "enum": ["unknown"]
+                            },
+                            "information_loss": {"type": "string"},
+                            "reference": {"type": "string"}
+                        }
+                    }
+                ]
+            },
+        "harmonized_variable": {"type": "string"},
+        "alignment_direction": {
+            "type": "string",
+            "enum": [
+                "bidirectional",
+                "source to target",
+                "target to source",
+                "both for derivation",
+                "",
+            ],
+        },
+    }
+}
+
+_ALIGNMENT_DIRECTIONS = {"bidirectional", "source to target",
+                         "target to source", "both for derivation"}
+
+_TRANSFORM_TEXT_KEYS = ("source_operation", "target_operation",
+                        "information_loss", "reference")
+
+
+def _clean_text(value: Any) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _clean_direction(value: Any) -> str:
+    # Tolerate "Source_to_Target", "source->target" and extra spaces; anything
+    # outside the schema enum is unknown ("") rather than passed through.
+    s = re.sub(r"[\s_-]+", " ", _clean_text(value).lower().replace("->", " to "))
+    s = " ".join(s.split())
+    return s if s in _ALIGNMENT_DIRECTIONS else ""
+
+
+def _clean_side_map(value: Any) -> dict:
+    """{"source": {...}, "target": {...}} with string keys and values only."""
+    if not isinstance(value, dict):
+        return {}
+    out = {}
+    for side in ("source", "target"):
+        m = value.get(side)
+        if isinstance(m, dict):
+            out[side] = {str(k): str(v) for k, v in m.items()}
+    return out
+
+
+def _clean_transform(value: Any) -> str:
+    """Normalise the LLM transform to the schema shape, as a JSON string.
+
+    "" or missing -> ""; an object keeps the known keys and fills the rest;
+    plain text is kept as source_operation; any other type -> "". A JSON
+    string (not a dict) keeps the transformation_rule column readable with
+    json.loads.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ""
+        value = {"source_operation": text}
+    if not isinstance(value, dict):
+        return ""
+    out = {k: _clean_text(value.get(k)) for k in _TRANSFORM_TEXT_KEYS}
+    out["value_mapping"] = _clean_side_map(value.get("value_mapping"))
+    out["missing_mapping"] = "unknown"
+    raw_rule = value.get("numeric_rule")
+    if isinstance(raw_rule, dict):
+        numeric_rule = {s: _clean_text(raw_rule.get(s)) for s in ("source", "target")}
+        numeric_rule = {s: r for s, r in numeric_rule.items() if r}
+        if numeric_rule:
+            out["numeric_rule"] = numeric_rule
+    if not any(out[k] for k in _TRANSFORM_TEXT_KEYS) and not out["value_mapping"] \
+            and "numeric_rule" not in out:
+        return ""
+    return json.dumps(out, ensure_ascii=False)
+
+
+def _get_field(obj: Any, key: str, default: Any = None) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _extract_single_code(token: Any) -> str:
+    s = str(token or "")
+    m = re.fullmatch(
+        r'[\s"\':,\{\}\[\]\n\r\t]*([1-4])[\s"\':,\{\}\[\]\n\r\t]*',
+        s,
+    )
+    return m.group(1) if m else ""
+
+
+def _reconstruct_token_text(tokens: list) -> str:
+    return "".join(str(_get_field(t, "token", "")) for t in tokens)
+
+
+def _find_token_at_char_offset(tokens: list, char_pos: int) -> int | None:
+    best_i = None
+
+    for i, tok in enumerate(tokens):
+        off = _get_field(tok, "text_offset", None)
+        if off is None:
+            continue
+
+        token_text = str(_get_field(tok, "token", ""))
+        end = off + len(token_text)
+
+        if off <= char_pos < end:
+            return i
+
+        if off <= char_pos:
+            best_i = i
+
+    return best_i
+
+def _extract_status_code_logprob_evidence(logprobs_obj) -> dict:
+    """
+    Extract logprob evidence from the final JSON status_code decision point.
+
+    Returns complete or truncated observed-alternative evidence.
+    """
+    tokens = _get_field(logprobs_obj, "content", None)
+
+    if not tokens:
+        return {
+            "logprob_usable": False,
+            "error": "missing_logprob_content",
+            "dist": {},
+        }
+
+    full_text = _reconstruct_token_text(tokens)
+
+    # matches = list(re.finditer(r'"status_code"\s*:\s*([1-4])', full_text))
+    matches = list(re.finditer(r'"status_code"\s*:\s*"?([1-4])', full_text))
+
+    if not matches:
+        return {
+            "logprob_usable": False,
+            "error": "final_status_code_not_found",
+            "dist": {},
+        }
+
+    m = matches[-1]
+    emitted_code = m.group(1)
+    digit_char_pos = m.start(1)
+
+    token_index = _find_token_at_char_offset(tokens, digit_char_pos)
+
+    if token_index is None:
+        return {
+            "logprob_usable": False,
+            "error": "status_code_token_index_not_found",
+            "emitted_code": emitted_code,
+            "dist": {},
+        }
+
+    tok = tokens[token_index]
+    sampled_code = _extract_single_code(_get_field(tok, "token", ""))
+
+    # If landed on whitespace/punctuation, scan nearby tokens.
+    if sampled_code != emitted_code:
+        for j in range(token_index, min(token_index + 5, len(tokens))):
+            candidate_code = _extract_single_code(_get_field(tokens[j], "token", ""))
+            if candidate_code == emitted_code:
+                token_index = j
+                tok = tokens[j]
+                sampled_code = candidate_code
+                break
+
+    if sampled_code != emitted_code:
+        return {
+            "logprob_usable": False,
+            "error": "sampled_token_does_not_match_final_status_code",
+            "emitted_code": emitted_code,
+            "sampled_token": _get_field(tok, "token", ""),
+            "token_index": token_index,
+            "dist": {},
+        }
+
+    code_logprobs = {}
+
+    sampled_lp = _get_field(tok, "logprob", None)
+    if sampled_code in _CODE_TO_LABEL and sampled_lp is not None:
+        code_logprobs[sampled_code] = float(sampled_lp)
+
+    for alt in _get_field(tok, "top_logprobs", []) or []:
+        alt_code = _extract_single_code(_get_field(alt, "token", ""))
+        alt_lp = _get_field(alt, "logprob", None)
+
+        if alt_code in _CODE_TO_LABEL and alt_lp is not None:
+            code_logprobs[alt_code] = float(alt_lp)
+
+    required_codes = {"1", "2", "3", "4"}
+    observed_codes = set(code_logprobs)
+    missing_codes = required_codes - observed_codes
+    observability = len(observed_codes) / 4
+
+    if len(observed_codes) < 2:
+        return {
+            "logprob_usable": False,
+            "error": "insufficient_code_alternatives",
+            "distribution_type": "unusable",
+            "complete_distribution": False,
+            "observability": observability,
+            "token_index": token_index,
+            "emitted_code": emitted_code,
+            "sampled_code": sampled_code,
+            "observed_codes": sorted(observed_codes),
+            "missing_codes": sorted(missing_codes),
+            "raw_code_logprobs": code_logprobs,
+            "dist": {},
+        }
+
+    distribution_type = (
+        "complete_four_class"
+        if observed_codes == required_codes
+        else "observed_alternatives"
+    )
+
+    label_logprobs = {
+        _CODE_TO_LABEL[code]: lp
+        for code, lp in code_logprobs.items()
+    }
+
+    probs = _normalize_logprobs(label_logprobs)
+    dist = {
+        k: float(f"{v:.8g}")
+        for k, v in probs.items()
+    }
+
+    ranked = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+
+    top_label, top_prob = ranked[0]
+    runner_up, runner_up_prob = ranked[1]
+
+    label_to_code = {v: k for k, v in _CODE_TO_LABEL.items()}
+    raw_margin = (
+        code_logprobs[label_to_code[top_label]]
+        - code_logprobs[label_to_code[runner_up]]
+    )
+
+    return {
+        "logprob_usable": True,
+        "error": "" if distribution_type == "complete_four_class" else "incomplete_code_alternatives",
+        "distribution_type": distribution_type,
+        "complete_distribution": distribution_type == "complete_four_class",
+        "observability": observability,
+        "token_index": token_index,
+        "emitted_code": emitted_code,
+        "sampled_code": sampled_code,
+        "observed_codes": sorted(observed_codes),
+        "missing_codes": sorted(missing_codes),
+        "raw_code_logprobs": code_logprobs,
+        "dist": dist,
+        "top_label": top_label,
+        "top_prob": round(float(top_prob), 6),
+        "runner_up": runner_up,
+        "runner_up_prob": round(float(runner_up_prob), 6),
+        "margin": round(float(top_prob - runner_up_prob), 6),
+        "raw_logprob_margin": round(float(raw_margin), 6),
+    }
+def _build_pair_prompt(src_concepts:str = "", src_cats:str = "", tgt_concepts:str = "", tgt_cats:str = "",
+                       src_desc:str = "", tgt_desc:str = "",
+                       src_unit:str = "", tgt_unit:str = "",
+                       evidence:str = "", mode:str = MappingType.OEH.value):
+    if mode == MappingType.NE.value:
+        src_line = f"Source: description: {src_desc}"
+        tgt_line = f"Target: description: {tgt_desc}"
+    else:
+        src_line = f"Source: description: {src_desc}, concepts: {src_concepts}"
+        tgt_line = f"Target: description: {tgt_desc}, concepts: {tgt_concepts}"
+    if src_unit: src_line += f", unit: {src_unit}"
+    if tgt_unit: tgt_line += f", unit: {tgt_unit}"
+    src_line += f", categories: [{src_cats}]"
+    tgt_line += f", categories: [{tgt_cats}]"
+    prompt = f"## INPUT\n{src_line}\n{tgt_line}"
+    if evidence:
+        prompt += f"\ngraph_evidence: [{evidence}]"
+
+    return prompt
+
+# def _build_batch_prompt(
+#     src_desc: str = "",
+#     src_concepts: str = "",
+#     src_cats: str = "",
+#     src_unit: str = "",
+#     targets: List[Dict[str, str]] = None,
+#     mode: str = MappingType.OEH.value,
+# ) -> str:
+#     """Build a prompt with 1 Source + N Targets. Schema and independence rule
+#     live in the batch system prompt — this function only formats the data.
+#     """
+#     targets = targets or []
+
+#     if mode == MappingType.NE.value:
+#         src_line = f"Source: description: {src_desc}"
+#     else:
+#         # src_line = f"Source: description: {src_desc}"
+#         src_line = f"Source: description: {src_desc}, concepts: {src_concepts}"
+#     if src_unit:
+#         src_line += f", unit: {src_unit}"
+#     src_line += f", categories: [{src_cats}]"
+
+#     target_lines = []
+#     for i, t in enumerate(targets, start=1):
+#         if mode == MappingType.NE.value:
+#             line = f"Target {i}: description: {t.get('desc', '')}"
+#         else:
+#             # line = (
+#             #     f"Target {i}: description: {t.get('desc', '')}"
+#             # )
+#             line = (
+#                 f"Target {i}: description: {t.get('desc', '')}, "
+#                 f"concepts: {t.get('tgt_concepts', '')}"
+#             )
+#         if t.get("tgt_unit"):
+#             line += f", unit: {t['tgt_unit']}"
+#         line += f", categories: [{t.get('tgt_cats', '')}]"
+#         # if t.get("evidence"):
+#         #     line += f"\n  graph_evidence: [{t['evidence']}]"
+#         target_lines.append(line)
+
+#     return "## INPUT\n" + src_line + "\n" + "\n".join(target_lines)
+
+
+
+# def _extract_logprob_dist(logprobs_obj) -> dict | None:
+#     """Find the status_code token position and return {label: prob} or None."""
+#     if not logprobs_obj or not logprobs_obj.content:
+#         return None
+#     for tok in logprobs_obj.content:
+#         if tok.token.strip() in _CODE_TO_LABEL:
+#             import math
+#             dist = {}
+#             for alt in tok.top_logprobs:
+#                 label = _CODE_TO_LABEL.get(alt.token.strip())
+#                 if label:
+#                     dist[label] = math.exp(alt.logprob)
+#             # include the sampled token itself if not already in alts
+#             sampled_label = _CODE_TO_LABEL.get(tok.token.strip())
+#             if sampled_label and sampled_label not in dist:
+#                 dist[sampled_label] = math.exp(tok.logprob)
+#             return dist if dist else None
+#     return None
+
+# def _parse_batch(text: str, expected_n: int) -> List[Tuple[Optional[bool], str, float, str]]:
+#     """Parse a JSON array of verdicts. Returns exactly expected_n results,
+#     padding with PENDING entries if the model under-delivered.
+#     """
+#     _pending = (
+#         None,
+#         ContextMatchType.PENDING.value,
+#         0.0,
+#         json.dumps({"status": "PARSE_ERROR", "reason": "batch_missing_item"}),
+#     )
+
+#     if not text:
+#         return [_pending] * expected_n
+
+#     text = text.strip()
+#     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+#     if text.startswith("```"):
+#         text = re.sub(r"^```(?:json)?\s*", "", text)
+#         text = re.sub(r"\s*```$", "", text).strip()
+
+#     # Try full JSON array parse
+#     try:
+#         arr = json.loads(text)
+#         if isinstance(arr, dict):
+#             # Some models wrap in {"results": [...]}
+#             arr = arr.get("results") or arr.get("verdicts") or [arr]
+#         if not isinstance(arr, list):
+#             arr = [arr]
+#         results = [_parse_single(json.dumps(item)) for item in arr[:expected_n]]
+#         while len(results) < expected_n:
+#             results.append(_pending)
+#         return results
+#     except json.JSONDecodeError:
+#         pass
+
+#     # Fallback: extract balanced JSON objects from the text
+#     objects, depth, start = [], 0, None
+#     for i, ch in enumerate(text):
+#         if ch == "{":
+#             if depth == 0:
+#                 start = i
+#             depth += 1
+#         elif ch == "}":
+#             depth -= 1
+#             if depth == 0 and start is not None:
+#                 objects.append(text[start : i + 1])
+#                 start = None
+
+#     if objects:
+#         results = [_parse_single(obj) for obj in objects[:expected_n]]
+#         while len(results) < expected_n:
+#             results.append(_pending)
+#         return results
+
+#     return [_pending] * expected_n
+
+def _normalize_logprobs(label_logprobs: dict[str, float]) -> dict[str, float]:
+    import math
+
+    if not label_logprobs:
+        return {}
+
+    max_lp = max(label_logprobs.values())
+    exp_vals = {
+        label: math.exp(lp - max_lp)
+        for label, lp in label_logprobs.items()
+    }
+    total = sum(exp_vals.values())
+
+    if total <= 0:
+        return {}
+
+    normalized_logprob =  {
+        label: val / total
+        for label, val in exp_vals.items()
+    }
+    # logger.info (f"normalized logs = {normalized_logprob}")
+    return normalized_logprob
+
+
+def _apply_logprob_confidence(parsed_tuple, logprob_evidence: Dict[str, Any] | None):
+    """
+    Preserve model-written confidence, and attach logprob evidence separately.
+
+    Use logprob confidence only when logprob evidence is usable.
+    """
+    matched, ctx_type, self_reported_conf, reason_json = parsed_tuple
+
+    try:
+        d = json.loads(reason_json) if isinstance(reason_json, str) else {}
+    except Exception:
+        d = {"reason": str(reason_json)}
+
+    status = str(d.get("status", "")).upper().strip()
+    logprob_evidence = logprob_evidence or {
+        "logprob_usable": False,
+        "error": "unavailable_logprob",
+        "dist": {},
+    }
+
+    dist = logprob_evidence.get("dist") or {}
+
+    logprob_conf = None
+    if logprob_evidence.get("logprob_usable") and dist:
+        logprob_conf = float(dist.get(status, 0.0))
+
+    d["llm_self_reported_confidence"] = float(self_reported_conf or 0.0)
+
+    d["logprob_usable"] = bool(logprob_evidence.get("logprob_usable"))
+    d["logprob_error"] = logprob_evidence.get("error", "")
+    d["logprob_distribution_type"] = logprob_evidence.get("distribution_type", "")
+    d["logprob_complete_distribution"] = logprob_evidence.get("complete_distribution", False)
+    d["logprob_observability"] = logprob_evidence.get("observability", 0.0)
+
+    d["observed_codes"] = logprob_evidence.get("observed_codes", [])
+    d["missing_codes"] = logprob_evidence.get("missing_codes", [])
+    d["raw_code_logprobs"] = logprob_evidence.get("raw_code_logprobs", {})
+
+    d["logprob_dist"] = dist
+    d["logprob_confidence"] = logprob_conf
+    d["logprob_top_label"] = logprob_evidence.get("top_label", "")
+    d["logprob_top_prob"] = logprob_evidence.get("top_prob", "")
+    d["logprob_runner_up"] = logprob_evidence.get("runner_up", "")
+    d["logprob_margin"] = logprob_evidence.get("margin", "")
+    d["logprob_raw_margin"] = logprob_evidence.get("raw_logprob_margin", "")
+
+    if logprob_evidence.get("logprob_usable"):
+        d["confidence_source"] = (
+            "logprob_complete_four_class"
+            if logprob_evidence.get("complete_distribution")
+            else "logprob_observed_alternatives"
+        )
+    else:
+        d["confidence_source"] = "self_reported_confidence"
+
+    # Important methodological choice:
+    # Keep the model-written confidence as the operational confidence.
+    # Store logprob evidence separately for uncertainty analysis.
+    conf = self_reported_conf
+
+    return matched, ctx_type, conf, json.dumps(d, ensure_ascii=False)
+
+def _build_system_prompt(
+    *,
+    mode: str,
+    batching: bool,
+    study_context: str = "",
+) -> str:
+    preamble =  _PREAMBLE 
+
+    # if batching:
+    #     input_block = (
+    #         _BATCH_INPUT_NE
+    #         if mode == MappingType.NE.value
+    #         else _BATCH_INPUT_EV
+    #     )
+    #     output_block = _OUTPUT_BATCH
+    # else:
+    input_block = (
+        _INPUT_NE
+        if mode == MappingType.NE.value
+        else _INPUT_EV
+    )
+    output_block = _OUTPUT_PAIR
+
+    context_parts = [_STUDY_CONTEXT_RULES]
+
+    # if study_context:
+    #     dynamic_context = study_context.strip()
+
+    #     # format_study_context_block() already starts with "# STUDY CONTEXT";
+    #     # remove it to avoid duplicate headers.
+    #     dynamic_context = re.sub(
+    #         r"^\s*#\s*STUDY CONTEXT\s*",
+    #         "",
+    #         dynamic_context,
+    #         flags=re.IGNORECASE,
+    #     ).strip()
+
+    #     if dynamic_context:
+    #         context_parts.append(dynamic_context)
+
+    study_context_block = "\n".join(context_parts)
+
+    final_prompt =(
+        preamble
+        + input_block
+        + _SHARED_BODY.format(study_context_block=study_context_block)
+        + output_block
+    )
+    # logger.info(f"prompt is {final_prompt}")
+    return final_prompt
+
+
+def _parse_single(text: str) -> Tuple[Optional[bool], str, float, str]:
+    if not text:
+        return (None, ContextMatchType.PENDING.value, 0.0, "empty_response")
+
+    text = text.strip()
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+    if not text:
+        return (None, ContextMatchType.PENDING.value, 0.0, "think_only_response")
+
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+
+    try:
+        d = json.loads(text)
+    except json.JSONDecodeError:
+        return (None, ContextMatchType.PENDING.value, 0.0, "json_parse_fail")
+    if not isinstance(d, dict):
+        return (None, ContextMatchType.PENDING.value, 0.0, "json_not_an_object")
+
+    # Only the verdict is required (status_code and/or status). The other
+    # fields are optional: a clear verdict with a missing direction or a
+    # non-numeric confidence is still a verdict.
+    raw_code = d.get("status_code")
+    code = ""
+    if raw_code not in (None, ""):
+        try:
+            code = str(int(float(raw_code)))
+        except (TypeError, ValueError):
+            code = str(raw_code).strip()
+    from_code = _CODE_TO_LABEL.get(code)
+    raw_status = str(d.get("status") or "").strip()
+    from_status = _LABEL_ALIASES.get(raw_status.lower())
+
+    if code and from_code is None:
+        return (None, ContextMatchType.PENDING.value, 0.0, f"invalid_status_code:{code}")
+    if raw_status and from_status is None:
+        return (None, ContextMatchType.PENDING.value, 0.0, f"invalid_status:{raw_status}")
+    if from_code and from_status and from_code != from_status:
+        return (None, ContextMatchType.PENDING.value, 0.0,
+                f"status_conflict:status_code {code} vs status {raw_status}")
+    status = from_code or from_status
+    if not status:
+        return (None, ContextMatchType.PENDING.value, 0.0, "missing_status")
+
+    try:
+        conf = float(d.get("confidence"))
+        conf_reported = math.isfinite(conf) and 0.0 <= conf <= 1.0
+    except (TypeError, ValueError):
+        conf_reported = False
+    if not conf_reported:
+        conf = 0.0
+
+    # Optional fields are cleaned, never fatal: a malformed one becomes ""
+    # so the verdict itself is kept.
+    direction = _clean_direction(d.get("alignment_direction"))
+    reason_json = json.dumps({
+        "status": status,
+        "status_code": code,
+        "reason": d.get("reason") or "",
+        "transform": _clean_transform(d.get("transform")),
+        "transform_direction": direction,
+        "alignment_direction": direction,
+        "harmonized_variable": _clean_text(d.get("harmonized_variable")),
+        "confidence_reported": conf_reported,
+    })
+
+    if status == "IMPOSSIBLE":
+        return (False, ContextMatchType.NOT_APPLICABLE.value, conf, reason_json)
+
+    if status == "COMPLETE":
+        return (True, ContextMatchType.EXACT.value, conf, reason_json)
+
+    if status == "COMPATIBLE":
+        return (True, ContextMatchType.COMPATIBLE.value, conf, reason_json)
+
+    if status == "PARTIAL":
+        return (True, ContextMatchType.PARTIAL.value, conf , reason_json)
+
+    return (
+        None,
+        ContextMatchType.PENDING.value,
+        0.0,
+        f"invalid_status:{status}",
+    )
+
+
+
+# ── Readable per-pair log of what the LLM was asked and what it answered ──────
+
+def _short(x: Any, n: int = 160) -> str:
+    """Single-line, length-capped rendering of any value (dicts as compact JSON)."""
+    if isinstance(x, (dict, list)):
+        x = json.dumps(x, ensure_ascii=False, separators=(",", ":"))
+    x = " ".join(str(x or "").split())
+    return x if len(x) <= n else x[: n - 1] + "…"
+
+
+def _format_side(label: str, desc: Any, concepts: Any, cats: Any, unit: Any) -> str:
+    """One line describing the source or the target as the model sees it; empty
+    fields are left out."""
+    parts = [_short(desc) or "-"]
+    if concepts:
+        parts.append(f"concepts: {_short(concepts, 100)}")
+    if cats:
+        parts.append(f"cats: {_short(cats, 100)}")
+    if unit:
+        parts.append(f"unit: {_short(unit, 30)}")
+    return f"      {label}: " + " | ".join(parts)
+
+
+def _format_verdict(r) -> List[str]:
+    """The model's answer for one pair: MATCH / NO MATCH / PENDING with the
+    verdict label (COMPLETE, COMPATIBLE, PARTIAL, IMPOSSIBLE) and confidence,
+    then the transform (if any) and the model's reason; for a failed call the
+    failure status instead."""
+    if r is None:
+        return ["      =>  no result"]
+    matched, ctx_type, conf, reason_json = r
+    head = "PENDING" if matched is None else ("MATCH" if matched else "NO MATCH")
+    d: Dict[str, Any] = {}
+    try:
+        d = json.loads(reason_json) if isinstance(reason_json, str) else {}
+    except Exception:
+        d = {"status": reason_json}
+    if not isinstance(d, dict):
+        d = {"status": str(d)}
+    status = d.get("status") or ctx_type
+    lines = [f"      =>  {head} | {_short(status, 60)} | conf {conf:.2f}"]
+    transform = d.get("transform")
+    if transform:
+        direction = d.get("transform_direction")
+        lines.append(f"          transform: {_short(transform, 300)}"
+                     + (f" ({direction})" if direction else ""))
+    reason = d.get("reason")
+    if reason:
+        lines.append(f"          reason: {_short(reason, 400)}")
+    return lines
+
+
+def format_pair_block(g: Dict, t: Dict, r, done: int, total: int, round_idx: int = 0) -> str:
+    """Multi-line block for one (source, target) pair: inputs, then the verdict."""
+    tag = "" if round_idx == 0 else f"  (retry {round_idx})"
+    block = [
+        f"  🤖 LLM pair {done}/{total}{tag}",
+        _format_side("SRC", g.get("src_desc"), g.get("src_concepts"), g.get("src_cats"), g.get("src_unit")),
+        _format_side("TGT", t.get("desc"), t.get("tgt_concepts"), t.get("tgt_cats"), t.get("tgt_unit")),
+    ]
+    if t.get("evidence"):
+        block.append(f"      evidence: {_short(t['evidence'], 200)}")
+    block.extend(_format_verdict(r))
+    return "\n".join(block)
+
+
+@dataclass
+class LLMConceptMatcher:
+    models: List[str] = field(default_factory=list)
+    max_retries: int = 5                 # failed API calls per pair before "not reached"
+    max_unreadable_attempts: int = 3     # unusable answers per pair before "unreadable"
+    breaker_threshold: int = 5           # consecutive API failures that pause all calls
+    breaker_cooldown_s: float = 30.0
+    breaker_max_cooldowns: int = 3
+    _breaker: Any = field(default=None, repr=False)
+
+    _study_context: str = field(default="", repr=False)
+
+     # Deterministic generation parameters
+    max_tokens: int = 4096
+    temperature: float = 0.0 # 0.0
+    top_p: float = 1.0  # 1.0
+    top_k: int = 0  # 0 = disabled/default for OpenRouter; omit for Gemini if 0
+    frequency_penalty: float = 0.0
+    presence_penalty: float = 0.0
+    repetition_penalty: float = 1.0
+    min_p: float = 0.0
+    top_a: float = 0.0
+
+    timeout: int = 2000
+    mode: str = MappingType.OEH.value
+    backend:str = "google"
+    _clients: Dict[str, Any] = field(default_factory=dict, repr=False)
+    batching:bool =False
+   
+    def __post_init__(self):
+        self._cache = LLMDiskCache()
+        self._get_breaker()
+        self._refresh_system_prompt()
+     
+        # self._cache.set_system_prompt(sys_prompt)
+        model = self.models[0]
+
+        self.backend = self._backend_for(model)
+        self._apply_model_generation_defaults(model)
+        if self.backend  == "ollama":
+            from ollama import Client
+            self._clients["ollama"] = Client(host=settings.OLLAMA_URL)
+        # elif backend == "together":
+        #     from together import Together
+        #     self._clients["together"] = Together(api_key=settings.TOGETHER_API_KEY, timeout=self.timeout)
+        # elif backend == "openai":
+        #     from openai import OpenAI
+        #     self._clients["openai"] = OpenAI(api_key=settings.OPENAI_API_KEY, timeout=self.timeout)
+        # elif backend == "anthropic":
+        #     from anthropic import Anthropic
+        #     self._clients["anthropic"] = Anthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=self.timeout)
+        elif self.backend  == "google":
+            from google.genai import Client
+            self._clients["google"] = Client(api_key=settings.GEMINI_API_KEY)
+        elif self.backend  == "openrouter":
+            from openrouter import OpenRouter
+            self._clients["openrouter"] = OpenRouter(api_key=settings.OPENROUTER_API_KEY)
+        elif self.backend == "fireworks":
+            if not settings.FIREWORKS_API_KEY:
+                raise ValueError(
+                    "Fireworks backend selected but FIREWORKS_API_KEY is not set."
+                )
+            from openai import OpenAI
+            self._clients["fireworks"] = OpenAI(
+                api_key=settings.FIREWORKS_API_KEY,
+                base_url=settings.FIREWORKS_BASE_URL,
+                timeout=self.timeout,
+            )
+        elif self.backend == "litellm":
+            if not settings.LITELLM_BASE_URL:
+                raise ValueError(
+                    "LiteLLM backend selected but LITELLM_BASE_URL is not set "
+                    "(the same .env variable the AI chat uses)."
+                )
+            from openai import OpenAI
+            self._clients["litellm"] = OpenAI(
+                api_key=settings.LITELLM_API_KEY or "sk-no-key",
+                base_url=settings.LITELLM_BASE_URL,
+                timeout=self.timeout,
+            )
+
+  
+
+    def _get_breaker(self) -> CircuitBreaker:
+        if self._breaker is None:
+            self._breaker = CircuitBreaker(self.breaker_threshold, self.breaker_cooldown_s,
+                                           self.breaker_max_cooldowns)
+        return self._breaker
+
+    def _refresh_system_prompt(self) -> None:
+            self._system_prompt = _build_system_prompt(
+                mode=self.mode,
+                batching=self.batching,
+                study_context=self._study_context,
+            )
+            self._cache.set_system_prompt(self._system_prompt)
+
+
+    def set_study_context(self, context_block: str) -> None:
+            """Set cohort-pair study metadata for all LLM calls in this run."""
+            self._study_context = (context_block or "").strip()
+            self._refresh_system_prompt()
+
+    def _apply_model_generation_defaults(self, model: str) -> None:
+        """Apply model-specific decoding defaults for LLM-as-classifier runs.
+
+        top_k=0 means disabled in this code path; OpenRouter/Gemini params
+        omit top_k unless the value is greater than zero.
+        """
+        m = model.lower()
+
+        is_gpt_oss_120b = (
+            ("gpt-oss" in m or "gpt_oss" in m or "gpt oss" in m or "gpt-120" in m)
+            and ("120b" in m or "120-b" in m or "120" in m)
+        )
+
+        # is_deepseek_v4 = "deepseek" in m and ("v4" in m or "v-4" in m)
+        # is_glm = ("glm" in m and "4.7" in m )
+        # is_qwen_plus = (
+        #     "qwen" in m
+        #     and "plus" in m
+        #     and (
+        #         "3.6" in m or "3-6" in m or "3p6" in m or "36" in m
+        #         or "3.7" in m or "3-7" in m or "3p7" in m or "37" in m
+        #     )
+        # )
+     
+       
+        if is_gpt_oss_120b:
+            self.max_tokens = 16384
+            self.temperature = 1.0
+            self.top_p = 1.0
+            self.top_k = 0
+       
+           
+        logger.info (f"for LLM {m}, temperature = { self.temperature}, top_p = {self.top_p},top_k = {self.top_k} ")
+    @staticmethod
+    def _backend_for(model: str) -> str:
+        m = model.lower()
+        if "ollama/" in m: return "ollama"
+        if m.startswith("fireworks/") or m.startswith("accounts/fireworks/") or m.startswith("accounts/komalsyeda29-qw87svj/") :
+            return "fireworks"
+        if "openrouter/" in m: return "openrouter"
+        # if m.startswith("gpt-"): return "openai"
+        # if m.startswith("claude-"): return "anthropic"
+        if m.startswith("gemini-") or m.startswith("gemma-"): return "google"
+        if "litellm/" in m: 
+            return "litellm"
+        return "openrouter"
+
+    def _openrouter_generation_params(self) -> Dict[str, Any]:
+        params = {
+           
+            # "reasoning": {"enabled": True},
+            # "reasoning_effort":"high",
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "frequency_penalty": self.frequency_penalty,
+            "presence_penalty": self.presence_penalty,
+            # "logprobs": True,
+            # Fireworks currently accepts top_logprobs in the range 0..5.
+            # "top_logprobs": 10,
+            # "service_tier":"flex"
+           
+        }
+
+        # Only send non-default optional controls.
+        # top_k=0, min_p=0.0, top_a=0.0 mean disabled.
+        if self.top_k and self.top_k > 0:
+            params["top_k"] = self.top_k
+
+        if self.repetition_penalty != 1.0:
+            params["repetition_penalty"] = self.repetition_penalty
+
+        if self.min_p and self.min_p > 0.0:
+            params["min_p"] = self.min_p
+
+        if self.top_a and self.top_a > 0.0:
+            params["top_a"] = self.top_a
+
+        return params
+
+    def _fireworks_model_name(self, model: str) -> str:
+        """Return the Fireworks model id accepted by the OpenAI-compatible API.
+
+        Supported inputs:
+        - fireworks/deepseek-v4-flash
+        - fireworks/accounts/fireworks/models/deepseek-v4-flash"
+        - accounts/fireworks/models/deepseek-v4-flash
+        """
+        if model.startswith("fireworks/"):
+            model = model.replace("fireworks/", "", 1)
+        if model.startswith("accounts/fireworks/"):
+            return model
+        # Convenience alias for common serverless model ids.
+        if "/" not in model:
+            return f"accounts/fireworks/models/{model}"
+        return model
+
+    def _fireworks_generation_params(self) -> Dict[str, Any]:
+        params = {
+            "reasoning_effort":"high",
+            # "reasoning_history": "preserved",
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "frequency_penalty": self.frequency_penalty,
+            "presence_penalty": self.presence_penalty,
+            "logprobs": True,
+            # Fireworks currently accepts top_logprobs in the range 0..5.
+            "top_logprobs": 5,
+        }
+        if self.top_k and self.top_k > 0:
+            params["top_k"] = self.top_k
+        return params
+
+    def _gemini_generation_config(self, sys_prompt: str, force_freeform: bool = False):
+        from google.genai import types
+
+        kwargs = {
+            "system_instruction": sys_prompt,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "max_output_tokens": self.max_tokens,
+            "presence_penalty": self.presence_penalty,
+            "frequency_penalty": self.frequency_penalty,
+            "thinking_config": types.ThinkingConfig(
+                thinking_level="high"
+            ),
+
+            # "response_logprobs":True,
+            # "logprobs":5,
+        }
+
+        # Use JSON mode on first attempt, but allow free-form fallback on retries.
+        if not force_freeform:
+            # kwargs["response_mime_type"] = "application/json"
+            # kwargs["response_mime_type"] = {"type": "json_schema",
+                        # "json_schema": {"name": "HarmonizationVerdict", "schema": VERDICT_JSON_SCHEMA}}
+            kwargs["response_mime_type"] = "application/json"
+            # kwargs["response_schema"] = VERDICT_JSON_SCHEMA
+
+        # For Gemini, do not send top_k=0. Treat 0 as disabled/default.
+        if self.top_k and self.top_k > 0:
+            kwargs["top_k"] = self.top_k
+
+        return types.GenerateContentConfig(**kwargs)
+        
+    def _cache_mode(self) -> str:
+        return f"{self.mode}::{self._generation_fingerprint()}"
+  
+
+    def _generation_fingerprint(self) -> str:
+        cfg = {
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "top_k": self.top_k,
+            "frequency_penalty": self.frequency_penalty,
+            "presence_penalty": self.presence_penalty,
+            "repetition_penalty": self.repetition_penalty,
+            "min_p": self.min_p,
+            "top_a": self.top_a,
+            # logprob-aware cache separation
+            "backend": self.backend,
+            "logprobs": self.backend in {"openrouter", "fireworks"},
+            "top_logprobs": 5 if self.backend == "fireworks" else (20 if self.backend == "openrouter" else 0),
+            "confidence_source": "normalized_status_token_logprob_v1",
+        }
+        return hashlib.sha256(
+            json.dumps(cfg, sort_keys=True).encode()
+        ).hexdigest()[:12]
+    def _call_one(self, model: str, prompt: str, force_freeform: bool = False) ->  tuple[str, dict]:
+
+        # output_token_limit = self.max_tokens
+
+        output_token_limit = self.max_tokens
+        api_model = self._fireworks_model_name(model) if self.backend == "fireworks" else (model.replace("openrouter/", "") if self.backend == "openrouter" else model)
+        # mname = model.split('/')[-1]
+        client = self._clients[self.backend]
+
+        # if self.batching:
+        #     sys_prompt = SYSTEM_PROMPT_NE_BATCH if self.mode == MappingType.NE.value else SYSTEM_PROMPT_EV_BATCH
+        # else:
+        #     sys_prompt = SYSTEM_PROMPT_NE if self.mode == MappingType.NE.value else SYSTEM_PROMPT_EV
+
+        sys_prompt = self._system_prompt
+        api_model = self._fireworks_model_name(model) if self.backend == "fireworks" else (model.replace("openrouter/", "") if self.backend == "openrouter" else model)
+        # mname = model.split('/')[-1]
+        client = self._clients[self.backend]
+        logprob_evidence = None
+
+        # logger.info(
+        #     f"LLM REQUEST model={model} backend={self.backend} "
+        #     f"mode={self.mode} batching={self.batching}\n"
+        #     f"=== SYSTEM PROMPT ===\n{sys_prompt}\n"
+        #     f"=== USER INPUT ===\n{prompt}\n"
+        # )
+
+        try:
+            if self.backend == "ollama":
+                resp = client.chat(
+                    model=api_model.replace("ollama/", ""),
+                    messages=[{"role": "system", "content": sys_prompt},
+                            {"role": "user", "content": prompt}],
+                    options={"temperature": self.temperature, "num_predict": output_token_limit},
+                )
+                result = resp["message"]["content"] or ""
+                # print(f"[ollama] got {len(result)} chars")
+
+          
+
+            elif self.backend == "openrouter":
+                kwargs = {
+                    "model": api_model,
+                    "stream": False,
+                    "messages": [
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "reasoning": {"effort": "high"},
+                    # "verbosity": "low",
+                    # "reasoning": {
+                    #     "effort": "medium"
+                    # },
+                    # "provider": {
+                    #     "require_parameters": True
+                    # },
+                    "provider": {
+                        "quantizations": [
+                        "bf16"
+                        ]
+                    },
+                     "logprobs": True,
+                    "top_logprobs": 10,
+                    **self._openrouter_generation_params(),
+                }
+
+                # Use JSON mode on first attempt only.
+                # If a routed provider rejects JSON mode, retry free-form and parse with regex.
+                if not force_freeform:
+                    # kwargs["response_format"] = {
+                    #     "type": "json_object"
+                    # }
+                     kwargs["response_format"] = {"type": "json_schema",
+                        "json_schema": {"name": "HarmonizationVerdict", "schema": VERDICT_JSON_SCHEMA}}
+                   
+
+                resp = client.chat.send(**kwargs)
+                if not resp.choices:
+                    return "", {}
+
+                choice = resp.choices[0]
+                text = choice.message.content or ""
+                logprob_evidence = _extract_status_code_logprob_evidence( getattr(choice, "logprobs", None))
+
+                # print("DEBUG status text:", text[:500])
+                # logprobs_obj = getattr(choice, "logprobs", None)
+                # print("DEBUG logprob_dist:", _extract_status_logprob_dist(logprobs_obj))
+                return text, logprob_evidence
+
+            elif self.backend == "litellm":
+                kwargs = {
+                    "model": model.replace("litellm/", "", 1),
+                    "messages": [
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    **self._fireworks_generation_params(),
+                }
+                # Only when configured: a reasoning_effort the model group does
+                # not accept is a 400 on every call (see settings).
+                if settings.LITELLM_REASONING_EFFORT:
+                    kwargs["extra_body"] = {
+                        "reasoning_effort": settings.LITELLM_REASONING_EFFORT,
+                        "allowed_openai_params": ["reasoning_effort"],
+                        "drop_params": True,
+                    }
+                if not force_freeform:
+                    kwargs["response_format"] = {"type": "json_schema",
+                        "json_schema": {"name": "HarmonizationVerdict", "schema": VERDICT_JSON_SCHEMA}}
+
+                resp = client.chat.completions.create(**kwargs)
+                if not resp.choices:
+                    return "", {}
+                choice = resp.choices[0]
+                # Assign rather than return: the shared logger.info at the end of
+                # this method records prompt and response, and returning here
+                # skipped it. On the litellm backend that meant no LLM call was
+                # ever logged.
+                result = choice.message.content or ""
+                logprob_evidence = _extract_status_code_logprob_evidence(
+                    getattr(choice, "logprobs", None)
+                )
+            elif self.backend == "fireworks":
+                kwargs = {
+                    "model": api_model,
+                    "messages": [
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+           
+                    **self._fireworks_generation_params(),
+                }
+
+                # Use JSON mode on early attempts; retry without it for models
+                # that do not support response_format on the routed backend.
+                if not force_freeform:
+                    # kwargs["response_format"] = {"type": "json_object"}
+                    kwargs["response_format"] = {"type": "json_schema",
+                        "json_schema": {"name": "HarmonizationVerdict", "schema": VERDICT_JSON_SCHEMA}}
+
+                resp = client.chat.completions.create(**kwargs)
+                if not resp.choices:
+                    return "", {}
+
+                choice = resp.choices[0]
+                text = choice.message.content or ""
+                logprob_evidence = _extract_status_code_logprob_evidence(
+                    getattr(choice, "logprobs", None)
+                )
+                return text, logprob_evidence
+    
+            elif self.backend == "google":
+                resp = client.models.generate_content(
+                    model=api_model,
+                    contents=prompt,
+                    config=self._gemini_generation_config(sys_prompt, force_freeform=force_freeform),
+                )
+                result = resp.text or ""
+            else:
+                result = ""
+        except Exception as e:
+            # Classified, not swallowed: _eval_pair decides whether to retry,
+            # pause, or stop, and the cause reaches the output.
+            raise classify_call_error(e) from e
+        # Full prompt and raw reply: debug only, the per-pair block in assess() is
+        # the readable record of each call.
+        logger.debug(f"LLM={model}, prompt={prompt}, result ={result}, logprob_dist ={logprob_evidence}")
+        return result, logprob_evidence
+
+   
+
+    def _eval_pair(self, model: str, prompt: str) -> Tuple[Tuple[Optional[bool], str, float, str], Dict[str, Any]]:
+        """The verdict tuple for one pair plus a record of how it was obtained
+        (for the decision store): raw reply, cached?, attempts, duration_ms, error."""
+        t0 = time.time()
+        cache_mode = self._cache_mode()
+        cached = self._cache.get_record(model, prompt, mode=cache_mode)
+        # cached = None
+        if cached and cached.get("r"):
+            v = _parse_single(cached["r"])
+            if v[0] is not None:
+                v = _apply_logprob_confidence(v, cached.get("logprob_dist") or {})
+                return v, {"raw": cached["r"], "cached": True, "attempts": 0,
+                           "duration_ms": int((time.time() - t0) * 1000), "error": None}
+
+        breaker = self._get_breaker()
+        attempts = api_failures = unreadable = 0
+        force_freeform = False
+        last_error: Optional[LLMCallError] = None
+        last_unreadable = ""
+        last_text = ""
+
+        def _meta(error: Optional[str]) -> Dict[str, Any]:
+            return {"raw": last_text, "cached": False, "attempts": attempts,
+                    "duration_ms": int((time.time() - t0) * 1000), "error": error}
+
+        while api_failures < self.max_retries and unreadable < self.max_unreadable_attempts:
+            attempts += 1
+            try:
+                breaker.before_call()
+                text, logprob_dist = self._call_one(model, prompt, force_freeform=force_freeform)
+            except LLMCallError as e:
+                last_error = e
+                if e.kind == "circuit_open":
+                    attempts -= 1         # blocked, no call was made
+                    break
+                breaker.record_failure()
+                api_failures += 1
+                logger.warning(f"LLM call failed ({e.kind}), attempt {attempts}: {e.detail}")
+                if e.kind == "bad_request" and not force_freeform:
+                    # Some routed providers reject JSON-schema mode; try free-form once.
+                    force_freeform = True
+                    continue
+                if not e.retryable:
+                    raise LLMUnavailableError(f"LLM unavailable ({e.kind}): {e.detail}") from e
+                time.sleep(1 + api_failures)
+                continue
+
+            breaker.record_success()
+            last_text = text
+            v = _parse_single(text)
+            if v[0] is not None:
+                v = _apply_logprob_confidence(v, logprob_dist)
+                self._cache.put_record(model, prompt, text, mode=cache_mode, logprob_dist=logprob_dist)
+                return v, _meta(None)
+
+            unreadable += 1
+            last_unreadable = str(v[3])
+            if unreadable == self.max_unreadable_attempts - 1:
+                force_freeform = True     # last try without JSON-schema mode
+
+        if unreadable >= self.max_unreadable_attempts:
+            return (_failure_result("UNREADABLE", attempts, last_unreadable),
+                    _meta(f"unreadable: {last_unreadable}"))
+        if last_error is not None and last_error.kind == "circuit_open":
+            cause = "calls stopped after repeated API failures"
+        else:
+            cause = f"{last_error.kind}: {last_error.detail}" if last_error else "no response"
+        return _failure_result("NOT_REACHED", attempts, cause), _meta(cause)
+        
+ 
+
+    def assess(
+            self,
+            groups: List[Dict],
+            case_ids: List[str] = None,
+            max_pending_rounds: int = 2,
+        ) -> Tuple[List[List[Tuple]], Dict]:
+
+            if not groups:
+                return [], {}
+
+            model = self.models[0]
+
+            flat_meta, prompts, pairs = [], [], []
+
+            for g_idx, g in enumerate(groups):
+                for t_idx, t in enumerate(g["targets"]):
+                    flat_meta.append((g_idx, t_idx))
+                    pairs.append((g, t))
+                   
+                    pair_prompt =  _build_pair_prompt(
+                            g.get("src_concepts", ""),
+                            g.get("src_cats", ""),
+                            t.get("tgt_concepts", ""),
+                            t.get("tgt_cats", ""),
+                            src_desc=g.get("src_desc", ""),
+                            tgt_desc=t.get("desc", ""),
+                            src_unit=g.get("src_unit", ""),
+                            tgt_unit=t.get("tgt_unit", ""),
+                            evidence=t.get("evidence", ""),
+                            mode=self.mode,
+                        )
+                    
+                    if self._study_context:
+                        pair_prompt = f"{self._study_context}\n\n{pair_prompt}"
+                    prompts.append(pair_prompt)
+
+
+
+            results = [None] * len(prompts)
+            attempts_used = [0] * len(prompts)
+            breaker = self._get_breaker()
+            breaker.reset()          # each run starts with a closed breaker
+            total = len(prompts)
+
+            metas: Dict[int, Dict[str, Any]] = {}
+
+            def _internal_failure(e: Exception):
+                cause = f"internal error: {type(e).__name__}: {e}"
+                return _failure_result("NOT_REACHED", 0, cause), {"error": cause}
+
+            def _record(i: int, outcome) -> None:
+                result, meta = outcome
+                results[i] = result
+                metas[i] = meta
+                if _failure_status(result):
+                    try:
+                        attempts_used[i] += int(json.loads(result[3]).get("attempts", 0))
+                    except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+                        pass
+
+            def _log_pair(i: int, done: int, round_idx: int) -> None:
+                g, t = pairs[i]
+                logger.info(format_pair_block(g, t, results[i], done, total, round_idx))
+                # Durable record of the decision (input and output), see llm_decisions.py.
+                llm_decisions.record_decision(
+                    g=g, t=t, prompt=prompts[i], system_prompt=self._system_prompt, model=model,
+                    mode=self.mode, verdict=results[i], meta=metas.get(i), round_idx=round_idx)
+
+            # Initially all prompts are active.
+            active_indices = list(range(len(prompts)))
+
+            total_calls = 0
+            pending_rounds_used = 0
+
+            for round_idx in range(max_pending_rounds + 1):
+                if not active_indices or (round_idx > 0 and breaker.gave_up):
+                    break
+
+                pending_rounds_used = round_idx
+
+                done = 0
+                if len(active_indices) == 1:
+                    # Single prompt — call directly, no pool overhead.
+                    # LLMUnavailableError is not caught: the run stops.
+                    i = active_indices[0]
+                    try:
+                        _record(i, self._eval_pair(model, prompts[i]))
+                    except LLMUnavailableError:
+                        raise
+                    except Exception as e:
+                        _record(i, _internal_failure(e))
+                    done += 1
+                    _log_pair(i, done, round_idx)
+                else:
+                    unavailable: Optional[LLMUnavailableError] = None
+                    with ThreadPoolExecutor(max_workers=3) as pool:
+                        futures = {
+                            pool.submit(self._eval_pair, model, prompts[i]): i
+                            for i in active_indices
+                        }
+                        for fut in as_completed(futures):
+                            i = futures[fut]
+                            try:
+                                _record(i, fut.result())
+                            except LLMUnavailableError as e:
+                                if unavailable is None:
+                                    unavailable = e
+                                    breaker.give_up()   # the other threads stop calling
+                                continue
+                            except Exception as e:
+                                _record(i, _internal_failure(e))
+                            done += 1
+                            _log_pair(i, done, round_idx)
+                    if unavailable is not None:
+                        raise unavailable
+
+                total_calls += len(active_indices)
+                # Another round only for pairs the LLM could not be reached
+                # for; an unreadable answer has already had its own retries.
+                active_indices = [i for i in active_indices
+                                  if _failure_status(results[i]) == "NOT_REACHED"]
+                logger.info(f"  🤖 LLM round {round_idx + 1}: {done} pairs assessed, "
+                            f"{len(active_indices)} still not reached")
+
+            # Pairs still without a verdict keep their real cause, with the
+            # attempts summed over all rounds.
+            counts = {"NOT_REACHED": 0, "UNREADABLE": 0}
+            for i, r in enumerate(results):
+                status = _failure_status(r)
+                if not status:
+                    continue
+                counts[status] += 1
+                try:
+                    cause = json.loads(r[3]).get("cause") or json.loads(r[3]).get("reason", "")
+                except (json.JSONDecodeError, TypeError, AttributeError):
+                    cause = str(r[3]) if r is not None else "no result"
+                results[i] = _failure_result(status, attempts_used[i], cause)
+
+            grouped = [[] for _ in range(len(groups))]
+
+            for fi, (g_idx, _) in enumerate(flat_meta):
+                grouped[g_idx].append(results[fi])
+
+            return grouped, {
+                "total_targets": len(prompts),
+                "total_llm_calls": total_calls,
+                "not_reached": counts["NOT_REACHED"],
+                "unreadable": counts["UNREADABLE"],
+                "pending_after_retries": counts["NOT_REACHED"] + counts["UNREADABLE"],
+                "pending_rounds_used": pending_rounds_used,
+                "breaker_gave_up": breaker.gave_up,
+                "model": model,
+            }
+
+   

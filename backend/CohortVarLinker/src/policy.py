@@ -5,7 +5,7 @@ Each policy is a pure function which takes mapping mode, structural evidence, ll
 from __future__ import annotations
 from typing import Optional
 
-from .verdict import StructuralEvidence, LLMEvidence, Verdict, TimepointInfo
+from .verdict import StructuralEvidence, LLMEvidence, Verdict, TimepointInfo, LLM_OK, LLM_SKIPPED
 from .data_model import MatchLevel, TransformationType, MappingType, MappingRelation, ContextMatchType
 
 def decide(mode: str,
@@ -24,8 +24,6 @@ def decide(mode: str,
 
 # Penalise broader vs specific pair matching
 
-
-
 def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
     out = dict(extra)
 
@@ -33,10 +31,11 @@ def _extra_info_from_llm(extra: dict, llm: Optional[LLMEvidence]) -> dict:
         if llm.transform_direction:
             out["transform_direction"] = llm.transform_direction
 
-        if llm.transform:
+        if llm.transform and not out.get("transformation_rule"):
             # The concrete "how" of the transformation. run.py lifts this into
             # the transformation_rule column, leaving transformation_type to
-            # hold the category alone.
+            # hold the category alone. A rule the structural layer computed
+            # (a unit factor) is deterministic and is kept over the LLM's text.
             out["transformation_rule"] = llm.transform
 
         hv = (getattr(llm, "harmonized_variable", None) or "").strip()
@@ -103,59 +102,10 @@ def _ne_decide(s: StructuralEvidence,
                tp: TimepointInfo,
                llm_use:bool) -> Verdict:
 
-    # No LLM consulted → structural verdict is final.
-    if llm is None:
-        level = MatchLevel.NOT_APPLICABLE if llm_use and s.level == MatchLevel.PARTIAL  else s.level
-        return _build_verdict(level, s.transformation, s.reason, tp,
-                              _extra_with_direction(s, level, s.transformation))
+    if llm is None or llm.status != LLM_OK:
+        return _decide_without_llm_verdict(s.level, s.transformation, s.reason, s, llm, tp, llm_use)
 
-    if llm.verdict == "IMPOSSIBLE":
-        return _build_verdict(
-            MatchLevel.NOT_APPLICABLE,
-            TransformationType.MANUAL_REVIEW,
-            f"LLM rejected pair: {llm.reason}".strip(),
-            tp, _extra_info_from_llm(s.extra, llm),
-        )
-
-    if llm.verdict == "COMPLETE":
-        # Preserve a structural COMPATIBLE verdict; otherwise allow IDENTICAL cap.
-        if s.level == MatchLevel.COMPATIBLE:
-            capped = MatchLevel.COMPATIBLE
-        else:
-            # Lower int = better match; min picks the better of IDENTICAL vs structural.
-            capped = min(MatchLevel.IDENTICAL, s.level, key=int)
-        # llm.transform is free text ("mg/dL = ug/mL / 10"), i.e. a *rule*, not a
-        # type. Putting it here made transformation_type unfilterable — rows
-        # needing unit conversion never carried UNIT_CONVERSION. The structural
-        # category stands; the text travels as transformation_rule via
-        # _extra_info_from_llm.
-        transformation = s.transformation or TransformationType.NONE
-        reason = s.reason or "Handler verdict"
-        if llm.reason:
-            reason = f"{reason} | LLM confirmed: {llm.reason}"
-        return _build_verdict(capped, transformation, reason, tp, _extra_info_from_llm(s.extra, llm))
-       
-
-    if llm.verdict == "COMPATIBLE":
-        # The class that was unreachable before this fix.
-        return _build_verdict(
-            MatchLevel.COMPATIBLE,
-            _compatible_transformation(s),
-            f"LLM compatible: {llm.reason}".strip(),
-            tp, _extra_info_from_llm(s.extra, llm),
-        )
-
-    if llm.verdict == "PARTIAL":
-        return _build_verdict(
-            MatchLevel.PARTIAL,
-            TransformationType.MANUAL_REVIEW,
-            f"LLM partial: {llm.reason}".strip(),
-            tp,  _extra_info_from_llm(s.extra, llm),
-        )
-
-    # Unknown verdict (shouldn't happen — LLMEvidence.__post_init__
-    # normalizes invalid verdicts to IMPOSSIBLE — but be safe).
-    return _build_verdict(s.level, s.transformation, s.reason, tp, s.extra)
+    return _decide_with_llm(s, llm, tp)
 
 
 
@@ -168,62 +118,130 @@ def _symbolic_neural_with_llm_decide(s: StructuralEvidence,
                                llm: Optional[LLMEvidence],
                                tp: TimepointInfo,
                llm_use:bool) -> Verdict:
-    if llm is None:
+    if llm is None or llm.status != LLM_OK:
         level, transformation, reason = _demote_hierarchical(s)
-        level = MatchLevel.NOT_APPLICABLE if (llm_use and s.level == MatchLevel.PARTIAL and transformation != TransformationType.DERIVATION)  else level
+        return _decide_without_llm_verdict(level, transformation, reason, s, llm, tp, llm_use)
+
+    return _decide_with_llm(s, llm, tp)
+
+
+def _decide_without_llm_verdict(level: MatchLevel,
+                                transformation: TransformationType,
+                                reason: str,
+                                s: StructuralEvidence,
+                                llm: Optional[LLMEvidence],
+                                tp: TimepointInfo,
+                                llm_use: bool) -> Verdict:
+    """Verdict when no usable LLM verdict exists; records why in llm_status.
+
+    Only a candidate the pipeline deliberately did not ask about (source-claim
+    early exit) is dropped. When the LLM failed, or a verdict is missing that
+    should exist, the structural verdict stands, flagged: losing the semantic
+    check is not evidence that the pair does not match.
+    """
+    extra = _extra_with_direction(s, level, transformation)
+
+    if not llm_use:
+        extra["llm_status"] = "not_configured"
+        return _build_verdict(level, transformation, reason, tp, extra)
+
+    if llm is None and not should_consult_llm(s):
+        extra["llm_status"] = "not_needed"           # structural answer was decisive
+        return _build_verdict(level, transformation, reason, tp, extra)
+
+    if llm is not None and llm.status == LLM_SKIPPED:
+        extra["llm_status"] = LLM_SKIPPED
+        if s.level == MatchLevel.PARTIAL and transformation != TransformationType.DERIVATION:
+            level = MatchLevel.NOT_APPLICABLE
+            reason = f"{reason} | {llm.reason}".strip(" |")
         return _build_verdict(level, transformation, reason, tp,
-                              _extra_with_direction(s, level, transformation))
-    
+                              {**_extra_with_direction(s, level, transformation), "llm_status": LLM_SKIPPED})
+
+    # The LLM was needed and gave no usable verdict.
+    status = llm.status if llm is not None else "missing"
+    why = (llm.reason if llm is not None and llm.reason else "no LLM verdict recorded for this pair")
+    extra["llm_status"] = status
+    return _build_verdict(
+        level, transformation,
+        f"{reason} | Semantic check not performed ({why}); structural verdict kept, review recommended.".strip(" |"),
+        tp, extra,
+    )
+
+
+# The LLM decides meaning; the structural layer bounds what the representation
+# allows. Shared by NE and OEH/OEC: once the LLM has spoken, the mode no longer
+# changes how its verdict and the structural evidence combine.
+
+_LLM_LEVEL = {
+    "COMPLETE":   MatchLevel.IDENTICAL,
+    "COMPATIBLE": MatchLevel.COMPATIBLE,
+    "PARTIAL":    MatchLevel.PARTIAL,
+    "IMPOSSIBLE": MatchLevel.NOT_APPLICABLE,
+}
+
+
+def _worse(a: MatchLevel, b: MatchLevel) -> MatchLevel:
+    """The weaker of two levels (higher int = weaker match)."""
+    return a if int(a) >= int(b) else b
+
+
+def _binding_ceiling(s: StructuralEvidence) -> Optional[MatchLevel]:
+    """Best level the structural evidence allows, or None if it deferred.
+
+    A structural COMPATIBLE is binding: the handler found a recoding or a
+    conversion, so values cannot merge as-is whatever the LLM says.
+    """
+    ceiling = s.ceiling
+    if s.level == MatchLevel.COMPATIBLE:
+        ceiling = MatchLevel.COMPATIBLE if ceiling is None else _worse(ceiling, MatchLevel.COMPATIBLE)
+    return ceiling
+
+
+def _transformation_for(level: MatchLevel, s: StructuralEvidence) -> TransformationType:
+    """Transformation consistent with the final level."""
+    if level == MatchLevel.IDENTICAL:
+        return TransformationType.NONE
+    if level == MatchLevel.COMPATIBLE:
+        return _compatible_transformation(s)
+    return TransformationType.MANUAL_REVIEW
+
+
+def _decide_with_llm(s: StructuralEvidence, llm: LLMEvidence, tp: TimepointInfo) -> Verdict:
+    extra = _extra_info_from_llm(s.extra, llm)
+    extra["llm_status"] = LLM_OK
+
     if llm.verdict == "IMPOSSIBLE":
-        return _build_verdict(
-            MatchLevel.NOT_APPLICABLE,
-            TransformationType.MANUAL_REVIEW,
-            f"LLM rejected pair: {llm.reason}".strip(),
-            tp, _extra_info_from_llm(s.extra, llm),
-        )
+        return _build_verdict(MatchLevel.NOT_APPLICABLE, TransformationType.MANUAL_REVIEW,
+                              f"LLM rejected pair: {llm.reason}".strip(), tp, extra)
 
-    if llm.verdict == "COMPLETE":
-        if s.level == MatchLevel.COMPATIBLE:
-            capped = MatchLevel.COMPATIBLE
-        else:
-            capped = min(MatchLevel.IDENTICAL, s.level, key=int)
-        # llm.transform is free text ("mg/dL = ug/mL / 10"), i.e. a *rule*, not a
-        # type. Putting it here made transformation_type unfilterable — rows
-        # needing unit conversion never carried UNIT_CONVERSION. The structural
-        # category stands; the text travels as transformation_rule via
-        # _extra_info_from_llm.
-        transformation = s.transformation or TransformationType.NONE
-        reason = s.reason or "Ontology match"
-        if llm.reason:
-            reason = f"{reason} | LLM confirmed: {llm.reason}"
-        # Ontology + LLM both agree → structural verdict survives.
-        return _build_verdict(capped, transformation, reason, tp, _extra_info_from_llm(s.extra, llm))
-
-    if llm.verdict == "COMPATIBLE":
-        if s.transformation == TransformationType.NONE:
-            capped = min(MatchLevel.IDENTICAL, s.level, key=int)
-        else:
-            capped = MatchLevel.COMPATIBLE
-        # Same reason as above: category here, llm.transform carried as a rule.
-        transformation = _compatible_transformation(s)
-        reason = s.reason or "Ontology match"
-        if llm.reason:
-            reason = f"{reason} | LLM confirmed: {llm.reason}"
-        return _build_verdict(
-            capped,
-            transformation,
-            reason,
-            tp, _extra_info_from_llm(s.extra, llm),
-        )
     if llm.verdict == "PARTIAL":
-        return _build_verdict(
-            MatchLevel.PARTIAL,
-            TransformationType.MANUAL_REVIEW,
-            f"LLM partial: {llm.reason}".strip(),
-            tp,  _extra_info_from_llm(s.extra, llm),
-        )
+        return _build_verdict(MatchLevel.PARTIAL, TransformationType.MANUAL_REVIEW,
+                              f"LLM partial: {llm.reason}".strip(), tp, extra)
 
-    return _build_verdict(s.level, s.transformation, s.reason, tp, s.extra)
+    level = _LLM_LEVEL[llm.verdict]
+    reason = s.reason or "Structural check"
+    if llm.reason:
+        reason = f"{reason} | LLM {'confirmed' if llm.verdict == 'COMPLETE' else 'compatible'}: {llm.reason}"
+
+    # The structural layer rejected the pair; the LLM accepts it. Neither is
+    # trusted over the other (the structural NA is often an annotation error,
+    # e.g. a day count typed as free text), so a human decides.
+    if s.level == MatchLevel.NOT_APPLICABLE:
+        extra["structural_llm_disagreement"] = True
+        return _build_verdict(MatchLevel.PARTIAL, TransformationType.MANUAL_REVIEW,
+                              f"{reason} | Structural and LLM evidence disagree; manual review required.",
+                              tp, extra)
+
+    ceiling = _binding_ceiling(s)
+    if ceiling is not None and int(ceiling) > int(level):
+        level = ceiling
+        if s.extra.get("unit_range_check") == "contradicted":
+            cause = "unit/value-range conflict"
+        else:
+            cause = s.extra.get("unit_relation") or "structural evidence"
+        reason = f"{reason} | Capped at {level.to_str()} by {str(cause).replace('_', ' ')}."
+
+    return _build_verdict(level, _transformation_for(level, s), reason, tp, extra)
 
 
 def _ontology_only_decide(s: StructuralEvidence, tp: TimepointInfo) -> Verdict:
@@ -281,6 +299,14 @@ def _compatible_transformation(s: StructuralEvidence) -> TransformationType:
     )
     if s.transformation in concrete:
         return s.transformation
+
+    # When the unit check ran, it is authoritative: equivalent spellings
+    # (ng/mL vs ug/L) are not a conversion, a fixed factor is.
+    relation = s.extra.get("unit_relation")
+    if relation in ("scalable", "molar_mass_dependent"):
+        return TransformationType.UNIT_CONVERSION
+    if relation in ("equivalent", "incommensurable"):
+        return TransformationType.VALUE_NORMALIZATION
 
     def _unit(key: str) -> str:
         value = s.extra.get(key)

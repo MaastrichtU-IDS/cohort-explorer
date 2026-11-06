@@ -39,6 +39,15 @@ from .data_model import (
     MappingRelation
 )
 from .utils import is_absolute_vs_percent_dose
+from .units import (
+    compare_units,
+    check_ranges,
+    RANGE_CONTRADICTED,
+    EQUIVALENT as UNIT_EQUIVALENT,
+    SCALABLE as UNIT_SCALABLE,
+    MOLAR_MASS_DEPENDENT as UNIT_MOLAR_MASS_DEPENDENT,
+    INCOMMENSURABLE as UNIT_INCOMMENSURABLE,
+)
 # from .verdict import StructuralEvidence
 _GENERIC_BOOL = frozenset({"0", "1"})
 _BOOL_POS = frozenset({"1", "yes", "true", "y", "positive", "present", "on"})
@@ -323,6 +332,27 @@ class Constraint(ABC):
         pass
 
 
+# When a unit/value-range conflict is found: False reports it in the output
+# (unit_range_check, unit_range_note) and keeps the verdict the units imply;
+# True also caps the pair at PARTIAL for manual review.
+RANGE_CONFLICT_CAPS_VERDICT = False
+
+
+def _unit_code(node: VariableNode, graph) -> Optional[str]:
+    """The unit as its OMOP UCUM concept spells it, else the dictionary label."""
+    uid = getattr(node, "unit_concept_id", None)
+    if graph is not None and uid is not None:
+        try:
+            uid = int(uid)
+        except (TypeError, ValueError):
+            return node.unit
+        if graph.get_node_attr(uid, "vocabulary").strip().lower() == "ucum":
+            code = graph.get_node_attr(uid, "concept_code").strip()
+            if code:
+                return f"ucum:{code}"
+    return node.unit
+
+
 class ContinuousHandler:
     """Unit compatibility for continuous variables."""
 
@@ -371,8 +401,63 @@ class ContinuousHandler:
 
             return
 
-        # Case 2: Same units.
-        if units_same and ctx.context_match_type:
+        # Different spellings or concepts can still denote the same quantity
+        # (ng/mL vs ug/L, 10*3/uL vs /nL). The unit check decides. It reads the
+        # UCUM code of the unit's OMOP concept where there is one: labels may
+        # have been lower-cased, and "g/l" is gram/L for albumin but giga/L
+        # (10*9/L) for leukocytes. Case is kept because UCUM is case-sensitive.
+        graph = getattr(ctx.matcher, "graph", None)
+        src_code, tgt_code = _unit_code(ctx.src, graph), _unit_code(ctx.tgt, graph)
+        for side, node, code in (("source", ctx.src, src_code), ("target", ctx.tgt, tgt_code)):
+            if code and code != node.unit:
+                unit_info[f"{side}_unit_code"] = code
+
+        unit_cmp = None
+        # On a date or datetime variable a time unit names a calendar part
+        # ("year of diagnosis" in ucum:a), not a duration: no conversion applies,
+        # so the pair is left to the semantic check (Case 4).
+        is_calendar = any(str(n.data_type or "").strip().lower() in ("date", "datetime")
+                          for n in (ctx.src, ctx.tgt))
+        if src_unit and tgt_unit and not is_calendar:
+            if units_differ:
+                unit_cmp = compare_units(src_code, tgt_code)
+                if unit_cmp.relation == UNIT_EQUIVALENT:
+                    units_same, units_differ = True, False
+            unit_info["unit_relation"] = unit_cmp.relation if unit_cmp else UNIT_EQUIVALENT
+
+            # Whatever factor the units claim (x1 included) must fit the value
+            # ranges both dictionaries recorded. A hemoglobin "g/dL" running
+            # 75-178 is g/L whatever its label says. The conflict is always
+            # reported; it lowers the verdict only when RANGE_CONFLICT_CAPS_VERDICT
+            # is on (off while evaluating against ground truth that followed
+            # the dictionary labels).
+            if units_same:
+                factor = 1.0
+            elif unit_cmp is not None and unit_cmp.relation == UNIT_SCALABLE:
+                factor = unit_cmp.factor
+            else:
+                factor = None
+            s_min, s_max, t_min, t_max = RangeHelper.get_minmax(ctx)
+            range_check = check_ranges(factor, s_min, s_max, t_min, t_max)
+            unit_info["unit_range_check"] = range_check
+            if range_check == RANGE_CONTRADICTED:
+                claim = "are the same" if factor == 1.0 else f"differ by x{factor:g}"
+                note = (f"Units ({src_unit} vs {tgt_unit}) {claim}, but the recorded value ranges "
+                        f"[{s_min}, {s_max}] and [{t_min}, {t_max}] do not fit that; "
+                        f"probable unit annotation error.")
+                unit_info["unit_range_note"] = note
+                if RANGE_CONFLICT_CAPS_VERDICT:
+                    ctx.set_result(
+                        level=MatchLevel.PARTIAL,
+                        reason=note,
+                        extra_details={**unit_info,
+                                       "transformation": TransformationType.MANUAL_REVIEW,
+                                       "level_ceiling": MatchLevel.PARTIAL},
+                    )
+                    return
+
+        # Case 2: Same units. PENDING is 0, so test for None rather than truth.
+        if units_same and ctx.context_match_type is not None:
             if ctx.context_match_type == ContextMatchType.PENDING.value:
                 # LLM-mode rows that haven't been resolved yet — defer.
                 ctx.set_result(
@@ -389,34 +474,64 @@ class ContinuousHandler:
 
             return
         
-        # Case 3a: Both sides have units but they differ → unit conversion.
-        if units_differ and ctx.matcher.llm_matcher is None:
-            if dosage_unit and ctx.mapping_relation not in [MappingRelation.SymbolicBroadMatch.value, MappingRelation.SymbolicNarrowMatch.value]:
-                   # Case 4: Asymmetric — one side has a unit,             q the other doesn't. Genuinely incomplete.
-                ctx.set_result(
-                        level=MatchLevel.PARTIAL,
-                        reason=f"units: ({src_unit or tgt_unit}) conversion requires external knowledge.",
-                        extra_details={**unit_info, "transformation": TransformationType.MANUAL_REVIEW}
-                    )
-            else:
-                  ctx.set_result(
-                    level=MatchLevel.COMPATIBLE,
-                    reason=f"Units differ ({src_unit} vs {tgt_unit}).",
-                    extra_details={**unit_info, "transformation": TransformationType.UNIT_CONVERSION}
-                )
-              
-            return
-        # Case 3b: Derived variable → recomputation required (not the same as unit scaling).
-        if ctx.is_derived_variable:
+        # Case 3a: Derived variable → recomputation required (not the same as unit scaling).
+        if units_differ and ctx.is_derived_variable:
             ctx.set_result(
                 level=MatchLevel.PARTIAL,
                 reason="Derived variable; recomputation required.",
                 extra_details={**unit_info, "transformation": TransformationType.DERIVATION}
             )
-          
             return
 
-        # Case 4: Asymmetric — one side has a unit,             q the other doesn't. Genuinely incomplete.
+        # Case 3b: Units differ by a fixed constant → deterministic conversion.
+        # Either a pure unit factor (g/L vs g/dL), or amount vs mass of one
+        # substance (mmol/L vs mg/dL), whose constant is that analyte's molar
+        # mass. Values never merge as-is, so the LLM cannot raise this above
+        # COMPATIBLE; with the concept still pending, meaning is left to it.
+        if units_differ and unit_cmp and unit_cmp.relation in (UNIT_SCALABLE, UNIT_MOLAR_MASS_DEPENDENT):
+            pending = (ctx.context_match_type == ContextMatchType.PENDING.value
+                       and ctx.matcher.llm_matcher is not None)
+            if unit_cmp.relation == UNIT_SCALABLE:
+                rule = f"multiply source values by {unit_cmp.factor:g} to express them in {ctx.tgt.unit}"
+            elif unit_cmp.source_is_substance:
+                rule = (f"multiply source values by {unit_cmp.factor / 1000:g} x the analyte's "
+                        f"molar mass (g/mol) to express them in {ctx.tgt.unit}")
+            else:
+                rule = (f"multiply source values by {unit_cmp.factor * 1000:g} / the analyte's "
+                        f"molar mass (g/mol) to express them in {ctx.tgt.unit}")
+            ctx.set_result(
+                level=MatchLevel.PARTIAL if pending else MatchLevel.COMPATIBLE,
+                reason=(f"Units differ by a fixed constant ({unit_cmp.reason})"
+                        + ("; concept equivalence pending semantic check." if pending else ".")),
+                extra_details={
+                    **unit_info,
+                    "transformation": TransformationType.UNIT_CONVERSION,
+                    "unit_factor": unit_cmp.factor,
+                    "transformation_rule": rule,
+                    "level_ceiling": MatchLevel.COMPATIBLE,
+                },
+            )
+            return
+
+        # Case 3c: Units of different dimensions (% of target dose vs mg,
+        # mL/m2 vs mL): no conversion exists from the units alone. Lossy or
+        # externally referenced at best, whatever the LLM concludes.
+        if units_differ and unit_cmp and unit_cmp.relation == UNIT_INCOMMENSURABLE:
+            if dosage_unit:
+                reason = "Absolute dose vs % of target dose; conversion needs the guideline target dose."
+            else:
+                reason = f"Units of different dimensions ({src_unit} vs {tgt_unit}); no unit conversion exists."
+            ctx.set_result(
+                level=MatchLevel.PARTIAL,
+                reason=reason,
+                extra_details={**unit_info,
+                               "transformation": TransformationType.MANUAL_REVIEW,
+                               "level_ceiling": MatchLevel.PARTIAL},
+            )
+            return
+
+        # Case 4: One side has a unit and the other doesn't, or a unit could not
+        # be understood. Nothing binding is known; the LLM may resolve it.
         ctx.set_result(
                 level=MatchLevel.PARTIAL,
                 reason=f"units: ({src_unit or tgt_unit}); cannot verify equivalence.",
@@ -1122,9 +1237,10 @@ def compute_structural(src: VariableNode,
     # needs_review: handler couldn't reach a confident structural answer.
     needs_review = (transformation == TransformationType.MANUAL_REVIEW) or (ctx.context_match_type == ContextMatchType.PENDING.value)
 
-    # Strip transformation/description from extras (they're top-level fields).
+    # Strip transformation/description/ceiling from extras (they're top-level fields).
+    ceiling = ctx.details.get("level_ceiling")
     extra = {k: v for k, v in ctx.details.items()
-             if k not in ("transformation", "description")}
+             if k not in ("transformation", "description", "level_ceiling")}
     extra={**extra, "mapping_relation": (src.mapping_relation or tgt.mapping_relation or ""),
         "context_match_type": ctx.context_match_type}
 
@@ -1134,6 +1250,7 @@ def compute_structural(src: VariableNode,
         reason=reason,
         needs_review=needs_review,
         extra=extra,
+        ceiling=ceiling if isinstance(ceiling, MatchLevel) else None,
     )
 
 

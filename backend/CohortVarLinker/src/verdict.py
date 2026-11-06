@@ -9,9 +9,11 @@ These dataclasses define the data flow between pipeline stages:
 
 """
 from __future__ import annotations
+import json
+import math
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, Tuple
-from .data_model import MatchLevel, TransformationType
+from .data_model import MatchLevel, TransformationType, ContextMatchType
 
 
 
@@ -34,6 +36,19 @@ class StructuralEvidence:
     extra: Dict[str, Any] = field(default_factory=dict)
     """Handler-specific context: source_unit, target_unit, source_range,
     target_range, categories, etc. Survives into the final Verdict.extra."""
+    ceiling: Optional[MatchLevel] = None
+    """Best level the representation allows, set when a handler found a fact
+    the LLM cannot override (units that need a factor, units of different
+    dimensions). None means the handler deferred: the LLM verdict stands."""
+
+# Outcome of consulting the LLM, kept apart from its verdict: a failure to get
+# an answer must never read as the LLM rejecting the pair.
+LLM_OK = "ok"                     # the LLM answered with a valid verdict
+LLM_NOT_REACHED = "not_reached"   # API errors / timeouts on every attempt
+LLM_UNREADABLE = "unreadable"     # answered, but no usable verdict in the reply
+LLM_SKIPPED = "skipped"           # deliberately not asked (source-claim early exit)
+LLM_FAILED = (LLM_NOT_REACHED, LLM_UNREADABLE)
+
 
 @dataclass(frozen=True)
 class LLMEvidence:
@@ -61,9 +76,76 @@ class LLMEvidence:
 
     confidence_source: str = ""
 
+    status: str = LLM_OK
+    """LLM_OK, LLM_NOT_REACHED, LLM_UNREADABLE or LLM_SKIPPED. Only an LLM_OK
+    evidence carries a verdict; the others carry the reason in `reason`."""
+
     def __post_init__(self):
-        if self.verdict not in self.VALID_VERDICTS:
-            object.__setattr__(self, "verdict", "IMPOSSIBLE")
+        # An answer without a known verdict is unreadable, not a rejection.
+        if self.status == LLM_OK and self.verdict not in self.VALID_VERDICTS:
+            object.__setattr__(self, "status", LLM_UNREADABLE)
+            object.__setattr__(self, "reason", f"unknown verdict {self.verdict!r}. {self.reason}".strip())
+        if self.status != LLM_OK:
+            object.__setattr__(self, "verdict", "")
+
+
+_CTX_TYPE_TO_VERDICT = {
+    ContextMatchType.EXACT.value:           "COMPLETE",
+    ContextMatchType.COMPATIBLE.value:      "COMPATIBLE",
+    ContextMatchType.SUBSUMED.value:        "COMPATIBLE",
+    ContextMatchType.PARTIAL.value:         "PARTIAL",
+    ContextMatchType.NOT_APPLICABLE.value:  "IMPOSSIBLE",
+}
+
+
+def _as_float(value, default: float = 0.0) -> float:
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    return f if math.isfinite(f) else default
+
+
+def llm_evidence_from_tuple(parsed_tuple) -> LLMEvidence:
+    """LLMEvidence from llm_call's (matched, ctx_type, conf, reason_json) tuple.
+
+    `conf` is already logprob-based confidence if llm_call.py applied
+    _apply_logprob_confidence(). A tuple with matched=None (or a pending
+    context type) is a failure to get a verdict, recorded as such.
+    """
+    matched, ctx_type, conf, reason_json = parsed_tuple
+
+    try:
+        d = json.loads(reason_json) if isinstance(reason_json, str) else {}
+        if not isinstance(d, dict):
+            d = {}
+    except (json.JSONDecodeError, TypeError):
+        d = {"reason": str(reason_json)}
+
+    if matched is None or ctx_type == ContextMatchType.PENDING.value:
+        reason = str(d.get("reason") or reason_json or "no answer from the LLM")
+        # Failures written before llm_status existed: retries exhausted in
+        # assess() or an exception in the call were API problems.
+        not_reached = (str(d.get("status", "")).upper() == "NOT_REACHED"
+                       or reason.startswith("pending_after")
+                       or "eval_pair_exception" in reason)
+        return LLMEvidence(verdict="", confidence=0.0, reason=reason,
+                           status=LLM_NOT_REACHED if not_reached else LLM_UNREADABLE)
+
+    if matched is False or ctx_type == ContextMatchType.NOT_APPLICABLE.value:
+        verdict = "IMPOSSIBLE"
+    else:
+        verdict = _CTX_TYPE_TO_VERDICT.get(ctx_type, "")   # unknown -> unreadable
+
+    return LLMEvidence(
+        verdict=verdict,
+        confidence=_as_float(d.get("llm_self_reported_confidence"), _as_float(conf)),
+        reason=d.get("reason", "") or "",
+        transform=d.get("transform", "") or "",
+        transform_direction=d.get("alignment_direction", "") or "",
+        harmonized_variable=(d.get("harmonized_variable") or "").strip(),
+        confidence_source=d.get("confidence_source") or "",
+    )
 
 
 @dataclass(frozen=True)

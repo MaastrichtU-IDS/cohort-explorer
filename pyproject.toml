@@ -20,4 +20,5 @@ members = ["backend"]
 #     "ipykernel",
 #     "python-dotenv",
 #     "pandas",
+#  "pint ==0.24.4"
 # ]

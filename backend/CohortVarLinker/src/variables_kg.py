@@ -319,7 +319,7 @@ def add_variable_eda(g: Graph, var_uris: list[dict], cohort_uri: URIRef, eda_jso
                             g = add_outlier_count_by_z_score_to_graph(g, statistic_uri, eda.get('outliers (z)', None), cohort_uri)
                             g = add_normality_test_to_graph(g, statistic_uri, eda.get('normality test', None), cohort_uri)
                             g = add_wilks_shapiro_test_to_graph(g, statistic_uri, eda.get('w_test', None), cohort_uri)
-                            g = add_standard_deviation_to_graph(g, statistic_uri, eda.get('Std Dev', None), cohort_uri)
+                            g = add_standard_deviation_to_graph(g, statistic_uri, eda.get('std dev', None), cohort_uri)
                             g = add_mean_to_graph(g, statistic_uri, eda.get('mean', None), cohort_uri)
                             g = add_median_to_graph(g, statistic_uri, eda.get('median', None), cohort_uri)
                             g = add_iqr_to_graph(g, statistic_uri, eda.get('iqr', None), cohort_uri)
