@@ -729,7 +729,8 @@ const VariablesList = ({
                     </button>
                     {/* <div className="grow"></div> */}
                     <button
-                      className="btn-sm hover:bg-base-300 rounded-lg"
+                      className="btn-sm rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-100 dark:bg-teal-900/30 dark:border-teal-700 inline-flex items-center gap-1.5 px-2"
+                      title="Summary statistics — click to view"
                       onClick={() => {
                         setOpenedGraphModal(variable.var_name);
                         setTimeout(() => {
@@ -738,7 +739,8 @@ const VariablesList = ({
                         }, 0);
                       }}
                     >
-                      📊
+                      <span className="text-xl leading-none">📊</span>
+                      <span className="text-xs font-medium text-teal-800 dark:text-teal-300">summary statistics</span>
                     </button>
                   </div>
                 </div>

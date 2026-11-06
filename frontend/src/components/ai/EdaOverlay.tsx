@@ -8,6 +8,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import EdaVariableDetailModal from '@/components/eda/EdaVariableDetailModal';
 import {EdaData, EdaVariable, parseEdaJson} from '@/utils/edaParsing';
+import {fetchEdaOutput} from '@/utils/variableStats';
 
 const OPEN_EVENT = 'icare-open-eda';
 
@@ -37,7 +38,7 @@ export default function EdaOverlayHost() {
       try {
         let data = cache.current[cohortId];
         if (data === undefined) {
-          const res = await fetch(`/api/cohort-eda-output/${encodeURIComponent(cohortId)}`);
+          const res = await fetchEdaOutput(cohortId);
           data = res.ok ? parseEdaJson(await res.json()) : null;
           cache.current[cohortId] = data;
         }

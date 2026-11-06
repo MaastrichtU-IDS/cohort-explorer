@@ -1,3 +1,4 @@
+import {fetchEdaOutput} from '@/utils/variableStats';
 import React, { useState, useEffect, useMemo } from 'react';
 import { parseEdaJson, EdaData } from '@/utils/edaParsing';
 import EdaOverviewPanel from './EdaOverviewPanel';
@@ -54,7 +55,7 @@ const EdaDashboard: React.FC<EdaDashboardProps> = ({ cohortId }) => {
     setLoading(true);
     setError(null);
 
-    fetch(`/api/cohort-eda-output/${encodeURIComponent(cohortId)}`, { credentials: 'include' })
+    fetchEdaOutput(cohortId, { credentials: 'include' })
       .then(res => {
         if (!res.ok) throw new Error(res.status === 404 ? 'No EDA data available for this cohort' : `Error ${res.status}`);
         return res.json();

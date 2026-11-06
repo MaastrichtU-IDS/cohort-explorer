@@ -11,6 +11,19 @@ export interface SummaryStats {
 // Keyed by lowercased, trimmed variable name.
 export type SummaryStatsByName = Record<string, SummaryStats>;
 
+/**
+ * The EDA output of a cohort: /api/cohort-eda-output/<id>?version=v2 (the file of
+ * the profiling runs since July 2026) and, when the cohort has none, version=v1
+ * (the file of earlier runs). Every page goes through here so a cohort profiled
+ * only before July keeps its statistics; the response's X-EDA-Version says which.
+ */
+export async function fetchEdaOutput(cohortId: string, init?: RequestInit): Promise<Response> {
+  const base = `/api/cohort-eda-output/${encodeURIComponent(cohortId)}`;
+  const v2 = await fetch(`${base}?version=v2`, init);
+  if (v2.status !== 404) return v2;
+  return fetch(`${base}?version=v1`, init);
+}
+
 // Compact number for a card's numeric summary line ("120", "2.5", "3.14").
 export const fmtStat = (x: any): string => {
   if (x === null || x === undefined || x === '') return '';
@@ -40,7 +53,7 @@ export const variableKind = (v: Variable): string => {
 // or they cannot be read, so callers never wait on an error.
 export async function loadEdaSummaryStats(cohortId: string): Promise<SummaryStatsByName> {
   try {
-    const res = await fetch(`/api/cohort-eda-output/${encodeURIComponent(cohortId)}`);
+    const res = await fetchEdaOutput(cohortId);
     if (!res.ok) return {};
     const raw = await res.json();
     if (!raw) return {};

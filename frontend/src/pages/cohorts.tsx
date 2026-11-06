@@ -21,6 +21,7 @@ import VariableGraphModal from '@/components/VariableGraphModal';
 import {parseEdaJson} from '@/utils/edaParsing';
 import AutocompleteConcept from '@/components/AutocompleteConcept';
 import {InfoIcon} from '@/components/Icons';
+import {fetchEdaOutput} from '@/utils/variableStats';
 import LoginPrompt from '@/components/LoginPrompt';
 
 // Helper component to render highlighted text
@@ -211,7 +212,8 @@ const SearchResultsTable = React.memo(({cohortsData, searchTerms, searchMode, se
                             }}
                           >
                             <HighlightedText text={varName} searchTerms={searchTerms} searchMode={searchMode} noHighlight />
-                            <span className="ml-0.5">📊</span>
+                            <span className="ml-1 text-base leading-none">📊</span>
+                            <span className="ml-1 text-[10px] font-medium">summary statistics</span>
                           </span>
                         ) : (
                           <span key={idx} className="badge badge-sm badge-outline">
@@ -505,7 +507,7 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
     let alive = true;
     (async () => {
       try {
-        const res = await fetch(`/api/cohort-eda-output/${encodeURIComponent(cohortId)}`);
+        const res = await fetchEdaOutput(cohortId);
         if (!res.ok) {
           if (alive) setStatsVars(new Set());
           return;
@@ -685,13 +687,14 @@ const CohortSearchResults = ({ cohortId, cohortData, searchTerms, searchMode }: 
                     </button>
                     {hasStats(variable.var_name) && (
                       <button
-                        className="btn-sm rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-100 dark:bg-teal-900/30 dark:border-teal-700"
+                        className="btn-sm rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-100 dark:bg-teal-900/30 dark:border-teal-700 inline-flex items-center gap-1.5 px-2"
                         title="Summary statistics available — click to view"
                         onClick={() => {
                           setOpenedGraphModal(variable.var_name);
                         }}
                       >
-                        📊
+                        <span className="text-xl leading-none">📊</span>
+                        <span className="text-xs font-medium text-teal-800 dark:text-teal-300">summary statistics</span>
                       </button>
                     )}
                   </div>
@@ -1201,7 +1204,7 @@ export default function CohortsList() {
         if (!isMounted) break;
         
         try {
-          const edaRes = await fetch(`/api/cohort-eda-output/${encodeURIComponent(cohortId)}`, { signal: abortController.signal, method: 'HEAD' }).catch(() => null);
+          const edaRes = await fetchEdaOutput(cohortId, { signal: abortController.signal, method: 'HEAD' }).catch(() => null);
           edaAvail[cohortId] = edaRes ? edaRes.ok : false;
         } catch (error: any) {
           if (error.name === 'AbortError') break;

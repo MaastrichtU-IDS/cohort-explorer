@@ -334,6 +334,7 @@ function MappingPreviewJsonTable({ data, sourceCohort }: MappingPreviewJsonTable
 
 import { useCohorts } from '@/components/CohortsContext';
 import {apiUrl, parseParticipantCount} from '@/utils';
+import {fetchEdaOutput} from '@/utils/variableStats';
 import LoginPrompt from '@/components/LoginPrompt';
 
 // ─── Graph View ────────────────────────────────────────────────────────────────
@@ -413,7 +414,7 @@ function MappingGraphView({ data, sourceCohort, cohortsData }: { data: RowData[]
     const cohortsToCheck = [sourceCohort, selectedTarget].filter(Boolean);
     cohortsToCheck.forEach(c => {
       if (!edaAvail[c]) {
-        fetch(`/api/cohort-eda-output/${encodeURIComponent(c)}`, { method: 'HEAD' })
+        fetchEdaOutput(c, { method: 'HEAD' })
           .then(r => setEdaAvail(prev => ({ ...prev, [c]: r.ok })))
           .catch(() => setEdaAvail(prev => ({ ...prev, [c]: false })));
       }
@@ -1073,7 +1074,7 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
     setEdaLoading(true);
     Promise.all(
       cohortsToFetch.map(id =>
-        fetch(`/api/cohort-eda-output/${encodeURIComponent(id)}`, { credentials: 'include' })
+        fetchEdaOutput(id, { credentials: 'include' })
           .then(r => r.ok ? r.json() : null)
           .catch(() => null)
           .then(data => [id, data] as [string, any])
