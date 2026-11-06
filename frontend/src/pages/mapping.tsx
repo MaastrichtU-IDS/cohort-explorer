@@ -1191,8 +1191,9 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
         render: (i) => {
           const e = getEdaEntry(i, varNames[i]);
           if (!e) return '—';
-          const obs = e['count of observations (ex. missing/empty)'];
-          return obs != null ? obs : '—';
+          // pre-July-2026 files: a number; since: "434 of 622 rows"
+          const obs = e['count of observations (ex. missing/empty)'] ?? e['count of valid observations'];
+          return obs != null ? String(obs) : '—';
         },
       },
       {
@@ -1200,8 +1201,10 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
         render: (i) => {
           const e = getEdaEntry(i, varNames[i]);
           if (!e) return '—';
-          const m = e['count missing'];
-          if (!m) return '—';
+          // pre-July-2026 files: coded missing only; since: empty + coded missing together
+          const m = e['count missing total (% of all rows)'] ?? e['count missing'];
+          if (m === undefined || m === null) return '—';
+          if (String(m).trim() === '0') return '0%';
           const match = String(m).match(/\((\d+\.?\d*)%\)/);
           return match ? `${match[1]}%` : '—';
         },
@@ -1246,6 +1249,9 @@ function CohortMetadataComparison({ cohortsData, sourceCohort, selectedTargets }
         render: (i) => {
           const e = getEdaEntry(i, varNames[i]);
           if (!e) return '—';
+          // pre-July-2026 files: "a -> 55%\n\tb -> 19%"; since: "a -> 343 (55%); b -> 119 (19% / 18%)"
+          const flat = e['class balance (n, % of valid / % of all rows)'];
+          if (flat) return String(flat).split(/;\s*/).map(s => s.trim()).filter(s => s && !s.startsWith('...')).join(', ');
           const cb = e['class balance'];
           if (!cb) return '—';
           return String(cb).split(/\n\t?/).map(s => s.trim()).filter(Boolean).join(', ');

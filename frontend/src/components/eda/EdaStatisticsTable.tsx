@@ -130,7 +130,7 @@ const EdaStatisticsTable: React.FC<Props> = ({ variables, onVariableClick }) => 
                     <td className="font-medium text-xs max-w-[150px] truncate" title={v.name}>{v.name}</td>
                     <td className="text-xs max-w-[200px] truncate" title={v.label}>{v.label}</td>
                     <td>
-                      <span className={`badge badge-xs ${v.type === 'numeric' ? 'badge-primary' : v.type === 'categorical' ? 'badge-success' : 'badge-warning'}`}>
+                      <span className={`badge badge-xs ${v.type === 'numeric' ? 'badge-primary' : v.type === 'categorical' ? 'badge-success' : v.type === 'text' ? 'badge-neutral' : 'badge-warning'}`}>
                         {v.type}
                       </span>
                     </td>

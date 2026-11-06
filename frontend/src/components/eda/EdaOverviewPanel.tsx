@@ -8,7 +8,7 @@ interface EdaOverviewPanelProps {
 }
 
 const EdaOverviewPanel: React.FC<EdaOverviewPanelProps> = ({ edaData, onVariableClick }) => {
-  const { variables, numericVars, categoricalVars, dateVars } = edaData;
+  const { variables, numericVars, categoricalVars, dateVars, textVars } = edaData;
 
   // 1. Variable type distribution pie
   const typePieOption = useMemo(() => ({
@@ -25,9 +25,10 @@ const EdaOverviewPanel: React.FC<EdaOverviewPanelProps> = ({ edaData, onVariable
         { value: numericVars.length, name: 'Numeric', itemStyle: { color: '#3b82f6' } },
         { value: categoricalVars.length, name: 'Categorical', itemStyle: { color: '#10b981' } },
         ...(dateVars.length > 0 ? [{ value: dateVars.length, name: 'Date', itemStyle: { color: '#f59e0b' } }] : []),
+        ...((textVars || []).length > 0 ? [{ value: textVars.length, name: 'Text', itemStyle: { color: '#6b7280' } }] : []),
       ].filter(d => d.value > 0),
     }],
-  }), [numericVars, categoricalVars, dateVars]);
+  }), [numericVars, categoricalVars, dateVars, textVars]);
 
   // 2. Completeness distribution histogram
   const completenessHistOption = useMemo(() => {

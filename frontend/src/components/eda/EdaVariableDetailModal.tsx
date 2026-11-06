@@ -154,7 +154,7 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
             </h2>
             <p className="text-gray-500">{v.label}</p>
             <div className="flex gap-2 mt-2">
-              <span className={`badge ${v.type === 'numeric' ? 'badge-primary' : v.type === 'categorical' ? 'badge-success' : 'badge-warning'}`}>
+              <span className={`badge ${v.type === 'numeric' ? 'badge-primary' : v.type === 'categorical' ? 'badge-success' : v.type === 'text' ? 'badge-neutral' : 'badge-warning'}`}>
                 {v.rawType}
               </span>
               {v.units && <span className="badge badge-outline">{v.units}</span>}
@@ -215,8 +215,12 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
               <ReactECharts option={completenessOption} style={{ height: 120 }} />
               <div className="text-center text-xs space-y-0.5">
                 <div>Empty: {v.countEmpty} ({v.countEmptyPct.toFixed(1)}%)</div>
-                <div>Missing: {v.countMissing} ({v.countMissingPct.toFixed(1)}%)</div>
-                <div>Total observations: {v.totalObservations}</div>
+                <div>Coded missing: {v.countMissing} ({v.countMissingPct.toFixed(1)}%)</div>
+                {v.countInvalid !== undefined && v.countInvalid > 0 && (
+                  <div className="text-warning">Invalid values: {v.countInvalid} ({(v.countInvalidPct ?? 0).toFixed(1)}%)</div>
+                )}
+                <div>Valid observations: {v.totalObservations}{v.totalRows ? ` of ${v.totalRows} rows` : ''}</div>
+                {v.missingCodes && <div className="text-base-content/60">Missing codes declared: {v.missingCodes}</div>}
               </div>
             </div>
 
@@ -228,23 +232,30 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
                   <tbody>
                     {[
                       ['Mean', v.mean?.toFixed(2)],
+                      ['Trimmed mean (10%)', v.trimmedMean10?.toFixed(2)],
                       ['Median', v.median],
                       ['Mode', v.mode],
                       ['Std Dev', v.stdDev?.toFixed(2)],
                       ['Variance', v.variance?.toFixed(2)],
+                      ['CV (std / mean)', v.cv?.toFixed(3)],
+                      ['MAD', v.mad?.toFixed(2)],
                       ['Min', v.min],
                       ['Max', v.max],
                       ['Range', v.range],
+                      ['P5 / P95', v.p5 !== undefined || v.p95 !== undefined ? `${v.p5 ?? '—'} / ${v.p95 ?? '—'}` : undefined],
                       ['Q1', v.q1],
                       ['Q3', v.q3],
                       ['IQR', v.iqr],
+                      ['Zero fraction', v.zeroFractionPct !== undefined ? `${v.zeroFractionPct.toFixed(2)}%` : undefined],
                       ['Skewness', v.skewness?.toFixed(3)],
                       ['Kurtosis', v.kurtosis?.toFixed(3)],
                       ['W-test', v.wTest?.toFixed(4)],
                       ['Normality', v.isNormal ? 'Normal' : 'Non-normal'],
+                      ["Normality p-value", v.normalityPValue !== undefined ? v.normalityPValue.toFixed(4) : undefined],
                       ['Outliers (IQR)', `${v.outliersIqr ?? 0} (${v.outliersIqrPct?.toFixed(2) ?? 0}%)`],
+                      ['Outliers (MAD)', v.outliersMad !== undefined ? `${v.outliersMad} (${v.outliersMadPct?.toFixed(2) ?? 0}%)` : undefined],
                       ['Outliers (Z)', v.outliersZ],
-                    ].map(([label, value]) => (
+                    ].filter(([label, value]) => value !== undefined || ['Mean', 'Median', 'Std Dev', 'Min', 'Max', 'Normality', 'Outliers (IQR)', 'Outliers (Z)'].includes(label as string)).map(([label, value]) => (
                       <tr key={label as string}>
                         <td className="font-medium">{label}</td>
                         <td className="text-right">{value ?? '—'}</td>
@@ -263,7 +274,16 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
                   <tbody>
                     <tr><td className="font-medium">Categories</td><td className="text-right">{v.uniqueValues}</td></tr>
                     <tr><td className="font-medium">Most Frequent</td><td className="text-right">{v.mostFrequentCategory || '—'}</td></tr>
-                    <tr><td className="font-medium">Chi-Square</td><td className="text-right">{v.chiSquare?.toFixed(2) ?? '—'}</td></tr>
+                    <tr><td className="font-medium">Chi-square vs uniform</td><td className="text-right">{v.chiSquare?.toFixed(2) ?? '—'}{v.chiSquarePValue !== undefined ? ` (p=${v.chiSquarePValue.toFixed(4)})` : ''}</td></tr>
+                    {v.normalizedEntropy !== undefined && (
+                      <tr><td className="font-medium" title="0 = one category, 1 = all categories equally frequent">Normalized entropy</td><td className="text-right">{v.normalizedEntropy.toFixed(3)}{v.entropyBits !== undefined ? ` (${v.entropyBits.toFixed(2)} bits)` : ''}</td></tr>
+                    )}
+                    {v.giniImpurity !== undefined && (
+                      <tr><td className="font-medium" title="1 - sum of squared shares: 0 = one category">Gini impurity</td><td className="text-right">{v.giniImpurity.toFixed(3)}</td></tr>
+                    )}
+                    {v.imbalanceRatio !== undefined && (
+                      <tr><td className="font-medium" title="largest category count / smallest">Imbalance ratio</td><td className="text-right">{v.imbalanceRatio.toFixed(1)}</td></tr>
+                    )}
                   </tbody>
                 </table>
                 {v.classBalance && v.classBalance.length > 0 && (
@@ -281,6 +301,54 @@ const EdaVariableDetailModal: React.FC<Props> = ({ variable: v, onClose, cohortI
                     </div>
                   </>
                 )}
+              </div>
+            )}
+
+            {/* Date stats */}
+            {v.type === 'date' && (
+              <div className="card bg-base-200 p-3">
+                <h4 className="font-semibold text-sm mb-2">Date Statistics</h4>
+                <table className="table table-xs">
+                  <tbody>
+                    {[
+                      ['Granularity', v.dateGranularity],
+                      ['Earliest', v.dateMin],
+                      ['Median', v.dateMedian],
+                      ['Latest', v.dateMax],
+                      ['Range (days)', v.rangeDays],
+                      ['IQR (days)', v.iqrDays],
+                      ['Dates in the future', v.futureDates],
+                      ['Unique values', v.uniqueValues],
+                    ].map(([label, value]) => (
+                      <tr key={label as string}>
+                        <td className="font-medium">{label}</td>
+                        <td className="text-right">{value ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Text stats */}
+            {v.type === 'text' && (
+              <div className="card bg-base-200 p-3">
+                <h4 className="font-semibold text-sm mb-2">Text Statistics</h4>
+                <table className="table table-xs">
+                  <tbody>
+                    {[
+                      ['Unique values', v.uniqueValues],
+                      ['Value length (min / mean / max)', v.textLengthMin !== undefined ? `${v.textLengthMin} / ${v.textLengthMean?.toFixed(1) ?? '—'} / ${v.textLengthMax ?? '—'}` : undefined],
+                      ['Values containing a digit', v.pctContainingDigit !== undefined ? `${v.pctContainingDigit.toFixed(1)}%` : undefined],
+                    ].map(([label, value]) => (
+                      <tr key={label as string}>
+                        <td className="font-medium">{label}</td>
+                        <td className="text-right">{value ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-xs text-base-content/50 mt-1">Free text: no chart is rendered for this variable.</p>
               </div>
             )}
 

@@ -32,13 +32,15 @@ const EdaDataQualityMatrix: React.FC<Props> = ({ variables, onVariableClick }) =
   const heatmapOption = useMemo(() => {
     const display = filtered.slice(0, 80); // limit for readability
     const names = display.map(v => v.name);
-    const metrics = ['Empty %', 'Missing %', 'Completeness %'];
+    const hasInvalid = display.some(v => v.countInvalidPct !== undefined);
+    const metrics = hasInvalid ? ['Empty %', 'Coded missing %', 'Invalid %', 'Completeness %'] : ['Empty %', 'Coded missing %', 'Completeness %'];
 
     const data: [number, number, number][] = [];
     display.forEach((v, yi) => {
       data.push([0, yi, v.countEmptyPct]);
       data.push([1, yi, v.countMissingPct]);
-      data.push([2, yi, completenessScore(v)]);
+      if (hasInvalid) data.push([2, yi, v.countInvalidPct ?? 0]);
+      data.push([hasInvalid ? 3 : 2, yi, completenessScore(v)]);
     });
 
     return {
