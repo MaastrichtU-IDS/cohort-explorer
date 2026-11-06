@@ -1580,7 +1580,10 @@ export default function MappingPage() {
       });
       if (!response.ok) throw new Error('Failed to fetch file');
       const blob = await response.blob();
-      const downloadFilename = response.headers.get('X-Filename') || file.filename;
+      // The server names the file in X-Filename (a .json name for the JSON folding); should the
+      // header not reach the browser, derive the name from the stored file's name instead.
+      const fallbackName = format === 'json' ? file.filename.replace(/\.csv$/i, '') + '.json' : file.filename;
+      const downloadFilename = response.headers.get('X-Filename') || fallbackName;
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

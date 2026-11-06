@@ -110,7 +110,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Chat-Context", "Content-Disposition", "X-Export-Filename"],
+    # X-Filename: cached mapping downloads (CSV or the JSON folding of a pair);
+    # X-EDA-Version: which EDA format /cohort-eda-output served.
+    expose_headers=["X-Chat-Context", "Content-Disposition", "X-Export-Filename", "X-Filename", "X-EDA-Version"],
 )
 
 
