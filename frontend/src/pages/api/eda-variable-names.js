@@ -70,7 +70,8 @@ function namesForCohort(cohortId) {
   const dir = path.join(DATA_DIR, `dcr_output_${cohortId}`);
   const v1Path = path.join(dir, `eda_output_${cohortId}.json`);
   const v2Path = path.join(dir, `eda_output_v2_${cohortId}.json`);
-  const filePath = fs.existsSync(v1Path) ? v1Path : v2Path;
+  // v2 first, as everywhere else: a re-profiled cohort keeps a stale v1 file next to it.
+  const filePath = fs.existsSync(v2Path) ? v2Path : v1Path;
   if (!fs.existsSync(filePath)) return null;
   const mtimeMs = fs.statSync(filePath).mtimeMs;
   const cached = cache.get(cohortId);
