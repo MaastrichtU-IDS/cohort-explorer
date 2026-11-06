@@ -2115,25 +2115,26 @@ if (is.na(CA_BUNDLE)) {
 
 # Where packages come from. The image ships no compiler, so from CRAN only
 # packages without compiled code can be installed (R builds the rest from
-# source and fails). Posit Package Manager's pre-built binaries would avoid
-# that, but they are built for Debian/Ubuntu system libraries: they are
-# used only when /etc/os-release says the image is one of those, which the
-# Nix-built R image is not.
+# source and fails). Posit Package Manager serves every CRAN package as a
+# pre-built Linux binary, chosen by the distribution in the URL and the R
+# version in the user agent; R CMD INSTALL recognises such a tarball and
+# only unpacks it. The image is Nix-built, not Ubuntu, but its C library is
+# newer than Ubuntu 22.04's (glibc 2.38 vs 2.35, probe of 2026-11-06) and
+# the C++/Fortran runtimes its own compiled packages need are in the Nix
+# store (preloaded below), so the Ubuntu 22.04 binaries are tried first for
+# every image; CRAN sources remain the fallback for what Posit lacks.
 os <- if (file.exists("/etc/os-release")) readLines("/etc/os-release", warn = FALSE) else character(0)
 field <- function(key) { v <- sub(paste0("^", key, "="), "", grep(paste0("^", key, "="), os, value = TRUE)); gsub('"', "", v)[1] }
 distro <- field("ID"); codename <- field("VERSION_CODENAME")
-if (!is.na(distro) && !is.na(codename) && distro %in% c("ubuntu", "debian")) {
-  cat("Distribution:", distro, codename, "- Posit Package Manager binaries first\n")
-  PPM <- sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", codename)
-  options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
-                                  paste(getRversion(), R.version$platform, R.version$arch, R.version$os)))
-  REPOS <- c(PPM = PPM, CRAN = CRAN)
-} else {
-  cat("Distribution:", if (length(os) == 0) "no /etc/os-release" else paste(distro, codename),
-      if (nix_r) "(Nix-built R)" else "", "- CRAN sources; packages with compiled code cannot be installed here\n")
-  PPM <- NULL
-  REPOS <- c(CRAN = CRAN)
-}
+BINARY_CODENAME <- if (!is.na(distro) && !is.na(codename) && distro %in% c("ubuntu", "debian")) codename else "jammy"
+cat("Distribution:", if (length(os) == 0) "no /etc/os-release" else paste(distro, codename),
+    if (nix_r) "(Nix-built R)" else "", "- Posit binaries built for", BINARY_CODENAME, "tried first, CRAN sources as fallback\n")
+PPM <- sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", BINARY_CODENAME)
+# The user agent Posit reads to serve a binary: "R/<version> R (<version> <platform> <arch> <os>)".
+options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
+                                paste(getRversion(), R.version$platform, R.version$arch, R.version$os)))
+cat("User agent for the repositories:", getOption("HTTPUserAgent"), "\n")
+REPOS <- c(PPM = PPM, CRAN = CRAN)
 options(repos = REPOS)
 
 reachable <- character(0)
@@ -2194,6 +2195,23 @@ REPOS <- REPOS[reachable]
 # Installed-or-not is answered from the library paths, without loading anything:
 # requireNamespace() would load the package and its imports, and a namespace
 # loaded now cannot be swapped for another version later.
+# Binaries built on Ubuntu expect libstdc++, libgfortran, libgomp, libquadmath
+# and libgcc_s at the usual system paths, which a Nix image does not have; the
+# dynamic loader does, however, satisfy a dependency by a library that is
+# already loaded in the process under that name. The runtimes exist in the
+# Nix store (the image's own compiled packages were built against them), so
+# they are loaded here by full path, globally, before any package install.
+runtime_libs <- c("libstdc++.so.6", "libgfortran.so.5", "libgfortran.so.4", "libgomp.so.1", "libquadmath.so.0", "libgcc_s.so.1")
+preloaded <- character(0)
+for (lib in runtime_libs) {
+  found <- c(Sys.glob(file.path("/nix/store", "*", "lib", lib)), Sys.glob(file.path("/usr/lib", "*", lib)), Sys.glob(file.path("/usr/lib", lib)))
+  found <- found[file.exists(found)]
+  if (length(found) == 0) next
+  ok <- tryCatch({ dyn.load(found[1], local = FALSE); TRUE }, error = function(e) FALSE)
+  if (ok) preloaded <- c(preloaded, found[1])
+}
+cat("Runtime libraries preloaded for prebuilt binaries:", if (length(preloaded) > 0) paste(basename(preloaded), collapse = ", ") else "(none found)", "\n")
+
 is_installed <- function(pkg, where = .libPaths()) nzchar(system.file(package = pkg, lib.loc = where))
 
 # The packages the image provides are never upgraded. install.packages() would
@@ -2243,6 +2261,10 @@ failure_cause <- function(pkg, msgs) {
       return(paste0("compiler (", dep, ")"))
     if (grepl("fatal error: [^\n]*\\.h: No such file|configure: error", txt))
       return(paste0("system library (", dep, ")"))
+    if (grepl("cannot open shared object file", txt)) {
+      lib <- regmatches(txt, regexpr("[A-Za-z0-9_+.-]+[.]so[.0-9]*(?=: cannot open shared object file)", txt, perl = TRUE))
+      return(paste0("system library (", dep, if (length(lib) > 0) paste0(": ", lib[1]) else "", ")"))
+    }
   }
   "other"
 }
@@ -2302,7 +2324,9 @@ for (i in seq_along(PACKAGES)) {
   } else {
     status$status[i] <- "FAILED"
     status$reason[i] <- one_line(paste("installed but does not load:", err))
-    cat("Loading", pkg, "... FAILED:", status$reason[i], "\n")
+    lib <- regmatches(err, regexpr("[A-Za-z0-9_+.-]+[.]so[.0-9]*(?=: cannot open shared object file)", err, perl = TRUE))
+    status$cause[i] <- if (length(lib) > 0) paste0("system library (", lib[1], ")") else "load error"
+    cat("Loading", pkg, "... FAILED (", status$cause[i], "): ", status$reason[i], "\n", sep = "")
   }
 }
 total_load <- round(as.numeric(difftime(Sys.time(), t_load, units = "secs")), 1)
@@ -2320,7 +2344,7 @@ if (nrow(failed_rows) > 0) {
   kind <- sub(" \\(.*", "", failed_rows$cause)
   req <- c(paste0("R ", R.version$major, ".", R.version$minor, " image, run of ", format(Sys.time(), "%Y-%m-%d")),
            paste(nrow(failed_rows), "of", length(PACKAGES), "requested packages cannot be installed in this image:"), "")
-  for (k in c("compiler", "system library", "newer R", "image package", "other")) {
+  for (k in c("compiler", "system library", "newer R", "image package", "load error", "other")) {
     rows <- failed_rows[kind == k, ]
     if (nrow(rows) == 0) next
     head_line <- switch(k,
@@ -2328,6 +2352,7 @@ if (nrow(failed_rows) > 0) {
       "system library" = "Need a system library or header the image lacks (see install_logs/<package>.out):",
       "newer R" = paste0("Need a newer R than ", R.version$major, ".", R.version$minor, " (CRAN has no build for this version):"),
       "image package" = "Need a newer version of a package the image provides (this node never upgrades those):",
+      "load error" = "Installed (prebuilt binary) but failed to load for another reason (see r_packages_status.csv):",
       "Failed for another reason (see install_logs/<package>.out):")
     req <- c(req, head_line, paste0("  ", rows$package, ifelse(nchar(rows$cause) > nchar(k), paste0("  [", sub("^[^(]*\\(", "", sub("\\)$", "", rows$cause)), "]"), "")), "")
   }
