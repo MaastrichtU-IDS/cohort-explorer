@@ -1737,6 +1737,122 @@ async def vocabulary(user: Any = Depends(get_current_user)):
     return vocabulary_view(data)
 
 
+def _pair_views(data: dict[str, Any], keep: Any) -> list[dict[str, Any]]:
+    """One record per unordered matched pair for which keep(match) is true, with
+    the explanation, the common terms and the model's verdict on them, the
+    themes; the stronger and better-explained first."""
+    elements = {e["id"]: e for e in data["elements"]}
+    seen: set[tuple[str, str]] = set()
+    pairs: list[dict[str, Any]] = []
+    for eid, lst in data["matches"].items():
+        for m in lst:
+            if not keep(m):
+                continue
+            key = tuple(sorted([eid, m["element_id"]]))
+            if key in seen:
+                continue
+            seen.add(key)
+            a, b = elements.get(key[0]) or {}, elements.get(key[1]) or {}
+            parts = m.get("ai_reason_parts") or {}
+            useful = list(m.get("useful_terms") or [])
+            shared = list(m.get("shared_terms") or [])
+            pairs.append({
+                "a": {"cohort": a.get("cohort"), "field": a.get("field"), "label": a.get("label"), "text": a.get("text")},
+                "b": {"cohort": b.get("cohort"), "field": b.get("field"), "label": b.get("label"), "text": b.get("text")},
+                "source": m.get("source"), "ai_strength": m.get("ai_strength"), "score": m.get("score"),
+                "shared": parts.get("shared") or m.get("ai_reason"), "differs": parts.get("differs"), "basis": parts.get("basis"),
+                "useful_terms": useful, "dropped_terms": [t for t in shared if t not in useful],
+                "terms_judged": "useful_terms" in m and m.get("useful_terms") is not None,
+                "raw_tags": m.get("themes") or [], "outcome_kind": m.get("outcome_kind"),
+                "theme_ids": list(m.get("theme_ids") or []),
+            })
+    pairs.sort(key=lambda p: (-(p["ai_strength"] == "strong"), -(p["source"] == "both"), -(p["score"] or 0)))
+    return pairs
+
+
+def _pairs_payload(data: dict[str, Any], pairs: list[dict[str, Any]]) -> dict[str, Any]:
+    vocab = _vocab_of(data)
+    studies = sorted({p["a"]["cohort"] for p in pairs} | {p["b"]["cohort"] for p in pairs}, key=lambda x: str(x).lower())
+    return {"pairs": pairs, "n_pairs": len(pairs), "studies": studies,
+            "theme_labels": {t["id"]: t["label"] for t in vocab["themes"]}}
+
+
+@router.get("/metadata-clustering/vocabulary/theme/{theme_id}/pairs")
+async def theme_pairs(theme_id: str, user: Any = Depends(get_current_user)):
+    """Every matched pair that carries the theme, with its explanation and
+    common terms: the reverse of the pair -> tags view."""
+    _require_admin(user)
+    data = _read_json(_RESULT_PATH)
+    if not data or not data.get("themes"):
+        raise HTTPException(status_code=404, detail="No theme vocabulary yet.")
+    theme = _theme_by(_vocab_of(data), theme_id)
+    if not theme:
+        raise HTTPException(status_code=404, detail="Unknown theme")
+    pairs = _pair_views(data, lambda m: theme_id in (m.get("theme_ids") or []))
+    return {"theme": {"id": theme["id"], "label": theme["label"], "parent": theme["parent"], "raw": theme.get("raw") or []},
+            **_pairs_payload(data, pairs)}
+
+
+@router.get("/metadata-clustering/terms")
+async def common_terms(user: Any = Depends(get_current_user)):
+    """The common terms of the deterministic pass across all matched pairs:
+    how many pairs share each term, how often the model kept it as informative
+    or dropped it, and the theme its raw tag maps to when it was kept."""
+    _require_admin(user)
+    data = _read_json(_RESULT_PATH)
+    if not data:
+        raise HTTPException(status_code=404, detail="No metadata clustering results yet.")
+    vocab = _vocab_of(data)
+    label_of = {t["id"]: t["label"] for t in vocab["themes"]}
+    agg: dict[str, dict[str, Any]] = {}
+    seen: set[tuple[str, str]] = set()
+    judged_pairs = 0
+    for eid, lst in data["matches"].items():
+        for m in lst:
+            key = tuple(sorted([eid, m["element_id"]]))
+            if key in seen:
+                continue
+            seen.add(key)
+            shared = m.get("shared_terms") or []
+            useful = set(m.get("useful_terms") or [])
+            judged = m.get("useful_terms") is not None and "useful_terms" in m and bool(m.get("ai_strength"))
+            if judged:
+                judged_pairs += 1
+            for t in shared:
+                e = agg.setdefault(t, {"term": t, "pairs": 0, "useful": 0, "dropped": 0, "words": len(t.split())})
+                e["pairs"] += 1
+                if judged:
+                    if t in useful:
+                        e["useful"] += 1
+                    else:
+                        e["dropped"] += 1
+    for t, e in agg.items():
+        tid = vocab["raw_to_theme"].get(t)
+        e["theme"] = tid
+        e["theme_label"] = label_of.get(tid) if tid else None
+    terms = sorted(agg.values(), key=lambda e: (-e["pairs"], -e["useful"], e["term"]))
+    return {"terms": terms, "n_terms": len(terms), "n_pairs": len(seen), "judged_pairs": judged_pairs,
+            "has_terms": any(e["pairs"] for e in terms)}
+
+
+@router.get("/metadata-clustering/terms/pairs")
+async def term_pairs(term: str, user: Any = Depends(get_current_user)):
+    """Every matched pair whose texts both contain the term, with the model's
+    verdict on it: the reverse of the pair -> common terms view."""
+    _require_admin(user)
+    data = _read_json(_RESULT_PATH)
+    if not data:
+        raise HTTPException(status_code=404, detail="No metadata clustering results yet.")
+    term = " ".join((term or "").lower().split())
+    if not term:
+        raise HTTPException(status_code=422, detail="term is required")
+    pairs = _pair_views(data, lambda m: term in (m.get("shared_terms") or []))
+    for p in pairs:
+        p["term_kept"] = term in p["useful_terms"]
+    pairs.sort(key=lambda p: (-int(p["term_kept"]), -(p["ai_strength"] == "strong"), -(p["score"] or 0)))
+    return {"term": term, "kept": sum(1 for p in pairs if p["term_kept"]), **_pairs_payload(data, pairs)}
+
+
 @router.post("/metadata-clustering/vocabulary/edit")
 async def edit_vocabulary(body: dict[str, Any], user: Any = Depends(get_current_user)):
     """One admin edit of the vocabulary: merge, move, nest, rename or delete_parent.

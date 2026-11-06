@@ -110,9 +110,14 @@ export function AiExplanation({m, themeLabels, className = ''}: {
           ))}
         </div>
       )}
-      {m.useful_terms && m.useful_terms.length > 0 && (
-        <div className="text-base-content/50 mt-0.5" title="Words and phrases found in both texts, kept by the AI as informative">
-          in both texts: {m.useful_terms.join(' · ')}
+      {((m.useful_terms && m.useful_terms.length > 0) || (m.shared_terms && m.shared_terms.length > 0)) && (
+        <div className="mt-0.5" title="Words and phrases found in both texts before the AI ran; struck through: judged non-informative by the AI">
+          <span className="text-base-content/50">in both texts: </span>
+          {(m.useful_terms || []).map(t => <span key={'u' + t} className="mr-1.5 text-base-content/70">{t}</span>)}
+          {(m.shared_terms || []).filter(t => !(m.useful_terms || []).includes(t)).map(t => (
+            <span key={'d' + t} className="mr-1.5 text-base-content/35 line-through">{t}</span>
+          ))}
+          {m.useful_terms === undefined && <span className="text-warning text-[10px]"> (not yet judged)</span>}
         </div>
       )}
     </div>
