@@ -251,6 +251,7 @@ export default function MetadataHeatmapPage() {
                           <div className="text-[11px] uppercase tracking-wide text-base-content/50">{x.field} · matched with {x.with}{x.strength ? ` (${x.strength})` : ''}</div>
                           <div className="mt-0.5">“{x.text}”</div>
                           <div className="mt-0.5 text-base-content/70">{x.with}: “{x.with_text}”</div>
+                          {x.reason && <div className="mt-1 text-xs text-base-content/60"><span className="font-medium">Shared:</span> {x.reason}</div>}
                         </div>
                       ))}
                       <div className="text-xs text-base-content/60 pt-2 border-t border-base-200">

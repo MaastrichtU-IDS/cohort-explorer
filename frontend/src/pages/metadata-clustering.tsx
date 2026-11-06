@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {Layers, Play, RefreshCw} from 'react-feather';
 import {apiUrl} from '@/utils';
 import LoginPrompt from '@/components/LoginPrompt';
-import {MatchList, MetadataElement, MetadataMatch, SourceBadge} from '@/components/MetadataMatches';
+import {AiExplanation, MatchList, MetadataElement, MetadataMatch, SourceBadge} from '@/components/MetadataMatches';
 
 interface FieldGroup {
   group: string;
@@ -33,6 +33,11 @@ interface JobState {
   counts?: Record<string, number>;
   duration_seconds?: number;
   stall_minutes?: number;
+  kind?: 'run' | 'rebuild-themes';
+  vocab_done?: number;
+  vocab_total?: number;
+  assign_done?: number;
+  assign_total?: number | null;
 }
 
 interface RunHistoryItem {
@@ -61,6 +66,13 @@ interface Results {
   ai_failed: Record<string, string>;
   elements: MetadataElement[];
   matches: Record<string, MetadataMatch[]>;
+  themes?: {
+    parents: {id: string; label: string}[];
+    themes: {id: string; label: string; parent: string; raw: string[]}[];
+    built?: string;
+    pipeline?: string;
+  };
+  themes_rebuilt?: string;
 }
 
 type View = 'study' | 'field' | 'ai';
@@ -153,6 +165,29 @@ export default function MetadataClusteringPage() {
     }
   };
 
+  // Rebuild the theme vocabulary and assignments from the stored results (no re-judging).
+  const rebuildThemes = async () => {
+    setStarting(true);
+    setError(null);
+    try {
+      const r = await fetch(`${apiUrl}/api/metadata-clustering/rebuild-themes`, {method: 'POST', credentials: 'include'});
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail || `HTTP ${r.status}`);
+      }
+      await loadStatus();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const themeLabels = useMemo(
+    () => Object.fromEntries((results?.themes?.themes || []).map(t => [t.id, t.label])) as Record<string, string>,
+    [results]
+  );
+
   const cohorts = useMemo(
     () => Array.from(new Set((results?.elements || []).map(e => e.cohort))).sort((a, b) => a.localeCompare(b)),
     [results]
@@ -240,6 +275,10 @@ export default function MetadataClusteringPage() {
               {job?.running ? <span className="loading loading-spinner loading-sm" /> : <Play size={16} />}
               {job?.running ? 'Running…' : results ? 'Run again' : 'Run'}
             </button>
+            <button className="btn btn-outline btn-sm" onClick={rebuildThemes} disabled={starting || !!job?.running || !results}
+                    title="Keep the AI verdicts and explanations; drop field-name tags, rebuild the theme vocabulary in batches and re-assign every match from it. Minutes, not an hour.">
+              <Layers size={14} /> Rebuild themes only
+            </button>
             <button className="btn btn-ghost btn-sm" onClick={() => loadStatus()} title="Refresh status">
               <RefreshCw size={14} />
             </button>
@@ -263,10 +302,17 @@ export default function MetadataClusteringPage() {
                   {job.lexical_matches !== undefined ? ` · ${job.lexical_matches} lexical pairs` : ''}
                   {job.phase === 'ai' && job.elements ? ` · AI ${job.ai_done ?? 0}/${job.elements}` : ''}
                   {job.ai_failed ? ` (${job.ai_failed} failed)` : ''}
+                  {job.phase === 'themes' ? ` · vocabulary batch ${job.vocab_done ?? 0}/${job.vocab_total ?? '?'}` : ''}
+                  {job.phase === 'assign' ? ` · theme assignment ${job.assign_done ?? 0}/${job.assign_total ?? '?'} calls` : ''}
+                  {job.kind === 'rebuild-themes' ? ' (themes rebuilt from the stored results)' : ''}
                 </span>
               </div>
               {job.phase === 'ai' && job.elements ? (
                 <progress className="progress progress-primary w-full mt-2" value={job.ai_done ?? 0} max={job.elements} />
+              ) : job.phase === 'themes' && job.vocab_total ? (
+                <progress className="progress progress-primary w-full mt-2" value={job.vocab_done ?? 0} max={job.vocab_total} />
+              ) : job.phase === 'assign' && job.assign_total ? (
+                <progress className="progress progress-primary w-full mt-2" value={job.assign_done ?? 0} max={job.assign_total} />
               ) : null}
               <p className="text-xs text-base-content/50 mt-1">Started {job.started ? new Date(job.started).toLocaleString() : ''} by {job.started_by}</p>
             </div>
@@ -318,7 +364,11 @@ export default function MetadataClusteringPage() {
           <div className="flex flex-wrap gap-2 mb-3 text-sm">
             <Link href="/metadata-heatmap" className="btn btn-sm btn-outline">Open the metadata heatmap</Link>
             <Link href="/metadata-constellation" className="btn btn-sm btn-outline">Open the constellation</Link>
-            <span className="text-base-content/50 self-center">Theme views of these results (studies x themes, and studies linked by shared themes).</span>
+            <span className="text-base-content/50 self-center">
+              Theme views of these results (studies x themes, and studies linked by shared themes).
+              {results.themes?.themes ? ` Vocabulary: ${results.themes.themes.length} themes under ${results.themes.parents.length} parents` : ''}
+              {results.themes_rebuilt ? `, rebuilt ${new Date(results.themes_rebuilt).toLocaleString()}` : ''}.
+            </span>
           </div>
           <div className="stats stats-vertical sm:stats-horizontal shadow mb-4 w-full">
             <div className="stat py-3">
@@ -393,7 +443,7 @@ export default function MetadataClusteringPage() {
                       <span className="badge badge-sm ml-auto">{matchesOf(e.id).filter(m => !aiOnly || m.source === 'ai').length}</span>
                     </div>
                     <p className="text-sm whitespace-pre-wrap bg-base-200 rounded p-2 mb-2">{e.text}</p>
-                    <MatchList matches={matchesOf(e.id)} aiOnly={aiOnly} emptyText="No matches in other studies." />
+                    <MatchList matches={matchesOf(e.id)} aiOnly={aiOnly} emptyText="No matches in other studies." themeLabels={themeLabels} />
                   </div>
                 </div>
               ))}
@@ -404,6 +454,7 @@ export default function MetadataClusteringPage() {
             <PairTable
               title={fieldLabel[field] || field}
               pairs={pairsFor((a, m) => (a.field === field || m.field === field) && (!aiOnly || m.source === 'ai'))}
+              themeLabels={themeLabels}
             />
           )}
 
@@ -411,6 +462,7 @@ export default function MetadataClusteringPage() {
             <PairTable
               title="Matches found by the AI pass only"
               pairs={pairsFor((_a, m) => m.source === 'ai')}
+              themeLabels={themeLabels}
             />
           )}
 
@@ -430,7 +482,7 @@ export default function MetadataClusteringPage() {
   );
 }
 
-function PairTable({title, pairs}: {title: string; pairs: {a: MetadataElement; m: MetadataMatch}[]}) {
+function PairTable({title, pairs, themeLabels}: {title: string; pairs: {a: MetadataElement; m: MetadataMatch}[]; themeLabels?: Record<string, string>}) {
   if (pairs.length === 0) return <p className="italic text-base-content/60">No pairs for {title}.</p>;
   return (
     <div>
@@ -458,7 +510,7 @@ function PairTable({title, pairs}: {title: string; pairs: {a: MetadataElement; m
                 <td className="min-w-[10rem]">
                   <SourceBadge source={m.source} strength={m.ai_strength} />
                   <div className="text-xs text-base-content/50 mt-1">lexical {Math.round(m.score * 100)}%</div>
-                  {m.ai_reason && <div className="text-xs mt-1">{m.ai_reason}</div>}
+                  <AiExplanation m={m} themeLabels={themeLabels} className="mt-1" />
                 </td>
               </tr>
             ))}

@@ -15,6 +15,22 @@ Two passes, merged symmetrically:
            cross-field lexical candidates. Optional operator instructions are
            appended to the system prompt. A match the LLM found that the
            lexical pass did not is tagged "ai"; one both found is "both".
+           Every AI match carries a structured explanation written BEFORE its
+           tags (shared: what both say, with quotes; differs; basis) and raw
+           candidate tags derived from the "shared" part only.
+
+Themes, in three steps after the matching (also runnable alone on stored
+results, POST /metadata-clustering/rebuild-themes):
+  cleanup     raw tags that only restate a field ("age inclusion criterion",
+              "morbidity") are dropped; spelling variants are folded.
+  vocabulary  the cleaned terms are merged into canonical themes under at
+              most eight parents, in batches of VOCAB_BATCH terms, each batch
+              seeing the vocabulary built so far (one big call failed on the
+              local model and left 985 raw tags unsorted).
+  assignment  every AI match gets one to three canonical themes chosen from
+              that closed vocabulary, given its "shared" explanation and the
+              themes its raw tags map to as suggestions; ASSIGN_BATCH matches
+              per call. The study x theme table is built from these.
 
 Symmetry: a match is a property of the unordered element pair, so if A lists B
 then B lists A with the same tag, score and reason.
@@ -23,6 +39,7 @@ Results are one JSON file under <data_folder>/metadata_clustering/ with the run
 parameters, so the review page and the cohort pages load them instantly.
 Endpoints (prefix /api):
   POST /metadata-clustering/run        {instructions?}   admin, starts the job
+  POST /metadata-clustering/rebuild-themes               admin, themes only, on stored results
   GET  /metadata-clustering/status                       job state
   GET  /metadata-clustering/results                      the whole result
 """
@@ -93,6 +110,11 @@ CROSS_FIELD_THRESHOLD = 0.75
 AI_CROSS_FIELD_CANDIDATES = 4
 AI_CROSS_FIELD_MIN_SCORE = 0.3
 LLM_WORKERS = 3
+# Theme vocabulary: cleaned raw terms per merge call, and AI matches per
+# theme-assignment call. Small enough for an 8B model to answer in full JSON.
+VOCAB_BATCH = 60
+ASSIGN_BATCH = 25
+MAX_PARENTS = 8
 
 _DIR = os.path.join(settings.data_folder, "metadata_clustering")
 _STATE_PATH = os.path.join(_DIR, "job.json")
@@ -328,30 +350,91 @@ Decide which candidates describe the same or closely overlapping information as 
 Do not match elements that merely belong to the same kind of field or share generic words. Judge the medical content.
 A candidate from a different field (e.g. an exclusion criterion against an inclusion criterion) can still match when it carries the same information.
 
-For every match, name WHAT is shared as one or two short themes of two to five words each: concrete medical or
-methodological terms such as "kidney failure", "NYHA class II-IV", "all-cause mortality", "NT-proBNP guided therapy",
-"adults over 18". No sentences, no field names, no study names.
+For every match, explain it BEFORE naming themes, in this order:
+- "shared": two or three sentences on what both elements say, quoting from each element the phrase that carries it (short quotes in double quotes). Only what is written in the two texts: no assumptions, no numbers or conditions that are not there.
+- "differs": one or two sentences on what one element says that the other does not, or which one is broader or narrower and how. Write "nothing material" when they say the same.
+- "basis": "content" when the match is in the medical or methodological content, "field" when the two merely share the kind of information (then prefer not to match at all).
+- "themes": one to three themes of one to five words each, taken ONLY from what "shared" describes: concrete medical or methodological concepts such as "kidney failure", "NYHA class II-IV", "all-cause mortality", "NT-proBNP guided therapy", "adults over 18". Never a field name (not "age inclusion criterion", not "morbidity"), never a difference (not "narrower age range"), no sentences, no study names.
 
 Answer with STRICT JSON only, no prose, no code fences:
-{"matches": [{"id": <candidate number>, "strength": "strong" | "partial", "themes": ["<2-5 words>", "<2-5 words>"], "reason": "<one short sentence>"}]}
+{"matches": [{"id": <candidate number>, "strength": "strong" | "partial", "shared": "<text>", "differs": "<text>", "basis": "content" | "field", "themes": ["<1-5 words>"]}]}
 Return {"matches": []} when nothing matches."""
 
-_MERGE_PROMPT = """You organise a vocabulary of short themes that describe what pairs of clinical cohort studies
-(heart failure and cardiovascular research) have in common in their metadata. You receive the raw themes with how
-often each occurred.
+_VOCAB_PROMPT = """You build a controlled vocabulary of themes that describe what pairs of clinical cohort studies (heart failure and cardiovascular research) have in common in their metadata.
 
-Task 1 - normalise: merge themes that mean the same thing (synonyms, singular/plural, wording variants, different
-granularity of the same idea such as "renal impairment" / "kidney failure" / "chronic kidney disease") into one
-canonical theme of two to five words, lowercase. Keep genuinely different themes apart. Every raw theme must map to
-exactly one canonical theme.
-
-Task 2 - group: sort the canonical themes under five to eight parent themes with short names (two to four words),
-e.g. "heart failure phenotype", "comorbidities", "age and eligibility", "outcomes", "treatment context". Every
-canonical theme belongs to exactly one parent.
+You receive the PARENTS and CANONICAL THEMES defined so far, and a batch of RAW TERMS with how often each occurred. For every raw term say which canonical theme it belongs to:
+- reuse an existing canonical theme when the term means the same thing: synonyms, singular/plural, wording variants, abbreviations ("hfref" = "reduced ejection fraction"), finer wording of one idea ("renal impairment", "chronic kidney disease", "kidney failure");
+- otherwise create a new canonical theme: lowercase, two to five words, the clearest medical or methodological name for it.
+Every canonical theme has one parent. Reuse an existing parent whenever one fits; create a new one only when none does. There are at most eight parents in total, with short names of two to four words, for example "heart failure phenotype", "comorbidities", "age and eligibility", "outcomes", "treatment context", "study design".
+Every raw term of the batch must appear exactly once, spelled exactly as given.
 
 Answer with STRICT JSON only, no prose, no code fences:
-{"parents": [{"id": "p1", "label": "<parent name>"}],
- "themes": [{"id": "t1", "label": "<canonical theme>", "parent": "p1", "raw": ["<raw theme>", "..."]}]}"""
+{"map": [{"term": "<raw term as given>", "theme": "<canonical theme label>", "parent": "<parent label>"}]}"""
+
+_PARENTS_PROMPT = """You tidy the parent groups of a vocabulary of clinical-study metadata themes. You receive the current parent labels with how many themes each holds. Group them into at most eight parents with short names of two to four words; a parent may keep its name. Every given label must appear in exactly one group.
+
+Answer with STRICT JSON only, no prose, no code fences:
+{"groups": [{"label": "<parent name>", "members": ["<given label>", "..."]}]}"""
+
+_ASSIGN_PROMPT = """You label matches between metadata elements of clinical cohort studies (heart failure and cardiovascular research) with themes from a fixed vocabulary.
+
+You receive the VOCABULARY (numbered themes, grouped by parent) and a list of MATCHES. Each match gives the two elements and the explanation of what they share, and may suggest theme numbers from an earlier pass.
+For every match choose one to three theme numbers that name what the explanation says is shared. Use only the vocabulary. Prefer the most specific theme that fits. Keep a suggested theme only when the explanation supports it, and add one the suggestions missed when it clearly applies. Choose none ([]) when no theme fits.
+
+Answer with STRICT JSON only, no prose, no code fences:
+{"assign": [{"match": <match number>, "themes": [<theme number>, "..."]}]}"""
+
+
+# Tags that only restate the field or the shape of the overlap carry nothing a
+# graph can use; they are dropped before the vocabulary is built.
+_FIELD_WORDS = {"criterion", "criteria", "inclusion", "exclusion", "specification", "spec", "requirement",
+                "requirements", "restriction", "restrictions"}
+_GENERIC_WORDS = {"sex", "age", "group", "range", "ranges", "outcome", "outcomes", "primary", "secondary", "study",
+                  "population", "objective", "objectives", "morbidity", "status", "health", "adult", "adults",
+                  "threshold", "overlap", "overlapping", "narrower", "broader", "subset", "both", "included",
+                  "include", "includes", "minimum", "maximum", "general", "specific", "similar", "same", "matching",
+                  "match", "limit", "limits", "lower", "upper", "years", "year", "old", "of", "and", "or", "the",
+                  "a", "an", "in", "with", "for", "to", "on", "by", "at", "cohort", "cohorts", "patients",
+                  "participants", "subjects", "element", "elements", "field", "fields", "criterion", "condition",
+                  "conditions", "comorbidity", "comorbidities", "multiple", "list", "listed"}
+
+
+def _squash(value: Any, limit: int) -> str:
+    return " ".join(str(value or "").split())[:limit]
+
+
+def _clean_theme(raw: Any) -> Optional[str]:
+    """A raw tag normalised (lowercase, one space, safe characters) or None
+    when it only restates a field or the shape of the overlap: 'age inclusion
+    criterion', 'morbidity', 'narrower age subset', 'multiple comorbidities'
+    carry no medical content. 'adults over 18', 'both sexes included',
+    'no sex restriction', 'kidney failure' stay."""
+    t = " ".join(str(raw or "").lower().replace("_", " ").split())
+    t = re.sub(r"[^a-z0-9 +/%<>=≥≤.-]", "", t).strip(" .-")
+    words = t.split()
+    if not words or len(words) > 6:
+        return None
+    if all(w in _FIELD_WORDS or w in _GENERIC_WORDS for w in words):
+        return None
+    return t[:60]
+
+
+def _llm_json(client: Any, model: str, system: str, user: str) -> dict[str, Any]:
+    """One chat call answered as JSON; {} when the call or the parsing fails."""
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.1,
+        )
+        content = (resp.choices[0].message.content or "").strip()
+        content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.M).strip()
+        start, end = content.find("{"), content.rfind("}")
+        parsed = json.loads(content[start:end + 1]) if start >= 0 else {}
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception as exc:
+        logger.warning("[metadata_clustering] LLM call failed: %s: %s", type(exc).__name__, str(exc)[:200])
+        return {}
 
 
 def _ai_judge(client: Any, model: str, element: dict[str, Any], candidates: list[dict[str, Any]],
@@ -387,13 +470,22 @@ def _ai_judge(client: Any, model: str, element: dict[str, Any], candidates: list
             strength = str(m.get("strength") or "partial").lower()
             themes = []
             for raw in (m.get("themes") or [])[:3]:
-                t = " ".join(str(raw or "").lower().replace("_", " ").split())
-                t = re.sub(r"[^a-z0-9 +/%<>=≥≤.-]", "", t).strip(" .")
-                if t and 1 <= len(t.split()) <= 6 and t not in themes:
-                    themes.append(t[:60])
+                t = _clean_theme(raw)
+                if t and t not in themes:
+                    themes.append(t)
+            # The explanation: the structured form (shared / differs / basis), or
+            # the single sentence of the earlier prompt when a model still answers that way.
+            shared = _squash(m.get("shared"), 900)
+            differs = _squash(m.get("differs"), 500)
+            basis = "field" if str(m.get("basis") or "").lower().startswith("field") else "content"
+            legacy = _squash(m.get("reason"), 400)
+            reason = shared or legacy
+            if differs and differs.lower().strip(" .") not in ("nothing material", "nothing", "none", "n/a", "no difference", "no material difference"):
+                reason = f"{reason} Differs: {differs}".strip()
             verdicts[candidates[idx]["id"]] = {
                 "strength": "strong" if strength.startswith("strong") else "partial",
-                "reason": " ".join(str(m.get("reason") or "").split())[:400],
+                "reason": reason[:1400],
+                "reason_parts": {"shared": shared or legacy, "differs": differs, "basis": basis},
                 "themes": themes,
             }
     return verdicts, None
@@ -424,65 +516,222 @@ def _slug(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:40] or "theme"
 
 
-def merge_themes(client: Any, model: str, raw_counts: dict[str, int]) -> dict[str, Any]:
-    """The two-level vocabulary: {parents: [...], themes: [{id, label, parent, raw}], raw_to_theme: {raw: id}}.
-    Without a model (or when its answer is unusable) every raw theme is its own
-    canonical theme under one parent, so the views still work."""
-    raws = sorted(raw_counts, key=lambda r: -raw_counts[r])
-    fallback = {
-        "parents": [{"id": "p-unsorted", "label": "unsorted themes"}],
-        "themes": [{"id": "t-" + _slug(r), "label": r, "parent": "p-unsorted", "raw": [r]} for r in raws],
-    }
-    fallback["raw_to_theme"] = {r: "t-" + _slug(r) for r in raws}
-    if client is None or not raws:
-        return fallback
-    listing = "\n".join(f"- {r} ({raw_counts[r]}x)" for r in raws[:400])
-    try:
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "system", "content": _MERGE_PROMPT},
-                      {"role": "user", "content": f"RAW THEMES ({len(raws)}):\n{listing}"}],
-            temperature=0.1,
-        )
-        content = (resp.choices[0].message.content or "").strip()
-        content = re.sub(r"^```(?:json)?|```$", "", content, flags=re.M).strip()
-        start, end = content.find("{"), content.rfind("}")
-        parsed = json.loads(content[start:end + 1]) if start >= 0 else {}
-    except Exception as exc:
-        logger.warning("[metadata_clustering] theme merge failed, keeping raw themes: %s", exc)
-        return fallback
-    parents, themes, raw_to_theme, seen_p, seen_t = [], [], {}, set(), set()
-    for pp in parsed.get("parents") or []:
-        label = " ".join(str(pp.get("label") or "").lower().split())
-        if label and label not in seen_p:
-            seen_p.add(label)
-            parents.append({"id": "p-" + _slug(label), "label": label, "_src": str(pp.get("id") or "")})
-    src_to_parent = {pp["_src"]: pp["id"] for pp in parents}
-    for tt in parsed.get("themes") or []:
-        label = " ".join(str(tt.get("label") or "").lower().split())
-        if not label or label in seen_t:
-            continue
-        seen_t.add(label)
-        parent = src_to_parent.get(str(tt.get("parent") or ""), parents[0]["id"] if parents else "p-unsorted")
-        tid = "t-" + _slug(label)
-        raw = [" ".join(str(r).lower().split()) for r in (tt.get("raw") or []) if str(r).strip()]
-        themes.append({"id": tid, "label": label, "parent": parent, "raw": raw})
-        for r in raw:
-            raw_to_theme.setdefault(r, tid)
-    if not parents or not themes:
-        return fallback
-    # Raw themes the model forgot keep their own canonical entry.
-    for r in raws:
-        if r not in raw_to_theme:
-            tid = "t-" + _slug(r)
-            if tid not in {t["id"] for t in themes}:
-                themes.append({"id": tid, "label": r, "parent": parents[0]["id"], "raw": [r]})
-            raw_to_theme[r] = tid
-    for pp in parents:
-        pp.pop("_src", None)
-    if not any(p["id"] == "p-unsorted" for p in parents) and any(t["parent"] == "p-unsorted" for t in themes):
-        parents.append({"id": "p-unsorted", "label": "unsorted themes"})
+def _norm_label(value: Any) -> str:
+    return " ".join(str(value or "").lower().replace("_", " ").split()).strip(" .")[:60]
+
+
+def build_vocabulary(client: Any, model: str, raw_counts: dict[str, int],
+                     progress: Any = None) -> dict[str, Any]:
+    """The two-level vocabulary {parents, themes: [{id, label, parent, raw}], raw_to_theme},
+    built in batches: the cleaned terms, most frequent first, VOCAB_BATCH at a
+    time, each batch merged against the canonical themes and parents built so far.
+    Terms the model leaves out of a batch are retried once with the next, then
+    become their own theme under "unsorted themes". Without a model every cleaned
+    term is its own theme under one parent, so the views still work."""
+    cleaned: dict[str, list[str]] = {}
+    for raw, n in raw_counts.items():
+        c = _clean_theme(raw)
+        if c:
+            cleaned.setdefault(c, []).append(raw)
+    term_count = {c: sum(raw_counts[r] for r in rs) for c, rs in cleaned.items()}
+    terms = sorted(cleaned, key=lambda c: (-term_count[c], c))
+
+    parents: list[dict[str, Any]] = []
+    themes: list[dict[str, Any]] = []
+    parent_by_label: dict[str, str] = {}
+    theme_by_label: dict[str, str] = {}
+    theme_by_id: dict[str, dict[str, Any]] = {}
+
+    def parent_id(label: str) -> str:
+        label = _norm_label(label) or "other"
+        if label not in parent_by_label:
+            pid = "p-" + _slug(label)
+            if any(p["id"] == pid for p in parents):
+                pid = f"{pid}-{len(parents) + 1}"
+            parents.append({"id": pid, "label": label})
+            parent_by_label[label] = pid
+        return parent_by_label[label]
+
+    def theme_id(label: str, pid: str) -> str:
+        label = _norm_label(label)
+        if label not in theme_by_label:
+            tid = "t-" + _slug(label)
+            if tid in theme_by_id:
+                tid = f"{tid}-{len(themes) + 1}"
+            t = {"id": tid, "label": label, "parent": pid, "raw": []}
+            themes.append(t)
+            theme_by_id[tid] = t
+            theme_by_label[label] = tid
+        return theme_by_label[label]
+
+    def attach(term: str, tid: str) -> None:
+        for r in cleaned[term]:
+            if r not in theme_by_id[tid]["raw"]:
+                theme_by_id[tid]["raw"].append(r)
+
+    if client is None or not terms:
+        pid = parent_id("unsorted themes")
+        for term in terms:
+            attach(term, theme_id(term, pid))
+    else:
+        batches = [terms[k:k + VOCAB_BATCH] for k in range(0, len(terms), VOCAB_BATCH)]
+        carry: list[str] = []  # terms a batch's answer left out, retried once
+        for bi, batch in enumerate(batches):
+            pending = carry + [t for t in batch if t not in carry]
+            carry = []
+            theme_lines = "\n".join(f"- {t['label']}  [{next(p['label'] for p in parents if p['id'] == t['parent'])}]"
+                                    for t in themes[:500]) or "(none yet)"
+            user = ("PARENTS SO FAR: " + (", ".join(p["label"] for p in parents) or "(none yet)")
+                    + f"\n\nCANONICAL THEMES SO FAR ({len(themes)}):\n{theme_lines}"
+                    + f"\n\nRAW TERMS ({len(pending)}):\n" + "\n".join(f"- {t} ({term_count[t]}x)" for t in pending))
+            parsed = _llm_json(client, model, _VOCAB_PROMPT, user)
+            answered: set[str] = set()
+            pending_set = set(pending)
+            for row in parsed.get("map") or []:
+                if not isinstance(row, dict):
+                    continue
+                term = _norm_label(row.get("term"))
+                if term not in pending_set or term in answered:
+                    continue
+                label = _norm_label(row.get("theme")) or term
+                pid = parent_id(row.get("parent") or "other")
+                attach(term, theme_id(label, pid))
+                answered.add(term)
+            missing = [t for t in pending if t not in answered]
+            if bi + 1 < len(batches):
+                carry = missing[:VOCAB_BATCH // 2]
+                missing = missing[len(carry):]
+            if missing:
+                pid = parent_id("unsorted themes")
+                for term in missing:
+                    attach(term, theme_id(term, pid))
+            if progress:
+                progress(bi + 1, len(batches))
+        if len(parents) > MAX_PARENTS:
+            _fold_parents(client, model, parents, themes)
+
+    raw_to_theme = {r: t["id"] for t in themes for r in t["raw"]}
     return {"parents": parents, "themes": themes, "raw_to_theme": raw_to_theme}
+
+
+def _fold_parents(client: Any, model: str, parents: list[dict[str, Any]], themes: list[dict[str, Any]]) -> None:
+    """Regroup the parents into at most MAX_PARENTS (one small call); on an
+    unusable answer the parents stay as they are."""
+    counts = {p["id"]: 0 for p in parents}
+    for t in themes:
+        counts[t["parent"]] = counts.get(t["parent"], 0) + 1
+    user = "PARENT LABELS:\n" + "\n".join(f"- {p['label']} ({counts.get(p['id'], 0)} themes)" for p in parents)
+    parsed = _llm_json(client, model, _PARENTS_PROMPT, user)
+    by_label = {p["label"]: p["id"] for p in parents}
+    new_parents: list[dict[str, Any]] = []
+    remap: dict[str, str] = {}
+    for g in parsed.get("groups") or []:
+        if not isinstance(g, dict):
+            continue
+        label = _norm_label(g.get("label"))
+        members = [_norm_label(m) for m in (g.get("members") or [])]
+        members = [m for m in members if m in by_label and by_label[m] not in remap]
+        if not label or not members:
+            continue
+        pid = "p-" + _slug(label)
+        if any(p["id"] == pid for p in new_parents):
+            pid = f"{pid}-{len(new_parents) + 1}"
+        new_parents.append({"id": pid, "label": label})
+        for m in members:
+            remap[by_label[m]] = pid
+    if not new_parents or len(new_parents) > MAX_PARENTS + 2:
+        return
+    leftovers = [p for p in parents if p["id"] not in remap]
+    if leftovers:
+        other = next((p for p in new_parents if p["label"] in ("other", "unsorted themes")), None)
+        if other is None:
+            other = {"id": "p-unsorted", "label": "unsorted themes"}
+            new_parents.append(other)
+        for p in leftovers:
+            remap[p["id"]] = other["id"]
+    for t in themes:
+        t["parent"] = remap.get(t["parent"], t["parent"])
+    parents[:] = new_parents
+
+
+def assign_themes(client: Any, model: str, elements: list[dict[str, Any]], pair_records: list[dict[str, Any]],
+                  vocab: dict[str, Any], progress: Any = None) -> None:
+    """Give every AI match its canonical themes (rec["theme_ids"]), chosen by the
+    model from the closed vocabulary given the match's "shared" explanation, with
+    the themes its raw tags map to as suggestions. ASSIGN_BATCH matches per call,
+    grouped by the first element of the pair. Without a model, or when a call
+    fails, the suggestions stand."""
+    theme_list = vocab["themes"]
+    num_to_id = {k + 1: t["id"] for k, t in enumerate(theme_list)}
+    id_to_num = {v: k for k, v in num_to_id.items()}
+    parent_label = {p["id"]: p["label"] for p in vocab["parents"]}
+    by_parent: dict[str, list[str]] = {}
+    for k, t in enumerate(theme_list, 1):
+        by_parent.setdefault(t["parent"], []).append(f"  T{k} {t['label']}")
+    vocab_text = "\n".join(f"{parent_label.get(pid, pid)}:\n" + "\n".join(lines) for pid, lines in by_parent.items())
+
+    ai_records = [r for r in pair_records if r.get("ai_strength")]
+    for rec in ai_records:
+        rec["theme_ids"] = _suggested_ids(rec, vocab)
+    if client is None or not theme_list or not ai_records:
+        if progress:
+            progress(1, 1)
+        return
+
+    groups: dict[int, list[dict[str, Any]]] = {}
+    for rec in ai_records:
+        groups.setdefault(rec["i"], []).append(rec)
+    batches: list[list[dict[str, Any]]] = []
+    for recs in groups.values():
+        for k in range(0, len(recs), ASSIGN_BATCH):
+            batches.append(recs[k:k + ASSIGN_BATCH])
+
+    def run_batch(recs: list[dict[str, Any]]) -> None:
+        lines = []
+        for n, rec in enumerate(recs, 1):
+            a, b = elements[rec["i"]], elements[rec["j"]]
+            parts = rec.get("ai_reason_parts") or {}
+            shared = parts.get("shared") or rec.get("ai_reason") or ""
+            sugg = ", ".join(f"T{id_to_num[t]}" for t in rec["theme_ids"] if t in id_to_num)
+            lines.append(f"{n}. [{a['cohort']} — {a['label']}] vs [{b['cohort']} — {b['label']}] ({rec.get('ai_strength')})\n"
+                         f"   shared: {shared[:700]}" + (f"\n   suggested: {sugg}" if sugg else ""))
+        user = f"VOCABULARY:\n{vocab_text}\n\nMATCHES ({len(recs)}):\n" + "\n".join(lines)
+        parsed = _llm_json(client, model, _ASSIGN_PROMPT, user)
+        for row in parsed.get("assign") or []:
+            if not isinstance(row, dict):
+                continue
+            try:
+                n = int(row.get("match"))
+            except (TypeError, ValueError):
+                continue
+            if not 1 <= n <= len(recs):
+                continue
+            chosen: list[str] = []
+            for v in (row.get("themes") or [])[:3]:
+                try:
+                    k = int(str(v).strip().lstrip("Tt"))
+                except ValueError:
+                    continue
+                tid = num_to_id.get(k)
+                if tid and tid not in chosen:
+                    chosen.append(tid)
+            recs[n - 1]["theme_ids"] = chosen
+
+    done = 0
+    with ThreadPoolExecutor(max_workers=LLM_WORKERS) as pool:
+        for _ in as_completed([pool.submit(run_batch, b) for b in batches]):
+            done += 1
+            if progress and (done % 5 == 0 or done == len(batches)):
+                progress(done, len(batches))
+
+
+def _suggested_ids(rec: dict[str, Any], vocab: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    for raw in rec.get("themes") or []:
+        tid = vocab["raw_to_theme"].get(raw)
+        if tid and tid not in out:
+            out.append(tid)
+    return out[:3]
 
 
 _STRENGTH_W = {"strong": 1.0, "partial": 0.6}
@@ -495,22 +744,47 @@ def build_study_themes(elements: list[dict[str, Any]], pair_records: list[dict[s
     the best match that carried it, count how many did."""
     table: dict[str, dict[str, dict[str, Any]]] = {}
     for rec in pair_records:
-        if not rec.get("themes"):
+        # Canonical themes from the assignment pass; older records fall back to
+        # mapping their raw tags through the vocabulary.
+        tids = rec["theme_ids"] if "theme_ids" in rec else _suggested_ids(rec, vocab)
+        if not tids:
             continue
         w = _STRENGTH_W.get(rec.get("ai_strength") or "partial", 0.6)
         a, b = elements[rec["i"]], elements[rec["j"]]
-        for raw in rec["themes"]:
-            tid = vocab["raw_to_theme"].get(raw)
-            if not tid:
-                continue
+        parts = rec.get("ai_reason_parts") or {}
+        reason = (parts.get("shared") or rec.get("ai_reason") or "")[:500]
+        for tid in tids:
             for me, other in ((a, b), (b, a)):
                 cell = table.setdefault(me["cohort"], {}).setdefault(tid, {"strength": 0.0, "count": 0, "excerpts": []})
                 cell["strength"] = max(cell["strength"], w)
                 cell["count"] += 1
                 if len(cell["excerpts"]) < 6 and not any(x["text"] == me["text"] and x["with"] == other["cohort"] for x in cell["excerpts"]):
                     cell["excerpts"].append({"field": me["label"], "text": me["text"][:400], "with": other["cohort"],
-                                             "with_text": other["text"][:400], "strength": rec.get("ai_strength")})
+                                             "with_text": other["text"][:400], "strength": rec.get("ai_strength"),
+                                             "reason": reason})
     return table
+
+
+def _theme_stage(client: Any, model: str, elements: list[dict[str, Any]],
+                 pair_records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Cleanup, vocabulary, assignment, table: the "themes" block of the results.
+    Sets rec["theme_ids"] on every AI pair record. Progress goes to the job state."""
+    raw_counts: dict[str, int] = {}
+    for rec in pair_records:
+        for t in rec.get("themes") or []:
+            raw_counts[t] = raw_counts.get(t, 0) + 1
+    _update_state(phase="themes", vocab_done=0, vocab_total=max(1, math.ceil(len(raw_counts) / VOCAB_BATCH)))
+    vocab = build_vocabulary(client, model, raw_counts,
+                             progress=lambda d, t: _update_state(vocab_done=d, vocab_total=t))
+    _update_state(phase="assign", assign_done=0, assign_total=None)
+    assign_themes(client, model, elements, pair_records, vocab,
+                  progress=lambda d, t: _update_state(assign_done=d, assign_total=t))
+    table = build_study_themes(elements, pair_records, vocab)
+    logger.info("[metadata_clustering] themes: %d raw -> %d canonical under %d parents",
+                len(raw_counts), len(vocab["themes"]), len(vocab["parents"]))
+    return {"parents": vocab["parents"], "themes": vocab["themes"], "raw_to_theme": vocab["raw_to_theme"],
+            "raw_counts": raw_counts, "table": table, "built": datetime.now().isoformat(),
+            "pipeline": "cleanup + batched vocabulary + closed-set assignment"}
 
 
 # Themes an admin took out of the views (not out of the stored results).
@@ -621,15 +895,16 @@ def run_clustering(instructions: str = "") -> None:
                     for cid, v in verdicts.items():
                         j = index[cid]
                         key = (min(i, j), max(i, j))
-                        cur = ai.setdefault(key, {"strength": v["strength"], "reason": v["reason"], "votes": 0, "themes": []})
+                        cur = ai.setdefault(key, {"strength": v["strength"], "reason": v["reason"],
+                                                  "reason_parts": v.get("reason_parts"), "votes": 0, "themes": []})
                         cur["votes"] += 1
                         for t in v.get("themes") or []:
                             if t not in cur["themes"]:
                                 cur["themes"].append(t)
                         # Two directions may disagree; keep the stronger verdict and
-                        # the first reason given for it.
+                        # the explanation given for it.
                         if v["strength"] == "strong" and cur["strength"] != "strong":
-                            cur["strength"], cur["reason"] = "strong", v["reason"]
+                            cur["strength"], cur["reason"], cur["reason_parts"] = "strong", v["reason"], v.get("reason_parts")
                     # Every element: the state's updated_at is the heartbeat for stall detection.
                     _update_state(ai_done=done, ai_failed=len(ai_failed))
                     if done % 10 == 0 or done == len(elements):
@@ -637,8 +912,7 @@ def run_clustering(instructions: str = "") -> None:
         else:
             logger.warning("[metadata_clustering] LITELLM_BASE_URL not set; lexical pass only")
 
-        # Merge, symmetrically: one record per unordered pair, listed on both sides.
-        matches: dict[str, list[dict[str, Any]]] = {e["id"]: [] for e in elements}
+        # One record per unordered pair.
         counts = {"lexical": 0, "ai": 0, "both": 0}
         pair_records: list[dict[str, Any]] = []
         for key in sorted(set(lexical_hits) | set(ai)):
@@ -647,30 +921,30 @@ def run_clustering(instructions: str = "") -> None:
             in_lex, in_ai = key in lexical_hits, key in ai
             source = "both" if (in_lex and in_ai) else ("lexical" if in_lex else "ai")
             counts[source] += 1
-            rec = {"source": source, "score": p["score"], "fuzzy": p["fuzzy"], "tfidf": p["tfidf"],
-                   "same_field": p["same_field"],
-                   "ai_strength": ai[key]["strength"] if in_ai else None,
-                   "ai_reason": ai[key]["reason"] if in_ai else None,
-                   "ai_votes": ai[key]["votes"] if in_ai else 0,
-                   "themes": ai[key]["themes"] if in_ai else []}
-            pair_records.append({"i": i, "j": j, **rec})
+            pair_records.append({"i": i, "j": j, "source": source, "score": p["score"], "fuzzy": p["fuzzy"],
+                                 "tfidf": p["tfidf"], "same_field": p["same_field"],
+                                 "ai_strength": ai[key]["strength"] if in_ai else None,
+                                 "ai_reason": ai[key]["reason"] if in_ai else None,
+                                 "ai_reason_parts": ai[key].get("reason_parts") if in_ai else None,
+                                 "ai_votes": ai[key]["votes"] if in_ai else 0,
+                                 "themes": ai[key]["themes"] if in_ai else []})
+
+        # Cleanup, vocabulary, assignment (sets theme_ids on the records), table.
+        themes_block = _theme_stage(client if ai_available else None, settings.litellm_model if ai_available else "",
+                                    elements, pair_records)
+
+        # Listed symmetrically: every pair on both of its elements.
+        matches: dict[str, list[dict[str, Any]]] = {e["id"]: [] for e in elements}
+        for rec in pair_records:
+            i, j = rec["i"], rec["j"]
+            body = {k: v for k, v in rec.items() if k not in ("i", "j")}
+            body.setdefault("theme_ids", [])
             for a, b in ((i, j), (j, i)):
-                matches[elements[a]["id"]].append({**rec, "cohort": elements[b]["cohort"], "field": elements[b]["field"],
+                matches[elements[a]["id"]].append({**body, "cohort": elements[b]["cohort"], "field": elements[b]["field"],
                                                    "label": elements[b]["label"], "text": elements[b]["text"],
                                                    "element_id": elements[b]["id"]})
         for lst in matches.values():
             lst.sort(key=lambda m: (-(m["ai_strength"] == "strong"), -(m["source"] != "lexical"), -m["score"]))
-
-        # The theme vocabulary (merge pass) and the study x theme table.
-        _update_state(phase="themes")
-        raw_counts: dict[str, int] = {}
-        for rec in pair_records:
-            for t in rec["themes"]:
-                raw_counts[t] = raw_counts.get(t, 0) + 1
-        vocab = merge_themes(client if ai_available else None, settings.litellm_model if ai_available else "", raw_counts)
-        table = build_study_themes(elements, pair_records, vocab)
-        logger.info("[metadata_clustering] themes: %d raw -> %d canonical under %d parents",
-                    len(raw_counts), len(vocab["themes"]), len(vocab["parents"]))
 
         result = {
             "started": datetime.fromtimestamp(started).isoformat(),
@@ -686,8 +960,7 @@ def run_clustering(instructions: str = "") -> None:
             "ai_failed": ai_failed,
             "elements": elements,
             "matches": matches,
-            "themes": {"parents": vocab["parents"], "themes": vocab["themes"], "raw_to_theme": vocab["raw_to_theme"],
-                       "raw_counts": raw_counts, "table": table},
+            "themes": themes_block,
         }
         _write_json(_RESULT_PATH, result)
         state = _update_state(running=False, phase="done", finished=datetime.now().isoformat(), error=None,
@@ -702,9 +975,76 @@ def run_clustering(instructions: str = "") -> None:
         _append_history(state)
 
 
+def rebuild_themes() -> None:
+    """The theme steps alone, on the stored results: the AI verdicts and their
+    explanations are kept, the raw tags are cleaned, the vocabulary rebuilt in
+    batches and every match re-assigned from it. Minutes, not the hour of a run."""
+    started = time.time()
+    try:
+        data = _read_json(_RESULT_PATH)
+        elements = data["elements"]
+        index = {e["id"]: k for k, e in enumerate(elements)}
+        seen: set[tuple[int, int]] = set()
+        pair_records: list[dict[str, Any]] = []
+        for eid, lst in data["matches"].items():
+            for m in lst:
+                i, j = index[eid], index[m["element_id"]]
+                key = (min(i, j), max(i, j))
+                if key in seen:
+                    continue
+                seen.add(key)
+                rec = {k: m.get(k) for k in ("source", "score", "fuzzy", "tfidf", "same_field", "ai_strength",
+                                              "ai_reason", "ai_reason_parts", "ai_votes")}
+                rec["themes"] = list(m.get("themes") or [])
+                rec["i"], rec["j"] = key
+                pair_records.append(rec)
+        _update_state(elements=len(elements), cohorts=len({e["cohort"] for e in elements}),
+                      lexical_matches=None, ai_done=None, ai_failed=None)
+        ai_available = bool(settings.litellm_base_url)
+        client = None
+        if ai_available:
+            from src.chat import _get_openai_client
+            client = _get_openai_client()
+        themes_block = _theme_stage(client, settings.litellm_model if ai_available else "", elements, pair_records)
+        by_key = {(r["i"], r["j"]): r for r in pair_records}
+        for eid, lst in data["matches"].items():
+            for m in lst:
+                i, j = index[eid], index[m["element_id"]]
+                m["theme_ids"] = by_key[(min(i, j), max(i, j))].get("theme_ids", [])
+        data["themes"] = themes_block
+        data["themes_rebuilt"] = datetime.now().isoformat()
+        _write_json(_RESULT_PATH, data)
+        state = _update_state(running=False, phase="done", finished=datetime.now().isoformat(), error=None,
+                              counts=data.get("counts"), duration_seconds=round(time.time() - started))
+        _append_history(state)
+        logger.info("[metadata_clustering] themes rebuilt in %ds: %d themes under %d parents",
+                    round(time.time() - started), len(themes_block["themes"]), len(themes_block["parents"]))
+    except Exception as exc:
+        logger.exception("[metadata_clustering] theme rebuild failed")
+        state = _update_state(running=False, phase="failed", finished=datetime.now().isoformat(),
+                              error=f"{type(exc).__name__}: {exc}")
+        _append_history(state)
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@router.post("/metadata-clustering/rebuild-themes")
+async def start_rebuild_themes(background: BackgroundTasks, user: Any = Depends(get_current_user)):
+    """Rebuild the theme vocabulary and assignments from the stored results, without
+    re-judging the pairs."""
+    _require_admin(user)
+    if check_stalled().get("running"):
+        raise HTTPException(status_code=409, detail="A metadata clustering job is already in progress.")
+    if not os.path.exists(_RESULT_PATH):
+        raise HTTPException(status_code=404, detail="No metadata clustering results yet.")
+    _update_state(running=True, phase="starting", started=datetime.now().isoformat(), finished=None,
+                  error=None, started_by=user["email"], instructions="(themes rebuilt from the stored results)",
+                  kind="rebuild-themes", ai_available=bool(settings.litellm_base_url), model=settings.litellm_model)
+    background.add_task(rebuild_themes)
+    return {"started": True, "ai_available": bool(settings.litellm_base_url)}
+
 
 @router.post("/metadata-clustering/run")
 async def start_run(background: BackgroundTasks, body: Optional[dict[str, Any]] = None,
@@ -714,7 +1054,7 @@ async def start_run(background: BackgroundTasks, body: Optional[dict[str, Any]] 
         raise HTTPException(status_code=409, detail="A metadata clustering run is already in progress.")
     instructions = str((body or {}).get("instructions") or "").strip()[:4000]
     _update_state(running=True, phase="starting", started=datetime.now().isoformat(), finished=None,
-                  error=None, started_by=user["email"], instructions=instructions,
+                  error=None, started_by=user["email"], instructions=instructions, kind="run",
                   ai_available=bool(settings.litellm_base_url), model=settings.litellm_model)
     background.add_task(run_clustering, instructions)
     return {"started": True, "ai_available": bool(settings.litellm_base_url)}

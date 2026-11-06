@@ -19,7 +19,12 @@ export interface MetadataMatch {
   same_field: boolean;
   ai_strength: 'strong' | 'partial' | null;
   ai_reason: string | null;
+  /** The structured explanation (runs since Nov 2026): what both say, what differs, whether the match is in the content. */
+  ai_reason_parts?: {shared?: string; differs?: string; basis?: 'content' | 'field'} | null;
   ai_votes: number;
+  /** Raw tags from the pair pass, and the canonical theme ids chosen from the vocabulary. */
+  themes?: string[];
+  theme_ids?: string[];
 }
 
 export interface MetadataElement {
@@ -56,12 +61,56 @@ export function SourceBadge({source, strength}: {source: MetadataMatch['source']
   );
 }
 
+/** The AI's explanation of a match: the structured form (shared / differs) when the
+ *  run produced it, else the single sentence; then the themes, canonical labels when
+ *  the vocabulary is at hand, raw tags otherwise. */
+export function AiExplanation({m, themeLabels, className = ''}: {
+  m: MetadataMatch;
+  themeLabels?: Record<string, string>;
+  className?: string;
+}) {
+  if (!m.ai_strength) return null;
+  const parts = m.ai_reason_parts;
+  const ids = m.theme_ids || [];
+  const chips = themeLabels && ids.length
+    ? ids.map(id => ({key: id, label: themeLabels[id] || id, canonical: true}))
+    : (m.themes || []).map(t => ({key: t, label: t, canonical: false}));
+  return (
+    <div className={`text-xs ${className}`}>
+      {parts?.shared ? (
+        <>
+          <p className="text-base-content/80"><span className="font-medium">Shared:</span> {parts.shared}</p>
+          {parts.differs && !/^(nothing material|nothing|none|n\/a)\.?$/i.test(parts.differs.trim()) && (
+            <p className="text-base-content/60 mt-0.5"><span className="font-medium">Differs:</span> {parts.differs}</p>
+          )}
+          {parts.basis === 'field' && (
+            <p className="text-warning mt-0.5">Matched on the kind of field rather than on the content.</p>
+          )}
+        </>
+      ) : m.ai_reason ? (
+        <p className="text-base-content/70"><span className="font-medium">AI:</span> {m.ai_reason}</p>
+      ) : null}
+      {chips.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1">
+          {chips.map(c => (
+            <span key={c.key} className={`badge badge-xs ${c.canonical ? 'badge-outline' : 'badge-ghost'}`}
+                  title={c.canonical ? 'Canonical theme from the vocabulary' : 'Raw tag from the pair pass (not yet assigned to the vocabulary)'}>
+              {c.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The matches of one element, as a compact list. */
-export function MatchList({matches, showField = true, aiOnly = false, emptyText = 'No matches found.'}: {
+export function MatchList({matches, showField = true, aiOnly = false, emptyText = 'No matches found.', themeLabels}: {
   matches: MetadataMatch[];
   showField?: boolean;
   aiOnly?: boolean;
   emptyText?: string;
+  themeLabels?: Record<string, string>;
 }) {
   const rows = aiOnly ? matches.filter(m => m.source === 'ai') : matches;
   if (rows.length === 0) return <p className="text-sm text-base-content/60 italic">{emptyText}</p>;
@@ -85,11 +134,7 @@ export function MatchList({matches, showField = true, aiOnly = false, emptyText 
             </span>
           </div>
           <p className="whitespace-pre-wrap">{m.text}</p>
-          {m.ai_reason && (
-            <p className="mt-1 text-xs text-base-content/70">
-              <span className="font-medium">AI:</span> {m.ai_reason}
-            </p>
-          )}
+          <AiExplanation m={m} themeLabels={themeLabels} className="mt-1" />
         </li>
       ))}
     </ul>

@@ -34,6 +34,8 @@ export interface ThemeExcerpt {
   with: string;
   with_text: string;
   strength: 'strong' | 'partial' | null;
+  /** What the AI said the two elements share (runs since Nov 2026). */
+  reason?: string;
 }
 
 export interface ThemeCell {
