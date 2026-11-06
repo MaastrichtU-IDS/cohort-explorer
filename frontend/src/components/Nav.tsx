@@ -1535,16 +1535,19 @@ export function Nav() {
                     )}
                   </div>
                 </div>
-                <div className="mt-2 text-left">
-                  <button
-                    type="button"
-                    className="btn btn-ghost h-9 min-h-0 px-2 gap-2 text-lg text-base-content/50 hover:text-base-content font-normal"
-                    onClick={() => setWizardMode('nocode')}
-                  >
-                    Or: switch to no-code DCRs
-                    <span className="badge badge-warning badge-sm font-semibold uppercase tracking-wide">Beta</span>
-                  </button>
-                </div>
+                {/* The way into the no-code wizard: offered on the first step only */}
+                {wizardStep === 0 && (
+                  <div className="mt-2 text-left">
+                    <button
+                      type="button"
+                      className="btn btn-ghost h-9 min-h-0 px-2 gap-2 text-lg text-base-content/50 hover:text-base-content font-normal"
+                      onClick={() => setWizardMode('nocode')}
+                    >
+                      Or: switch to no-code DCRs
+                      <span className="badge badge-warning badge-sm font-semibold uppercase tracking-wide">Beta</span>
+                    </button>
+                  </div>
+                )}
                 
                 {/* Loading and notification for wizard */}
                 {isLoading && (
