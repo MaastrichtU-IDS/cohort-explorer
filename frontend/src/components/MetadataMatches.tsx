@@ -25,6 +25,11 @@ export interface MetadataMatch {
   /** Raw tags from the pair pass, and the canonical theme ids chosen from the vocabulary. */
   themes?: string[];
   theme_ids?: string[];
+  /** Content terms found in both texts by the deterministic pass, and the ones the model judged informative. */
+  shared_terms?: string[] | null;
+  useful_terms?: string[] | null;
+  /** For outcome specifications: "primary outcome" | "secondary outcome" when both are, "outcome" when mixed. */
+  outcome_kind?: string | null;
 }
 
 export interface MetadataElement {
@@ -51,7 +56,7 @@ export function SourceBadge({source, strength}: {source: MetadataMatch['source']
   return (
     <span className={`badge badge-sm ${cls} whitespace-nowrap`} title={
       source === 'ai'
-        ? 'Found by the AI pass only; the lexical (text similarity) pass did not flag it'
+        ? 'Found by the AI pass only: the text-similarity pass did not flag it (same-field pairs need 55% similarity, cross-field pairs 75%). The AI read the content and matched it anyway.'
         : source === 'both'
           ? 'Found by both the lexical pass and the AI pass'
           : 'Found by the lexical (text similarity) pass; the AI did not confirm it'
@@ -90,14 +95,24 @@ export function AiExplanation({m, themeLabels, className = ''}: {
       ) : m.ai_reason ? (
         <p className="text-base-content/70"><span className="font-medium">AI:</span> {m.ai_reason}</p>
       ) : null}
-      {chips.length > 0 && (
+      {(chips.length > 0 || m.outcome_kind) && (
         <div className="flex flex-wrap gap-1 mt-1">
+          {m.outcome_kind && (
+            <span className="badge badge-xs badge-info badge-outline" title="Both elements are outcome specifications: primary, secondary, or one of each">
+              {m.outcome_kind}
+            </span>
+          )}
           {chips.map(c => (
             <span key={c.key} className={`badge badge-xs ${c.canonical ? 'badge-outline' : 'badge-ghost'}`}
                   title={c.canonical ? 'Canonical theme from the vocabulary' : 'Raw tag from the pair pass (not yet assigned to the vocabulary)'}>
               {c.label}
             </span>
           ))}
+        </div>
+      )}
+      {m.useful_terms && m.useful_terms.length > 0 && (
+        <div className="text-base-content/50 mt-0.5" title="Words and phrases found in both texts, kept by the AI as informative">
+          in both texts: {m.useful_terms.join(' · ')}
         </div>
       )}
     </div>

@@ -118,6 +118,16 @@ LLM_WORKERS = 3
 VOCAB_BATCH = 60
 ASSIGN_BATCH = 25
 MAX_PARENTS = 8
+# A canonical theme that absorbed more raw terms than this is sent back to the
+# model to be split into distinct concepts (the merge of 2026-11-06 folded
+# "cardiovascular mortality", "all-cause mortality" and "sudden cardiac death"
+# into one "mortality").
+OVERMERGE_RAW = 12
+# Common terms (1- to 3-grams) kept per pair after the deterministic pass.
+MAX_SHARED_TERMS = 8
+# Matches per call when the model judges which common terms are informative.
+TERMS_BATCH = 25
+OUTCOME_FIELDS = {"primary_outcome_spec", "secondary_outcome_spec"}
 
 _DIR = os.path.join(settings.data_folder, "metadata_clustering")
 _STATE_PATH = os.path.join(_DIR, "job.json")
@@ -281,6 +291,98 @@ _STOPWORDS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Common terms: the deterministic first pass before any model call
+# ---------------------------------------------------------------------------
+# Words that carry no meaning on their own in these texts: function words plus
+# the filler of outcome and criteria wording ("during the individual follow-up
+# time", "defined as", "number of"). They are dropped before n-grams are formed,
+# so "hospitalization due to heart failure" yields "hospitalization heart
+# failure"; the model then judges which of the common terms are informative.
+_STOPWORDS = set("""
+a an the and or nor but of to in on at by for from with without within during after before between among
+into onto over under per via versus vs as is are was were be been being have has had having do does did
+this that these those any all each every both either neither such same other another more most less least
+than then so if when while where which who whom whose what how not no yes only also too very
+due because since until till up down out off about above below across along around through throughout
+including include included includes define defined definition defining consist consisting consists
+study studies patient patients participant participants subject subjects individual individuals person persons people
+time times first second third occurrence occurrences number numbers rate rates measured measure measures measurement
+assessed assess assesses assessment change changes changed baseline month months day days year years week weeks hour hours
+visit visits follow follow-up followup maximum minimum total overall level levels score scores value values data
+end point points primary secondary tertiary exploratory outcome outcomes endpoint endpoints criterion criteria
+inclusion exclusion included excluded eligible eligibility enrolled enrollment randomization randomisation randomized randomised
+aged age old older younger years-old group groups population cohort cohorts trial clinical
+""".split())
+
+
+def _norm_term(words: list[str]) -> tuple[str, ...]:
+    """Order-insensitive key: "a-b-c" and "c-a-b" mean the same thing here."""
+    return tuple(sorted(words))
+
+
+def _segments(text: str) -> list[str]:
+    """The pieces an n-gram may not cross: sentences and bullets, with each
+    parenthetical taken out of its sentence and kept as a segment of its own,
+    so "Hospitalization (first and recurring) due to heart failure" yields both
+    "hospitalization due to heart failure" and "first and recurring"."""
+    t = str(text or "").lower()
+    parens = re.findall(r"\(([^()]*)\)|\[([^\[\]]*)\]", t)
+    inner = [a or b for a, b in parens]
+    outer = re.sub(r"\([^()]*\)|\[[^\[\]]*\]", " ", t)
+    out: list[str] = []
+    for chunk in [outer] + inner:
+        for seg in re.split(r"[.;:•\n\r]+|\s-\s|\s–\s|\s/\s", chunk):
+            seg = seg.strip()
+            if seg:
+                out.append(seg)
+    return out
+
+
+def _content_words(segment: str) -> list[str]:
+    words = re.findall(r"[a-z0-9][a-z0-9'’/-]*", segment)
+    return [w.strip("'’-") for w in words if w.strip("'’-") and w not in _STOPWORDS and not w.isdigit()]
+
+
+def term_index(text: str) -> dict[tuple[str, ...], str]:
+    """{order-insensitive key: surface form} of the content 1-, 2- and 3-grams of a text."""
+    out: dict[tuple[str, ...], str] = {}
+    for seg in _segments(text):
+        words = _content_words(seg)
+        for n in (1, 2, 3):
+            for k in range(len(words) - n + 1):
+                gram = words[k:k + n]
+                if n == 1 and len(gram[0]) < 5:
+                    continue
+                out.setdefault(_norm_term(gram), " ".join(gram))
+    return out
+
+
+def shared_terms(text_a: str, text_b: str, limit: int = MAX_SHARED_TERMS) -> list[str]:
+    """The content terms both texts contain, longest first, a shorter term
+    dropped when a longer common term already contains it."""
+    ia, ib = term_index(text_a), term_index(text_b)
+    common = [(k, ia[k]) for k in ia if k in ib]
+    common.sort(key=lambda kv: (-len(kv[0]), kv[1]))
+    kept: list[tuple[tuple[str, ...], str]] = []
+    for key, surface in common:
+        if any(set(key) < set(k2) for k2, _ in kept):
+            continue
+        kept.append((key, surface))
+    return [surface for _, surface in kept[:limit]]
+
+
+def outcome_kind(field_a: str, field_b: str) -> Optional[str]:
+    """For a match between outcome specifications: "primary outcome" or
+    "secondary outcome" when both elements are that, "outcome" when a primary
+    is matched against a secondary; None for any other field."""
+    if field_a not in OUTCOME_FIELDS or field_b not in OUTCOME_FIELDS:
+        return None
+    if field_a == field_b:
+        return "primary outcome" if field_a == "primary_outcome_spec" else "secondary outcome"
+    return "outcome"
+
+
 def _tokens(text: str) -> list[str]:
     return [t.strip(".-/") for t in _TOKEN_RE.findall(text.lower())
             if t.strip(".-/") and t.strip(".-/") not in _STOPWORDS]
@@ -358,16 +460,23 @@ For every match, explain it BEFORE naming themes, in this order:
 - "differs": one or two sentences on what one element says that the other does not, or which one is broader or narrower and how. Write "nothing material" when they say the same.
 - "basis": "content" when the match is in the medical or methodological content, "field" when the two merely share the kind of information (then prefer not to match at all).
 - "themes": one to three themes of one to five words each, taken ONLY from what "shared" describes: concrete medical or methodological concepts such as "kidney failure", "NYHA class II-IV", "all-cause mortality", "NT-proBNP guided therapy", "adults over 18". Never a field name (not "age inclusion criterion", not "morbidity"), never a difference (not "narrower age range"), no sentences, no study names.
+- "useful_terms": some candidates come with "common terms", words and phrases found in BOTH texts by a mechanical comparison. Copy into this list the ones that name something medically or methodologically shared (for example "cardiovascular mortality", "heart failure hospitalization", "nyha class"); leave out generic or non-informative ones (for example "individual follow", "study visit"). Spell them exactly as given. [] when none is informative.
 
 Answer with STRICT JSON only, no prose, no code fences:
-{"matches": [{"id": <candidate number>, "strength": "strong" | "partial", "shared": "<text>", "differs": "<text>", "basis": "content" | "field", "themes": ["<1-5 words>"]}]}
+{"matches": [{"id": <candidate number>, "strength": "strong" | "partial", "shared": "<text>", "differs": "<text>", "basis": "content" | "field", "themes": ["<1-5 words>"], "useful_terms": ["<term as given>"]}]}
 Return {"matches": []} when nothing matches."""
+
+_TERMS_PROMPT = """You review pairs of metadata elements of clinical cohort studies (heart failure and cardiovascular research) that were judged to match. For each pair you get the two texts and the "common terms" a mechanical comparison found in both. Say which of those terms name something medically or methodologically shared (for example "cardiovascular mortality", "heart failure hospitalization", "nyha class") and leave out the generic or non-informative ones (for example "individual follow", "study visit"). Spell them exactly as given.
+
+Answer with STRICT JSON only, no prose, no code fences:
+{"pairs": [{"pair": <pair number>, "useful_terms": ["<term as given>"]}]}"""
 
 _VOCAB_PROMPT = """You build a controlled vocabulary of themes that describe what pairs of clinical cohort studies (heart failure and cardiovascular research) have in common in their metadata.
 
 You receive the PARENTS and CANONICAL THEMES defined so far, and a batch of RAW TERMS with how often each occurred. For every raw term say which canonical theme it belongs to:
-- reuse an existing canonical theme when the term means the same thing: synonyms, singular/plural, wording variants, abbreviations ("hfref" = "reduced ejection fraction"), finer wording of one idea ("renal impairment", "chronic kidney disease", "kidney failure");
-- otherwise create a new canonical theme: lowercase, two to five words, the clearest medical or methodological name for it.
+- reuse an existing canonical theme ONLY when the term denotes the same concept at the same level of detail: synonyms, singular/plural, spelling and wording variants, abbreviations ("hfref" = "heart failure with reduced ejection fraction", "cv death" = "cardiovascular death");
+- a narrower concept is NEVER folded into a broader one, even when the broader theme exists: "cardiovascular mortality", "all-cause mortality" and "sudden cardiac death" are three themes, not "mortality"; "heart failure hospitalization" and "cardiovascular hospitalization" are two; "myocardial infarction", "atrial fibrillation" and "stroke" are three, not "cardiovascular comorbidity"; "type 1 diabetes" is not "type 2 diabetes". The parent group is what holds related themes together;
+- otherwise create a new canonical theme: lowercase, two to five words, the clearest medical or methodological name for it, as specific as the term.
 Every canonical theme has one parent. Reuse an existing parent whenever one fits; create a new one only when none does. There are at most eight parents in total, with short names of two to four words, for example "heart failure phenotype", "comorbidities", "age and eligibility", "outcomes", "treatment context", "study design".
 Every raw term of the batch must appear exactly once, spelled exactly as given.
 
@@ -448,8 +557,13 @@ def _ai_judge(client: Any, model: str, element: dict[str, Any], candidates: list
     if instructions:
         system += "\n\nAdditional instructions from the operator (follow them):\n" + instructions.strip()
     lines = [f"ELEMENT ({element['cohort']} — {element['label']}):\n{element['text']}\n", "CANDIDATES:"]
+    # The deterministic first pass: the content terms each candidate shares with
+    # the element, shown to the model and judged by it (useful_terms).
+    terms_of: dict[int, list[str]] = {}
     for n, c in enumerate(candidates, 1):
-        lines.append(f"{n}. [{c['cohort']} — {c['label']}] {c['text']}")
+        terms_of[n] = shared_terms(element["text"], c["text"])
+        lines.append(f"{n}. [{c['cohort']} — {c['label']}] {c['text']}"
+                     + (f"\n   common terms: {'; '.join(terms_of[n])}" if terms_of[n] else ""))
     try:
         resp = client.chat.completions.create(
             model=model,
@@ -485,11 +599,19 @@ def _ai_judge(client: Any, model: str, element: dict[str, Any], candidates: list
             reason = shared or legacy
             if differs and differs.lower().strip(" .") not in ("nothing material", "nothing", "none", "n/a", "no difference", "no material difference"):
                 reason = f"{reason} Differs: {differs}".strip()
+            offered = {t.lower(): t for t in terms_of.get(idx + 1, [])}
+            useful = []
+            for raw in (m.get("useful_terms") or [])[:MAX_SHARED_TERMS]:
+                key = " ".join(str(raw or "").lower().split())
+                if key in offered and offered[key] not in useful:
+                    useful.append(offered[key])
             verdicts[candidates[idx]["id"]] = {
                 "strength": "strong" if strength.startswith("strong") else "partial",
                 "reason": reason[:1400],
                 "reason_parts": {"shared": shared or legacy, "differs": differs, "basis": basis},
                 "themes": themes,
+                "shared_terms": terms_of.get(idx + 1, []),
+                "useful_terms": useful,
             }
     return verdicts, None
 
@@ -610,11 +732,64 @@ def build_vocabulary(client: Any, model: str, raw_counts: dict[str, int],
                     attach(term, theme_id(term, pid))
             if progress:
                 progress(bi + 1, len(batches))
+        _split_overmerged(client, model, parents, themes, theme_by_id, theme_by_label)
         if len(parents) > MAX_PARENTS:
             _fold_parents(client, model, parents, themes)
 
     raw_to_theme = {r: t["id"] for t in themes for r in t["raw"]}
     return {"parents": parents, "themes": themes, "raw_to_theme": raw_to_theme}
+
+
+_SPLIT_PROMPT = """A canonical theme of a clinical-study metadata vocabulary absorbed too many raw terms. Split its RAW TERMS into distinct concepts at the same level of detail: terms that are synonyms, spelling variants or abbreviations of one concept stay together; a narrower concept is its own group ("cardiovascular mortality", "all-cause mortality" and "sudden cardiac death" are three groups; "mortality" alone may stay a group of its own for the unspecific terms). Every raw term appears in exactly one group. Give each group a canonical label: lowercase, two to five words, as specific as its terms.
+
+Answer with STRICT JSON only, no prose, no code fences:
+{"groups": [{"label": "<canonical label>", "raw": ["<raw term as given>", "..."]}]}"""
+
+
+def _split_overmerged(client: Any, model: str, parents: list[dict[str, Any]], themes: list[dict[str, Any]],
+                      theme_by_id: dict[str, dict[str, Any]], theme_by_label: dict[str, str]) -> None:
+    """Send every theme with more than OVERMERGE_RAW raw terms back to the model
+    and replace it by the groups it returns (same parent); on an unusable answer
+    the theme stays as it is."""
+    for t in list(themes):
+        if len(t["raw"]) <= OVERMERGE_RAW:
+            continue
+        user = f"THEME: {t['label']}\nRAW TERMS ({len(t['raw'])}):\n" + "\n".join(f"- {r}" for r in t["raw"])
+        parsed = _llm_json(client, model, _SPLIT_PROMPT, user)
+        groups = []
+        seen: set[str] = set()
+        for g in parsed.get("groups") or []:
+            if not isinstance(g, dict):
+                continue
+            label = _norm_label(g.get("label"))
+            raw = [" ".join(str(r).lower().split()) for r in (g.get("raw") or [])]
+            raw = [r for r in raw if r in t["raw"] and r not in seen]
+            if not label or not raw:
+                continue
+            seen.update(raw)
+            groups.append((label, raw))
+        if len(groups) < 2:
+            continue
+        leftovers = [r for r in t["raw"] if r not in seen]
+        if leftovers:
+            groups.append((t["label"], leftovers))
+        logger.info("[metadata_clustering] theme '%s' (%d raw terms) split into %d: %s",
+                    t["label"], len(t["raw"]), len(groups), ", ".join(g[0] for g in groups))
+        themes.remove(t)
+        theme_by_id.pop(t["id"], None)
+        theme_by_label.pop(t["label"], None)
+        for label, raw in groups:
+            if label in theme_by_label:
+                target = theme_by_id[theme_by_label[label]]
+                target["raw"].extend(r for r in raw if r not in target["raw"])
+                continue
+            tid = "t-" + _slug(label)
+            if tid in theme_by_id:
+                tid = f"{tid}-{len(themes) + 1}"
+            new = {"id": tid, "label": label, "parent": t["parent"], "raw": raw}
+            themes.append(new)
+            theme_by_id[tid] = new
+            theme_by_label[label] = tid
 
 
 def _fold_parents(client: Any, model: str, parents: list[dict[str, Any]], themes: list[dict[str, Any]]) -> None:
@@ -719,6 +894,8 @@ def assign_themes(client: Any, model: str, elements: list[dict[str, Any]], pair_
                 if tid and tid not in chosen:
                     chosen.append(tid)
             recs[n - 1]["theme_ids"] = chosen
+        for rec in recs:
+            _enforce_verbatim(rec, vocab)
 
     done = 0
     with ThreadPoolExecutor(max_workers=LLM_WORKERS) as pool:
@@ -728,13 +905,106 @@ def assign_themes(client: Any, model: str, elements: list[dict[str, Any]], pair_
                 progress(done, len(batches))
 
 
+def _enforce_verbatim(rec: dict[str, Any], vocab: dict[str, Any]) -> None:
+    """A theme whose label, or one of whose raw terms of two words or more, is
+    written verbatim in the match's "shared" explanation or among its useful
+    common terms is on the match, whatever the model chose: the explanation
+    acknowledging "cardiovascular mortality" and the tag missing it was the
+    complaint of 2026-11-06. Whole-word, order-insensitive for multiword terms."""
+    parts = rec.get("ai_reason_parts") or {}
+    text = " ".join([str(parts.get("shared") or rec.get("ai_reason") or "")] + list(rec.get("useful_terms") or [])).lower()
+    words = set(re.findall(r"[a-z0-9][a-z0-9'’/-]*", text))
+    if not words:
+        return
+    ids = list(rec.get("theme_ids") or [])
+    for t in vocab["themes"]:
+        if t["id"] in ids:
+            continue
+        for term in [t["label"]] + [r for r in t.get("raw") or [] if " " in r]:
+            tw = term.split()
+            if len(tw) == 1 and len(tw[0]) < 6:
+                continue
+            if all(w in words for w in tw):
+                ids.append(t["id"])
+                break
+        if len(ids) >= 5:
+            break
+    rec["theme_ids"] = ids
+
+
+def _raw_tags(rec: dict[str, Any]) -> list[str]:
+    """The raw tags of a match: the model's themes plus the common terms it
+    judged informative (grounded in both texts, so they anchor the vocabulary)."""
+    out: list[str] = []
+    for t in list(rec.get("themes") or []) + list(rec.get("useful_terms") or []):
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
 def _suggested_ids(rec: dict[str, Any], vocab: dict[str, Any]) -> list[str]:
     out: list[str] = []
-    for raw in rec.get("themes") or []:
+    for raw in _raw_tags(rec):
         tid = vocab["raw_to_theme"].get(raw)
         if tid and tid not in out:
             out.append(tid)
     return out[:3]
+
+
+def judge_terms(client: Any, model: str, elements: list[dict[str, Any]], pair_records: list[dict[str, Any]],
+                progress: Any = None) -> None:
+    """The model's opinion on the common terms of every AI match that has none
+    yet (records of a run before this pass, or whose call failed): sets
+    rec["useful_terms"]. TERMS_BATCH pairs per call. Without a model the terms
+    of two words or more stand as useful, single words do not."""
+    todo = [r for r in pair_records if r.get("ai_strength") and r.get("shared_terms") and "useful_terms" not in r]
+    if not todo:
+        if progress:
+            progress(1, 1)
+        return
+    if client is None:
+        for rec in todo:
+            rec["useful_terms"] = [t for t in rec["shared_terms"] if " " in t]
+        if progress:
+            progress(1, 1)
+        return
+    batches = [todo[k:k + TERMS_BATCH] for k in range(0, len(todo), TERMS_BATCH)]
+
+    def run_batch(recs: list[dict[str, Any]]) -> None:
+        lines = []
+        for n, rec in enumerate(recs, 1):
+            a, b = elements[rec["i"]], elements[rec["j"]]
+            lines.append(f"{n}. A [{a['cohort']} — {a['label']}]: {a['text'][:500]}\n   B [{b['cohort']} — {b['label']}]: {b['text'][:500]}\n"
+                         f"   common terms: {'; '.join(rec['shared_terms'])}")
+        parsed = _llm_json(client, model, _TERMS_PROMPT, "PAIRS:\n" + "\n".join(lines))
+        answered: set[int] = set()
+        for row in parsed.get("pairs") or []:
+            if not isinstance(row, dict):
+                continue
+            try:
+                n = int(row.get("pair"))
+            except (TypeError, ValueError):
+                continue
+            if not 1 <= n <= len(recs):
+                continue
+            offered = {t.lower(): t for t in recs[n - 1]["shared_terms"]}
+            useful = []
+            for raw in (row.get("useful_terms") or [])[:MAX_SHARED_TERMS]:
+                key = " ".join(str(raw or "").lower().split())
+                if key in offered and offered[key] not in useful:
+                    useful.append(offered[key])
+            recs[n - 1]["useful_terms"] = useful
+            answered.add(n)
+        for n, rec in enumerate(recs, 1):
+            if n not in answered:
+                rec["useful_terms"] = [t for t in rec["shared_terms"] if " " in t]
+
+    done = 0
+    with ThreadPoolExecutor(max_workers=LLM_WORKERS) as pool:
+        for _ in as_completed([pool.submit(run_batch, b) for b in batches]):
+            done += 1
+            if progress and (done % 5 == 0 or done == len(batches)):
+                progress(done, len(batches))
 
 
 _STRENGTH_W = {"strong": 1.0, "partial": 0.6}
@@ -777,9 +1047,20 @@ def _theme_stage(client: Any, model: str, elements: list[dict[str, Any]],
                  pair_records: list[dict[str, Any]]) -> dict[str, Any]:
     """Cleanup, vocabulary, assignment, table: the "themes" block of the results.
     Sets rec["theme_ids"] on every AI pair record. Progress goes to the job state."""
+    # Records from earlier runs: the deterministic terms, the outcome kind, and the
+    # model's judgement of the terms (one batched pass) are added here.
+    for rec in pair_records:
+        a, b = elements[rec["i"]], elements[rec["j"]]
+        if "shared_terms" not in rec or rec["shared_terms"] is None:
+            rec["shared_terms"] = shared_terms(a["text"], b["text"])
+        if "outcome_kind" not in rec:
+            rec["outcome_kind"] = outcome_kind(a["field"], b["field"])
+    _update_state(phase="terms", terms_done=0, terms_total=None)
+    judge_terms(client, model, elements, pair_records,
+                progress=lambda d, t: _update_state(terms_done=d, terms_total=t))
     raw_counts: dict[str, int] = {}
     for rec in pair_records:
-        for t in rec.get("themes") or []:
+        for t in _raw_tags(rec):
             raw_counts[t] = raw_counts.get(t, 0) + 1
     _update_state(phase="themes", vocab_done=0, vocab_total=max(1, math.ceil(len(raw_counts) / VOCAB_BATCH)))
     vocab = build_vocabulary(client, model, raw_counts,
@@ -832,6 +1113,9 @@ def _pair_records_from_matches(data: dict[str, Any]) -> list[dict[str, Any]]:
             rec["themes"] = list(m.get("themes") or [])
             if "theme_ids" in m:
                 rec["theme_ids"] = list(m.get("theme_ids") or [])
+            for k in ("shared_terms", "useful_terms", "outcome_kind"):
+                if k in m:
+                    rec[k] = m[k]
             rec["i"], rec["j"] = key
             out.append(rec)
     return out
@@ -1212,11 +1496,15 @@ def run_clustering(instructions: str = "") -> None:
                         j = index[cid]
                         key = (min(i, j), max(i, j))
                         cur = ai.setdefault(key, {"strength": v["strength"], "reason": v["reason"],
-                                                  "reason_parts": v.get("reason_parts"), "votes": 0, "themes": []})
+                                                  "reason_parts": v.get("reason_parts"), "votes": 0, "themes": [],
+                                                  "shared_terms": v.get("shared_terms") or [], "useful_terms": []})
                         cur["votes"] += 1
                         for t in v.get("themes") or []:
                             if t not in cur["themes"]:
                                 cur["themes"].append(t)
+                        for t in v.get("useful_terms") or []:
+                            if t not in cur["useful_terms"]:
+                                cur["useful_terms"].append(t)
                         # Two directions may disagree; keep the stronger verdict and
                         # the explanation given for it.
                         if v["strength"] == "strong" and cur["strength"] != "strong":
@@ -1243,7 +1531,10 @@ def run_clustering(instructions: str = "") -> None:
                                  "ai_reason": ai[key]["reason"] if in_ai else None,
                                  "ai_reason_parts": ai[key].get("reason_parts") if in_ai else None,
                                  "ai_votes": ai[key]["votes"] if in_ai else 0,
-                                 "themes": ai[key]["themes"] if in_ai else []})
+                                 "themes": ai[key]["themes"] if in_ai else [],
+                                 "shared_terms": ai[key].get("shared_terms") if in_ai else shared_terms(elements[i]["text"], elements[j]["text"]),
+                                 "useful_terms": ai[key].get("useful_terms") if in_ai else [],
+                                 "outcome_kind": outcome_kind(elements[i]["field"], elements[j]["field"])})
 
         # Cleanup, vocabulary, assignment (sets theme_ids on the records), table.
         themes_block = _theme_stage(client if ai_available else None, settings.litellm_model if ai_available else "",
@@ -1315,6 +1606,9 @@ def rebuild_themes() -> None:
                 rec = {k: m.get(k) for k in ("source", "score", "fuzzy", "tfidf", "same_field", "ai_strength",
                                               "ai_reason", "ai_reason_parts", "ai_votes")}
                 rec["themes"] = list(m.get("themes") or [])
+                for k in ("shared_terms", "useful_terms", "outcome_kind"):
+                    if k in m:
+                        rec[k] = m[k]
                 rec["i"], rec["j"] = key
                 pair_records.append(rec)
         _update_state(elements=len(elements), cohorts=len({e["cohort"] for e in elements}),
@@ -1329,7 +1623,10 @@ def rebuild_themes() -> None:
         for eid, lst in data["matches"].items():
             for m in lst:
                 i, j = index[eid], index[m["element_id"]]
-                m["theme_ids"] = by_key[(min(i, j), max(i, j))].get("theme_ids", [])
+                rec = by_key[(min(i, j), max(i, j))]
+                m["theme_ids"] = rec.get("theme_ids", [])
+                for k in ("shared_terms", "useful_terms", "outcome_kind"):
+                    m[k] = rec.get(k)
         data["themes"] = themes_block
         data["themes_rebuilt"] = datetime.now().isoformat()
         applied = apply_theme_edits(data)

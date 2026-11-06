@@ -39,6 +39,8 @@ interface JobState {
   vocab_total?: number;
   assign_done?: number;
   assign_total?: number | null;
+  terms_done?: number;
+  terms_total?: number | null;
 }
 
 interface RunHistoryItem {
@@ -303,6 +305,7 @@ export default function MetadataClusteringPage() {
                   {job.lexical_matches !== undefined ? ` · ${job.lexical_matches} lexical pairs` : ''}
                   {job.phase === 'ai' && job.elements ? ` · AI ${job.ai_done ?? 0}/${job.elements}` : ''}
                   {job.ai_failed ? ` (${job.ai_failed} failed)` : ''}
+                  {job.phase === 'terms' ? ` · common terms judged ${job.terms_done ?? 0}/${job.terms_total ?? '?'} calls` : ''}
                   {job.phase === 'themes' ? ` · vocabulary batch ${job.vocab_done ?? 0}/${job.vocab_total ?? '?'}` : ''}
                   {job.phase === 'assign' ? ` · theme assignment ${job.assign_done ?? 0}/${job.assign_total ?? '?'} calls` : ''}
                   {job.kind === 'rebuild-themes' ? ' (themes rebuilt from the stored results)' : ''}
@@ -310,6 +313,8 @@ export default function MetadataClusteringPage() {
               </div>
               {job.phase === 'ai' && job.elements ? (
                 <progress className="progress progress-primary w-full mt-2" value={job.ai_done ?? 0} max={job.elements} />
+              ) : job.phase === 'terms' && job.terms_total ? (
+                <progress className="progress progress-primary w-full mt-2" value={job.terms_done ?? 0} max={job.terms_total} />
               ) : job.phase === 'themes' && job.vocab_total ? (
                 <progress className="progress progress-primary w-full mt-2" value={job.vocab_done ?? 0} max={job.vocab_total} />
               ) : job.phase === 'assign' && job.assign_total ? (
