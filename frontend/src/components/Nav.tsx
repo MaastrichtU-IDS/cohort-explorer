@@ -67,6 +67,9 @@ export function Nav() {
   // allow-list, so the result's accessed_domains.txt lists every host the
   // package installs contact. Default off.
   const [rPackagesProxyLiberal, setRPackagesProxyLiberal] = useState(false);
+  // Optional Python probe node: can R be driven from a Python node with rpy2,
+  // and would that install the R packages the R node cannot? Default off.
+  const [includeRpy2Probe, setIncludeRpy2Probe] = useState(false);
   const mergeChainAvailable = Object.keys(dataCleanRoom?.cohorts || {}).length >= 2;
   const mergeChainOn = mergeChainAvailable && includeMergeChain;
   // The effective per-cohort choice for EVERY selected cohort, defaults included:
@@ -511,7 +514,8 @@ export function Nav() {
             : [],
           merge_use_shuffled: mergeChainOn ? mergeUseShuffled : false,
           include_r_packages_node: includeRPackagesNode,
-          r_packages_proxy_liberal: includeRPackagesNode && isAdmin && rPackagesProxyLiberal
+          r_packages_proxy_liberal: includeRPackagesNode && isAdmin && rPackagesProxyLiberal,
+          include_rpy2_probe_node: includeRpy2Probe
         })
       });
       
@@ -1410,6 +1414,23 @@ export function Nav() {
                             </label>
                           </div>
                         )}
+                        {/* Optional Python probe: R from Python with rpy2 */}
+                        <div className="form-control mt-3">
+                          <label className="label cursor-pointer justify-start gap-3">
+                            <input
+                              type="checkbox"
+                              className="checkbox checkbox-primary"
+                              checked={includeRpy2Probe}
+                              onChange={(e) => setIncludeRpy2Probe(e.target.checked)}
+                            />
+                            <span className="label-text text-sm">
+                              Also add a Python node named <code>probe-R-in-python</code> that checks whether R can be used from Python
+                              with the rpy2 package. It reads no data and writes one report: the image&apos;s distribution, whether R and a
+                              compiler are present, whether rpy2 installs, and whether CRAN packages (one pure-R, one compiled) install
+                              through it. Internet access to PyPI and the R package repositories only.
+                            </span>
+                          </label>
+                        </div>
                       </div>
                     </>
                   )}
@@ -1454,6 +1475,9 @@ export function Nav() {
                         )}
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>R compute node (load-R-packages):</strong> {includeRPackagesNode ? (rPackagesProxyLiberal ? 'Included, internet access to ANY domain (diagnostic)' : 'Included, internet access to the package repositories only') : 'Not included'}
+                        </div>
+                        <div className="p-3 bg-base-200 rounded-lg">
+                          <strong>Python probe (probe-R-in-python):</strong> {includeRpy2Probe ? 'Included, checks R + rpy2 in the Python image; internet access to PyPI and the R repositories only' : 'Not included'}
                         </div>
                       </div>
                       
