@@ -56,30 +56,36 @@ export default function handler(req, res) {
   const { cohortName } = req.query;
 
   const dcrOutputDir = path.join('/data', `dcr_output_${cohortName}`);
-  // Two EDA generations with DIFFERENT file names: the v2 file
-  // (eda_output_v2_<id>.json, written by every profiling run since July 2026)
-  // and the legacy v1 file. Serve v2 when it exists - a cohort re-profiled
-  // since July keeps its stale v1 file next to the current v2 one - else v1.
-  // The same preference as the backend's /cohort-eda-output and its other
-  // readers; utils/edaParsing.ts reads both shapes. X-EDA-Version says which.
-  const v1Path = path.join(dcrOutputDir, `eda_output_${cohortName}.json`);
-  const v2Path = path.join(dcrOutputDir, `eda_output_v2_${cohortName}.json`);
-  const [edaFilePath, version] = fs.existsSync(v2Path) ? [v2Path, 'v2'] : [v1Path, 'v1'];
+  // ?version=v1 : the file the profiling runs wrote until July 2026 (not rewritten since).
+  // ?version=v2 : the same format as produced by every run since July 2026, under a
+  //               new name so the old file is never overwritten; the default.
+  // Each fails with 404 naming the missing file; the other version is hinted when present.
+  const version = String(req.query.version || 'v2').toLowerCase();
+  const files = {
+    v1: path.join(dcrOutputDir, `eda_output_${cohortName}.json`),
+    v2: path.join(dcrOutputDir, `eda_output_flat_v2_${cohortName}.json`),
+  };
+  if (!files[version]) {
+    return res.status(422).json({ detail: `version must be 'v1' or 'v2', not '${version}'` });
+  }
+  const edaFilePath = files[version];
+  if (!fs.existsSync(edaFilePath)) {
+    const other = version === 'v2' ? 'v1' : 'v2';
+    const hint = fs.existsSync(files[other]) ? ` (a ${other} file exists: ask for version=${other})` : '';
+    const detail = fs.existsSync(dcrOutputDir)
+      ? `No ${version} EDA output for cohort '${cohortName}' (${path.basename(edaFilePath)} is not there)${hint}`
+      : `No EDA output for cohort '${cohortName}': no DCR output directory`;
+    if (req.method === 'HEAD') return res.status(404).end();
+    return res.status(404).json({ detail });
+  }
 
-  // HEAD request — just check existence
+  // HEAD request — the file exists
   if (req.method === 'HEAD') {
-    if (fs.existsSync(edaFilePath)) {
-      res.setHeader('X-EDA-Version', version);
-      return res.status(200).end();
-    }
-    return res.status(404).end();
+    res.setHeader('X-EDA-Version', version);
+    return res.status(200).end();
   }
 
   // GET request — return the JSON
-  if (!fs.existsSync(edaFilePath)) {
-    return res.status(404).json({ detail: `EDA output file not found for cohort '${cohortName}'` });
-  }
-
   try {
     const raw = fs.readFileSync(edaFilePath, 'utf-8');
     const data = parseEdaText(raw);

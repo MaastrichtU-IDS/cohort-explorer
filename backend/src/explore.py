@@ -4,7 +4,7 @@ import json
 from typing import Any, Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse, JSONResponse
 
 from src.auth import get_current_user
@@ -67,46 +67,59 @@ def get_observation_counts(user: Any = Depends(get_current_user)) -> dict:
     return all_observation_counts(_get_all_cohort_ids())
 
 
-def _eda_output_path(cohort_name: str) -> tuple[Optional[str], Optional[str]]:
-    """(path, version) of the EDA output to serve for a cohort: the v2 file
-    (eda_output_v2_<id>.json, written by every profiling run since July 2026)
-    when it exists, else the legacy v1 file (eda_output_<id>.json), else None.
-    The same preference as eda_counts, observation_counts and nocode; the
-    frontend parser (utils/edaParsing.ts) reads both shapes."""
+EDA_FILE_OF_VERSION = {
+    # v1: the file the profiling runs wrote until July 2026 (stats merged with the
+    #     dictionary rows). Not rewritten since, so it is the old result of a cohort.
+    # v2: the same format as produced by every run since July 2026, written under
+    #     a new name so the old file is never overwritten (the keys follow today's
+    #     chart-panel wording, so some differ from v1). The typed structured
+    #     output (eda_output_v2_<id>.json) is read by the backend's count and
+    #     no-code readers, not served here.
+    "v1": "eda_output_{cohort}.json",
+    "v2": "eda_output_flat_v2_{cohort}.json",
+}
+
+
+def _eda_output_path(cohort_name: str, version: str) -> str:
+    """The EDA output file of a cohort for the requested version, or an
+    HTTPException: 422 for an unknown version, 404 naming the missing file."""
+    version = (version or "v2").strip().lower()
+    if version not in EDA_FILE_OF_VERSION:
+        raise HTTPException(status_code=422, detail=f"version must be 'v1' or 'v2', not '{version}'")
     dcr_output_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_name}")
-    for version, name in (("v2", f"eda_output_v2_{cohort_name}.json"), ("v1", f"eda_output_{cohort_name}.json")):
-        path = os.path.join(dcr_output_dir, name)
-        if os.path.exists(path):
-            return path, version
-    return None, None
+    name = EDA_FILE_OF_VERSION[version].format(cohort=cohort_name)
+    path = os.path.join(dcr_output_dir, name)
+    if not os.path.exists(path):
+        other = "v1" if version == "v2" else "v2"
+        other_exists = os.path.exists(os.path.join(dcr_output_dir, EDA_FILE_OF_VERSION[other].format(cohort=cohort_name)))
+        hint = f" (a {other} file exists: ask for version={other})" if other_exists else ""
+        if not os.path.isdir(dcr_output_dir):
+            raise HTTPException(status_code=404, detail=f"No EDA output for cohort '{cohort_name}': no DCR output directory")
+        raise HTTPException(status_code=404, detail=f"No {version} EDA output for cohort '{cohort_name}' ({name} is not there){hint}")
+    return path
 
 
 @router.head("/cohort-eda-output/{cohort_name}")
 async def head_cohort_eda_output(
     cohort_name: str,
+    version: str = Query("v2", description="v1: the pre-July-2026 file; v2 (default): the file of the current runs"),
     user: Any = Depends(get_current_user),
 ):
-    """Quick check whether EDA output exists for a cohort (HEAD request); the
-    X-EDA-Version header says which format would be served."""
-    path, version = _eda_output_path(cohort_name)
-    if not path:
-        raise HTTPException(status_code=404, detail="Not found")
-    return Response(status_code=200, headers={"X-EDA-Version": version or "", "Access-Control-Expose-Headers": "X-EDA-Version"})
+    """Quick check whether the EDA output of that version exists for a cohort."""
+    _eda_output_path(cohort_name, version)
+    return Response(status_code=200, headers={"X-EDA-Version": version.lower(), "Access-Control-Expose-Headers": "X-EDA-Version"})
 
 
 @router.get("/cohort-eda-output/{cohort_name}")
 async def get_cohort_eda_output(
     cohort_name: str,
+    version: str = Query("v2", description="v1: the pre-July-2026 file; v2 (default): the file of the current runs"),
     user: Any = Depends(get_current_user),
 ):
-    """The EDA output JSON of a cohort: the v2 file when the cohort was profiled
-    with the v2 script, else the legacy v1 file. X-EDA-Version names the format."""
-    path, version = _eda_output_path(cohort_name)
-    if not path:
-        dcr_output_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_name}")
-        if not os.path.exists(dcr_output_dir):
-            raise HTTPException(status_code=404, detail=f"DCR output directory not found for cohort '{cohort_name}'")
-        raise HTTPException(status_code=404, detail=f"EDA output file not found for cohort '{cohort_name}'")
+    """The EDA output JSON of a cohort: version=v1 the old eda_output_<id>.json,
+    version=v2 (default) the eda_output_flat_v2_<id>.json of the current runs;
+    404 with the file name when the requested one does not exist."""
+    path = _eda_output_path(cohort_name, version)
     try:
         with open(path, 'r') as f:
             # NaN / Infinity are what Python wrote, but they are not valid JSON
@@ -116,7 +129,7 @@ async def get_cohort_eda_output(
         raise HTTPException(status_code=500, detail=f"Error parsing EDA output JSON: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading EDA output file: {str(e)}")
-    return JSONResponse(content=eda_data, headers={"X-EDA-Version": version or "", "Access-Control-Expose-Headers": "X-EDA-Version"})
+    return JSONResponse(content=eda_data, headers={"X-EDA-Version": version.lower(), "Access-Control-Expose-Headers": "X-EDA-Version"})
 
 
 @router.get("/cohorts-metadata-sparql")
