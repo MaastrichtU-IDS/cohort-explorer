@@ -758,9 +758,14 @@ def build_study_themes(elements: list[dict[str, Any]], pair_records: list[dict[s
         reason = (parts.get("shared") or rec.get("ai_reason") or "")[:500]
         for tid in tids:
             for me, other in ((a, b), (b, a)):
-                cell = table.setdefault(me["cohort"], {}).setdefault(tid, {"strength": 0.0, "count": 0, "excerpts": []})
+                cell = table.setdefault(me["cohort"], {}).setdefault(tid, {"strength": 0.0, "count": 0, "excerpts": [], "groups": {}})
                 cell["strength"] = max(cell["strength"], w)
                 cell["count"] += 1
+                # Which category of metadata carried the theme for this study (the
+                # rotating constellation re-clusters by category): the element's group.
+                grp = me.get("group") or FIELD_GROUP.get(me.get("field"), "")
+                if grp:
+                    cell.setdefault("groups", {})[grp] = cell.get("groups", {}).get(grp, 0) + 1
                 if len(cell["excerpts"]) < 6 and not any(x["text"] == me["text"] and x["with"] == other["cohort"] for x in cell["excerpts"]):
                     cell["excerpts"].append({"field": me["label"], "text": me["text"][:400], "with": other["cohort"],
                                              "with_text": other["text"][:400], "strength": rec.get("ai_strength"),
@@ -1114,7 +1119,58 @@ def theme_view(data: dict[str, Any]) -> dict[str, Any]:
                               "raw_strength": round(sum(x["w"] for x in shared), 3)})
     return {"finished": data.get("finished"), "model": data.get("model"), "studies": studies,
             "n_studies": n_total, "parents": parents, "themes": themes_out, "table": table, "pairs": pairs,
-            "excluded": sorted(excluded), "weights": ["balance", "specificity"]}
+            "excluded": sorted(excluded), "weights": ["balance", "specificity"],
+            "categories": [g["group"] for g in FIELD_GROUPS],
+            "study_info": _study_info(studies),
+            "constellation_mode": _constellation_mode()}
+
+
+def _constellation_mode() -> str:
+    """How the rotating constellation shows a study that belongs to several
+    groups: 'edges' (one node, pulled between them) or 'copies' (one node per
+    group, tethered). An admin setting; see src.admin APP_SETTINGS_DEFAULTS."""
+    try:
+        from src.admin import _load_app_settings
+        return str(_load_app_settings().get("constellation_mode") or "edges")
+    except Exception:
+        return "edges"
+
+
+def _study_info(studies: list[str]) -> dict[str, dict[str, Any]]:
+    """Per study: type, design, participants, number of dictionary variables,
+    whether a dictionary and an EDA profile exist. For node colour, size and
+    the subtle markers of the rotating constellation."""
+    out: dict[str, dict[str, Any]] = {}
+    try:
+        from src.cohort_cache import get_cohorts_from_cache
+        from src.chat import _has_eda_profile
+        admin_email = (settings.admins_list or [""])[0]
+        cohorts = get_cohorts_from_cache(admin_email)
+    except Exception as exc:
+        logger.warning("[metadata_clustering] study info unavailable: %s", exc)
+        cohorts = {}
+    by_lower = {cid.lower(): c for cid, c in cohorts.items()}
+    for s in studies:
+        c = cohorts.get(s) or by_lower.get(s.lower())
+        if c is None:
+            out[s] = {"type": None, "design": None, "participants": None, "n_variables": 0,
+                      "has_dictionary": False, "has_eda": False}
+            continue
+        participants = None
+        raw = str(getattr(c, "study_participants", "") or "").replace(",", "").replace(".", "").strip()
+        m = re.search(r"\d+", raw)
+        if m:
+            participants = int(m.group())
+        n_vars = len(getattr(c, "variables", None) or {})
+        has_eda = False
+        try:
+            has_eda = _has_eda_profile(getattr(c, "cohort_id", s))
+        except Exception:
+            pass
+        out[s] = {"type": getattr(c, "study_type", None), "design": getattr(c, "study_design", None),
+                  "participants": participants, "n_variables": n_vars,
+                  "has_dictionary": n_vars > 0, "has_eda": has_eda}
+    return out
 
 
 def run_clustering(instructions: str = "") -> None:

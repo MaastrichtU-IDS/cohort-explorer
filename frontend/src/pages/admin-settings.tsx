@@ -325,6 +325,8 @@ ORDER BY DESC(?triples)`;
         </div>
       </div>
 
+      <ConstellationModeCard />
+
       {/* iCARE-AI nav toggle */}
       <div className="card bg-base-200 shadow-md mt-6">
         <div className="card-body">
@@ -562,6 +564,57 @@ function ConceptLine({c}: {c: any}) {
       <span className="text-base-content/80">{c.name}</span>
       {c.match === 'case-insensitive' && <span className="badge badge-warning badge-sm">case differs</span>}
       {c.invalid_reason && <span className="badge badge-error badge-sm">{c.invalid_reason}</span>}
+    </div>
+  );
+}
+
+
+// How the rotating metadata constellation shows a study that belongs to several
+// theme groups: one node pulled between them, or one node per group (tethered copies).
+function ConstellationModeCard() {
+  const [mode, setMode] = useState<'edges' | 'copies' | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    fetch(`${apiUrl}/admin/settings`, {credentials: 'include'})
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d) setMode(d.constellation_mode === 'copies' ? 'copies' : 'edges'); })
+      .catch(() => {});
+  }, []);
+  const save = async (m: 'edges' | 'copies') => {
+    setSaving(true);
+    setErr(null);
+    try {
+      const r = await fetch(`${apiUrl}/admin/constellation-mode`, {
+        method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode: m}),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || `HTTP ${r.status}`);
+      setMode(d.constellation_mode);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="card bg-base-200 shadow-md mt-6">
+      <div className="card-body">
+        <h2 className="card-title text-lg">Metadata constellation: multi-group studies</h2>
+        <p className="text-sm text-base-content/70 mb-2">
+          In the rotating constellation a study whose shared themes fall under several groups is shown either as one node
+          pulled between those groups (<strong>edges</strong>) or as one node per group, the copies tethered and marked
+          ×n (<strong>copies</strong>). This is the default the page opens with; viewers can switch on the page to compare.
+        </p>
+        <div className="join">
+          {(['edges', 'copies'] as const).map(m => (
+            <button key={m} className={`btn btn-sm join-item ${mode === m ? 'btn-primary' : 'btn-outline'}`} disabled={saving || mode === null} onClick={() => save(m)}>
+              {m}
+            </button>
+          ))}
+        </div>
+        {err && <div className="alert alert-error text-sm mt-2">{err}</div>}
+      </div>
     </div>
   );
 }

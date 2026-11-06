@@ -35,7 +35,12 @@ APP_SETTINGS_DEFAULTS = {
     "code_explain_enabled": True,
     "code_explain_stopped_enabled": True,
     # Off = the traditional wizard opens directly.
+    # The rotating metadata constellation: a study carried by several theme
+    # groups is one node pulled between them ("edges") or one node per group,
+    # the copies tethered and marked ("copies").
+    "constellation_mode": "edges",
 }
+CONSTELLATION_MODES = ("edges", "copies")
 
 
 def _load_app_settings() -> dict:
@@ -94,6 +99,7 @@ def get_admin_settings(user: Any = Depends(get_current_user)) -> dict:
         "ai_nav_enabled": _load_app_settings()["ai_nav_enabled"],
         "code_explain_enabled": _load_app_settings()["code_explain_enabled"],
         "code_explain_stopped_enabled": _load_app_settings()["code_explain_stopped_enabled"],
+        "constellation_mode": _load_app_settings()["constellation_mode"],
     }
 
 
@@ -109,7 +115,26 @@ def get_public_settings() -> dict:
         "ai_nav_enabled": values["ai_nav_enabled"],
         "code_explain_enabled": values["code_explain_enabled"],
         "code_explain_stopped_enabled": values["code_explain_stopped_enabled"],
+        "constellation_mode": values["constellation_mode"],
     }
+
+
+class ConstellationModeRequest(BaseModel):
+    mode: str
+
+
+# POST /admin/constellation-mode — how the rotating constellation shows multi-group studies
+@router.post("/constellation-mode")
+def set_constellation_mode(body: ConstellationModeRequest, user: Any = Depends(get_current_user)) -> dict:
+    admin_email = _require_admin(user)
+    mode = (body.mode or "").strip().lower()
+    if mode not in CONSTELLATION_MODES:
+        raise HTTPException(status_code=422, detail=f"mode must be one of {', '.join(CONSTELLATION_MODES)}")
+    values = _load_app_settings()
+    values["constellation_mode"] = mode
+    _save_app_settings(values)
+    logging.info("Admin %s set constellation_mode=%s", admin_email, mode)
+    return {"constellation_mode": mode}
 
 
 def _toggle_setting(key: str, user: Any) -> dict:

@@ -5,6 +5,7 @@
 // theme, and studies that share more sit closer (a small force layout, no
 // library). Data: the metadata clustering's theme view.
 import React, {useEffect, useMemo, useRef, useState} from 'react';
+import RotatingConstellation from '@/components/RotatingConstellation';
 import Link from 'next/link';
 import {Share2, X} from 'react-feather';
 import {apiUrl} from '@/utils';
@@ -84,6 +85,7 @@ export default function MetadataConstellationPage() {
   const [hiddenParents, setHiddenParents] = useState<Set<string>>(new Set());
   const [picked, setPicked] = useState<string | null>(null);
   const [hoverEdge, setHoverEdge] = useState<{pair: StudyPair; x: number; y: number} | null>(null);
+  const [display, setDisplay] = useState<'rotating' | 'static'>('rotating');
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
@@ -148,10 +150,24 @@ export default function MetadataConstellationPage() {
           </p>
         </div>
 
+        {view && (
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-sm text-base-content/60">View</span>
+            <div className="join">
+              <button className={`btn btn-sm join-item ${display === 'rotating' ? 'btn-active' : ''}`} onClick={() => setDisplay('rotating')}
+                      title="Studies re-cluster every 30 seconds by the category of metadata that carried the shared themes">Rotating by category</button>
+              <button className={`btn btn-sm join-item ${display === 'static' ? 'btn-active' : ''}`} onClick={() => setDisplay('static')}
+                      title="One graph over all categories: edges weighted by shared themes">Static graph</button>
+            </div>
+          </div>
+        )}
+
         {isAdmin === null || (!view && !error) ? (
           <div className="flex justify-center items-center py-20"><span className="loading loading-spinner loading-lg"></span></div>
         ) : error ? (
           <div className="alert alert-warning text-sm"><span>{error} <Link href="/metadata-clustering" className="link">Open the metadata clustering page</Link> to run the matching.</span></div>
+        ) : view && display === 'rotating' ? (
+          <RotatingConstellation view={view} />
         ) : view && (
           <>
             <div className="flex flex-wrap gap-3 mb-3 items-center">

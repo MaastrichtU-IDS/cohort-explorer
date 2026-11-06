@@ -42,6 +42,17 @@ export interface ThemeCell {
   strength: number;
   count: number;
   excerpts: ThemeExcerpt[];
+  /** How many matches carried the theme for this study, per metadata category (runs since Nov 2026). */
+  groups?: Record<string, number>;
+}
+
+export interface StudyInfo {
+  type: string | null;
+  design: string | null;
+  participants: number | null;
+  n_variables: number;
+  has_dictionary: boolean;
+  has_eda: boolean;
 }
 
 export interface SharedTheme {
@@ -73,6 +84,11 @@ export interface ThemeView {
   table: Record<string, Record<string, ThemeCell>>;
   pairs: StudyPair[];
   excluded: string[];
+  /** The metadata categories the rotating constellation cycles through (field groups). */
+  categories?: string[];
+  study_info?: Record<string, StudyInfo>;
+  /** Admin default for multi-group studies in the rotating constellation: 'edges' | 'copies'. */
+  constellation_mode?: string;
 }
 
 export async function fetchThemeView(): Promise<ThemeView> {
