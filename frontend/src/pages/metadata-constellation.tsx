@@ -85,7 +85,7 @@ export default function MetadataConstellationPage() {
   const [hiddenParents, setHiddenParents] = useState<Set<string>>(new Set());
   const [picked, setPicked] = useState<string | null>(null);
   const [hoverEdge, setHoverEdge] = useState<{pair: StudyPair; x: number; y: number} | null>(null);
-  const [display, setDisplay] = useState<'rotating' | 'static'>('rotating');
+  const [display, setDisplay] = useState<'rotating' | 'venn' | 'static'>('rotating');
   const svgRef = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
@@ -156,6 +156,8 @@ export default function MetadataConstellationPage() {
             <div className="join">
               <button className={`btn btn-sm join-item ${display === 'rotating' ? 'btn-active' : ''}`} onClick={() => setDisplay('rotating')}
                       title="Studies re-cluster every 30 seconds by the category of metadata that carried the shared themes">Rotating by category</button>
+              <button className={`btn btn-sm join-item ${display === 'venn' ? 'btn-active' : ''}`} onClick={() => setDisplay('venn')}
+                      title="Overlapping group circles, no edges: a study in two groups sits in their overlap; rotates by category like the graph">Venn</button>
               <button className={`btn btn-sm join-item ${display === 'static' ? 'btn-active' : ''}`} onClick={() => setDisplay('static')}
                       title="One graph over all categories: edges weighted by shared themes">Static graph</button>
             </div>
@@ -168,6 +170,8 @@ export default function MetadataConstellationPage() {
           <div className="alert alert-warning text-sm"><span>{error} <Link href="/metadata-clustering" className="link">Open the metadata clustering page</Link> to run the matching.</span></div>
         ) : view && display === 'rotating' ? (
           <RotatingConstellation view={view} />
+        ) : view && display === 'venn' ? (
+          <RotatingConstellation view={view} variant="venn" />
         ) : view && (
           <>
             <div className="flex flex-wrap gap-3 mb-3 items-center">

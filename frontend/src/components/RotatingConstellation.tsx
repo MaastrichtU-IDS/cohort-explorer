@@ -10,11 +10,16 @@
 // default comes from the admin setting, and both can be tried here. Node
 // colour is the study type, node size equal or the log of participants or
 // variables; a solid outline marks a dictionary, a centre dot an EDA profile.
+// The "venn" variant drops the edges and the springs: each study sits at the
+// share-weighted centre of the groups it belongs to, so a study in two groups
+// lands in their overlap, and each group's circle is drawn around the studies
+// it holds, so the circles overlap exactly where studies are shared.
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Pause, Play, SkipBack, SkipForward} from 'react-feather';
 import {parentColor, ThemeView} from '@/components/metadataThemes';
 
 export type ConstellationMode = 'edges' | 'copies';
+export type Variant = 'graph' | 'venn';
 type SizeBy = 'equal' | 'participants' | 'variables';
 
 const W = 1100;
@@ -76,7 +81,8 @@ function studyTypeColor(types: string[], t: string | null | undefined): string {
   return i < 0 ? '#9ca3af' : TYPE_PALETTE[i % TYPE_PALETTE.length];
 }
 
-function buildFrame(view: ThemeView, category: string, mode: ConstellationMode): Frame {
+function buildFrame(view: ThemeView, category: string, mode: ConstellationMode, variant: Variant = 'graph'): Frame {
+  const ring = variant === 'venn' ? ANCHOR_R * 0.72 : ANCHOR_R;
   const themeById = Object.fromEntries(view.themes.map(t => [t.id, t]));
   const parentIndex = Object.fromEntries(view.parents.map((p, i) => [p.id, i]));
   // What each study carries in this category: theme -> weight (min strength x balance)
@@ -111,7 +117,7 @@ function buildFrame(view: ThemeView, category: string, mode: ConstellationMode):
   const present = view.parents.filter(p => view.studies.some(s => (share[s][p.id] || 0) > 0));
   const anchors: Anchor[] = present.map(p => {
     const angle = (parentIndex[p.id] / Math.max(1, view.parents.length)) * Math.PI * 2 - Math.PI / 2;
-    return {id: p.id, label: p.label, x: W / 2 + ANCHOR_R * Math.cos(angle), y: H / 2 + ANCHOR_R * Math.sin(angle),
+    return {id: p.id, label: p.label, x: W / 2 + ring * Math.cos(angle), y: H / 2 + ring * Math.sin(angle),
             color: parentColor(view.parents, p.id)};
   });
   // Pair weights in this category
@@ -196,23 +202,26 @@ function buildFrame(view: ThemeView, category: string, mode: ConstellationMode):
     }
   }
   const connectedStudies = new Set(nodes.filter(n => n.connected).map(n => n.study));
-  return {category, anchors, nodes, edges, connected: connectedStudies.size,
+  return {category, anchors, nodes, edges: variant === 'venn' ? [] : edges, connected: connectedStudies.size,
           unconnected: view.studies.length - connectedStudies.size, hasCategoryInfo: anyGroups};
 }
 
-export default function RotatingConstellation({view}: {view: ThemeView}) {
+export default function RotatingConstellation({view, variant = 'graph'}: {view: ThemeView; variant?: Variant}) {
   const categories = view.categories || [];
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [left, setLeft] = useState(FRAME_SECONDS);
-  const [mode, setMode] = useState<ConstellationMode>((view.constellation_mode as ConstellationMode) || 'edges');
+  const [modeState, setMode] = useState<ConstellationMode>((view.constellation_mode as ConstellationMode) || 'edges');
+  const mode: ConstellationMode = variant === 'venn' ? 'edges' : modeState;
   const [sizeBy, setSizeBy] = useState<SizeBy>('equal');
   const [picked, setPicked] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
   const category = categories[index] || '';
-  const frame = useMemo(() => buildFrame(view, category, mode), [view, category, mode]);
+  const frame = useMemo(() => buildFrame(view, category, mode, variant), [view, category, mode, variant]);
+  const variantRef = useRef(variant);
+  variantRef.current = variant;
   const types = useMemo(() => Array.from(new Set(Object.values(view.study_info || {}).map(i => i.type).filter(Boolean))).sort() as string[], [view]);
 
   // Countdown and rotation
@@ -289,7 +298,7 @@ export default function RotatingConstellation({view}: {view: ThemeView}) {
             if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 1; }
             const d = Math.sqrt(d2);
             const minD = (sizeRef.current[f.nodes[i].study] || 9) + (sizeRef.current[f.nodes[j].study] || 9) + 6;
-            const force = (900 / d2 + (d < minD ? (minD - d) * 0.5 : 0)) * a;
+            const force = ((variantRef.current === 'venn' ? 150 : 900) / d2 + (d < minD ? (minD - d) * 0.5 : 0)) * a;
             p.vx -= (dx / d) * force; p.vy -= (dy / d) * force;
             q.vx += (dx / d) * force; q.vy += (dy / d) * force;
           }
@@ -318,7 +327,7 @@ export default function RotatingConstellation({view}: {view: ThemeView}) {
             for (const [pid, w] of Object.entries(n.share)) {
               const an = anchorOf[pid];
               if (!an) continue;
-              const k = 0.045 * (w / total);
+              const k = (variantRef.current === 'venn' ? 0.16 : 0.045) * (w / total);
               p.vx += (an.x - p.x) * k * a; p.vy += (an.y - p.y) * k * a;
             }
           } else {
@@ -393,13 +402,30 @@ export default function RotatingConstellation({view}: {view: ThemeView}) {
 
       <div className="flex gap-4 items-start">
         <div className="min-w-0 flex-1 border border-base-300 rounded-lg bg-base-100 overflow-hidden relative">
-          <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto" role="img" aria-label={`Studies clustered by ${category}`}>
-            {frame.anchors.map(a => (
-              <g key={a.id}>
-                <circle cx={a.x} cy={a.y} r={90} fill={a.color} opacity={0.07} />
-                <text x={a.x} y={a.y - 98} textAnchor="middle" fontSize="13" fontWeight="600" fill={a.color}>{a.label}</text>
-              </g>
-            ))}
+          <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-auto" role="img" aria-label={variant === 'venn' ? `Studies in overlapping theme groups, by ${category}` : `Studies clustered by ${category}`}>
+            {frame.anchors.map(a => {
+              let r = 90;
+              if (variant === 'venn') {
+                // the smallest circle around the studies that carry this group (capped so a
+                // study pulled far away by other groups does not blow the circle up)
+                let far = 40;
+                for (const n of frame.nodes) {
+                  if (!(n.share[a.id] > 0)) continue;
+                  const p = pos[n.key];
+                  if (!p) continue;
+                  const d = Math.hypot(p.x - a.x, p.y - a.y) + (sizeRef.current[n.study] || 9) + 10;
+                  if (d > far) far = d;
+                }
+                r = Math.min(far, ANCHOR_R * 0.95);
+              }
+              return (
+                <g key={a.id}>
+                  <circle cx={a.x} cy={a.y} r={r} fill={a.color} opacity={variant === 'venn' ? 0.1 : 0.07}
+                          stroke={variant === 'venn' ? a.color : 'none'} strokeOpacity={0.35} strokeWidth={1.5} />
+                  <text x={a.x} y={a.y - r - 8} textAnchor="middle" fontSize="13" fontWeight="600" fill={a.color}>{a.label}</text>
+                </g>
+              );
+            })}
             {frame.edges.map(e => {
               const p = pos[e.a], q = pos[e.b];
               if (!p || !q) return null;
@@ -447,7 +473,7 @@ export default function RotatingConstellation({view}: {view: ThemeView}) {
                 ))}
               </div>
             </div>
-            <div>
+            {variant === 'graph' && <div>
               <div className="text-xs uppercase tracking-wide text-base-content/50 mb-1">Multi-group studies</div>
               <div className="join">
                 {(['edges', 'copies'] as ConstellationMode[]).map(m => (
@@ -458,7 +484,14 @@ export default function RotatingConstellation({view}: {view: ThemeView}) {
                 ))}
               </div>
               <div className="text-xs text-base-content/50 mt-1">The default is set on the admin settings page.</div>
-            </div>
+            </div>}
+            {variant === 'venn' && (
+              <div className="text-xs text-base-content/60">
+                Each study sits at the centre of the groups it belongs to, weighted by how much of its shared metadata
+                falls under each; a study in two groups lands in their overlap. A circle encloses the studies that carry
+                its group.
+              </div>
+            )}
             <div>
               <div className="text-xs uppercase tracking-wide text-base-content/50 mb-1">Colour: study type</div>
               <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
