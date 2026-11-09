@@ -2032,6 +2032,8 @@ __PROXY_NOTE__
 #        data_sources_used.csv            per cohort: full data or shuffled sample, rows, columns
 #        README.txt                       what installed, loaded and ran, and what did not, and why
 #        install_logs/<package>.out       R CMD INSTALL output of every package attempted
+#        exercise_logs/<package>_<input>.txt  what the package printed or warned during its exercise
+#        snapshot_replacements.csv        packages taken from the snapshot instead of current CRAN, and why
 #        provided_packages.csv            the image's own packages with their versions
 #        missing_packages_request.txt     the packages that cannot be installed here, grouped
 #                                         by cause (compiler, newer R, image package versions)
@@ -2090,7 +2092,6 @@ cat(R.version.string, "on", R.version$platform, "\n")
 lps <- .libPaths()
 nix_r <- any(grepl("^/nix/store/", lps))
 cat(length(lps), "library paths", if (nix_r) "(a Nix-built R: one store path per package)" else "", "\n")
-cat("  first:", lps[1], "\n  last: ", lps[length(lps)], "\n")
 cat("  packages already provided:", length(unique(unlist(lapply(lps, list.files)))), "\n")
 # The image's packages with their versions, for the record and for choosing
 # replacements: a package is installable here only when everything it pulls in
@@ -2107,7 +2108,7 @@ cat("Packages are installed into", LIB, "\n")
 
 proxy <- Sys.getenv(c("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_proxy", "NO_PROXY"), unset = NA)
 proxy <- proxy[!is.na(proxy) & proxy != ""]
-cat("Proxy environment:", if (length(proxy) == 0) "(none set)" else paste(names(proxy), proxy, sep = "=", collapse = "  "), "\n")
+if (length(proxy) > 0) cat("Proxy environment:", paste(names(proxy), proxy, sep = "=", collapse = "  "), "\n")
 
 # Certificate authorities for https. The image's OpenSSL has no certificate
 # store (every https fetch failed with "STORE routines::unregistered scheme"),
@@ -2157,7 +2158,6 @@ AVAILABLE_SNAPSHOT <- NULL   # its package index, fetched on first use
 # The user agent Posit reads to serve a binary: "R/<version> R (<version> <platform> <arch> <os>)".
 options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
                                 paste(getRversion(), R.version$platform, R.version$arch, R.version$os)))
-cat("User agent for the repositories:", getOption("HTTPUserAgent"), "\n")
 REPOS <- c(PPM = PPM, CRAN = CRAN)
 options(repos = REPOS)
 
@@ -2330,8 +2330,9 @@ t_install <- Sys.time()
 for (i in seq_along(PACKAGES)) {
   pkg <- PACKAGES[i]
   if (is_installed(pkg)) {
-    status$status[i] <- "already available"
-    status$source[i] <- "image"
+    in_lib <- is_installed(pkg, LIB)   # pulled in by an earlier package of the list
+    status$status[i] <- if (in_lib) "installed" else "already available"
+    status$source[i] <- if (in_lib) "with an earlier package" else "image"
     next
   }
   if (length(REPOS) == 0) {
@@ -2427,7 +2428,9 @@ unmet_requirements <- function(p) {
   }
   out
 }
-replaced <- character(0)
+replaced <- data.frame(package = character(0), current_version = character(0), installed_version = character(0),
+                       unmet_requirements = character(0), stringsAsFactors = FALSE)
+no_snapshot <- character(0)
 for (round in 1:3) {
   changed <- FALSE
   for (p in rownames(installed.packages(lib.loc = LIB, noCache = TRUE))) {
@@ -2435,19 +2438,23 @@ for (round in 1:3) {
     if (length(u) == 0) next
     old <- as.character(packageVersion(p, lib.loc = LIB))
     i <- match(p, PACKAGES)
+    deps_short <- paste(unique(sub(" >=.*", "", u)), collapse = ", ")
     if (!in_snapshot(p)) {
-      note("Installed ", p, " ", old, " needs ", paste(u, collapse = ", "), " and has no version in the snapshot of ",
-           SNAPSHOT_DATE, ": it, and what imports it, will not load")
+      if (!(p %in% no_snapshot)) {
+        no_snapshot <- c(no_snapshot, p)
+        note(p, " ", old, " needs newer ", deps_short, " than the image has and has no version in the snapshot of ",
+             SNAPSHOT_DATE, ": what imports it will not load")
+      }
       next
     }
-    cat("Installed ", p, " ", old, " needs ", paste(u, collapse = ", "), "; replacing it with its version of ", SNAPSHOT_DATE, "\n", sep = "")
     suppressMessages(remove.packages(p, lib = LIB))
     m <- install_snapshot(p)
     if (is_installed(p, LIB)) {
       changed <- TRUE
       new <- as.character(packageVersion(p, lib.loc = LIB))
-      replaced <- c(replaced, sprintf("%s %s -> %s (%s needed %s)", p, old, new, old, paste(u, collapse = ", ")))
-      cat("  installed ", p, " ", new, " from the snapshot\n", sep = "")
+      replaced <- rbind(replaced, data.frame(package = p, current_version = old, installed_version = new,
+                                             unmet_requirements = paste(u, collapse = "; "), stringsAsFactors = FALSE))
+      cat(p, " ", old, " -> ", new, " from the snapshot of ", SNAPSHOT_DATE, " (", old, " needs newer ", deps_short, " than the image has)\n", sep = "")
       if (!is.na(i)) {
         status$source[i] <- paste("snapshot", SNAPSHOT_DATE)
         status$reason[i] <- one_line(paste0("current version ", old, " needs ", paste(u, collapse = ", "), "; installed version ", new, " of ", SNAPSHOT_DATE, " instead"))
@@ -2481,9 +2488,16 @@ find_shared_lib <- function(name) {
 preloaded_libs <- character(0)
 load_with_libs <- function(pkg) {
   for (attempt in 1:6) {
-    err <- tryCatch({ suppressPackageStartupMessages(library(pkg, character.only = TRUE)); NULL },
-                    error = function(e) conditionMessage(e))
+    # library() reports a dependency's failure as a message of its own
+    # ("Error: package or namespace load failed for 'sysfonts' ... libfreetype.so.6"):
+    # collected and appended to the error, so the library's name is found.
+    msgs <- character(0)
+    err <- withCallingHandlers(
+      tryCatch({ suppressPackageStartupMessages(library(pkg, character.only = TRUE)); NULL },
+               error = function(e) conditionMessage(e)),
+      message = function(m) { msgs <<- c(msgs, trimws(conditionMessage(m))); invokeRestart("muffleMessage") })
     if (is.null(err)) return(NULL)
+    err <- paste(c(err, msgs), collapse = " | ")
     lib <- regmatches(err, regexpr("[A-Za-z0-9_+.-]+[.]so[.0-9]*(?=: cannot open shared object file)", err, perl = TRUE))
     if (length(lib) == 0) return(err)
     hit <- find_shared_lib(lib[1])
@@ -2522,18 +2536,25 @@ total_load <- round(as.numeric(difftime(Sys.time(), t_load, units = "secs")), 1)
 # What the attached packages mask (LTRCforests exports a plain print(), run of
 # 2026-11-09): the script calls base::print() itself; analysts copying it
 # should know what else their calls may reach.
-masked <- tryCatch(conflicts(detail = TRUE), error = function(e) list())
-masked <- masked[grepl("^package:", names(masked)) & !(names(masked) %in% c("package:base", "package:stats", "package:utils", "package:graphics", "package:grDevices", "package:methods", "package:datasets"))]
-if (length(masked) > 0) note("Functions masked by the attached packages (call base::, stats:: ... explicitly if you need the original): ",
-                             paste(unlist(lapply(names(masked), function(nm) paste0(sub("^package:", "", nm), ": ", paste(masked[[nm]], collapse = ", ")))), collapse = "; "))
-if (length(replaced) > 0) note("Replaced by the version of ", SNAPSHOT_DATE, " because the current version needs newer image packages: ", paste(replaced, collapse = "; "))
+base_fns <- unique(unlist(lapply(c("package:base", "package:stats", "package:utils", "package:graphics", "package:grDevices", "package:methods"),
+                                 function(e) if (e %in% search()) ls(e) else character(0))))
+masked <- unlist(lapply(loaded, function(p) {
+  e <- paste0("package:", p)
+  m <- if (e %in% search()) intersect(ls(e), base_fns) else character(0)
+  if (length(m) > 0) paste0(p, ": ", paste(m, collapse = ", ")) else character(0)
+}))
+if (length(masked) > 0) note("Base and stats functions masked by the requested packages (call base::print etc. when you need the original): ", paste(masked, collapse = "; "))
+if (nrow(replaced) > 0) {
+  write.csv(replaced, file.path(OUT, "snapshot_replacements.csv"), row.names = FALSE)
+  note("Taken from the snapshot of ", SNAPSHOT_DATE, " because the current version needs newer image packages (snapshot_replacements.csv): ",
+       paste0(replaced$package, " ", replaced$current_version, " -> ", replaced$installed_version, collapse = ", "))
+}
 if (length(preloaded_libs) > 0) note("Shared libraries of the image preloaded for prebuilt binaries: ", paste(unique(preloaded_libs), collapse = ", "))
 
 write.csv(status, file.path(OUT, "r_packages_status.csv"), row.names = FALSE)
-cat("\nPackage status (seconds to install / to load; full reasons in r_packages_status.csv):\n")
-shown <- status
-shown$reason <- ifelse(nchar(shown$reason) > 70, paste0(substr(shown$reason, 1, 70), "..."), shown$reason)
-base::print(shown, row.names = FALSE)
+cat("\nPackage status (seconds to install / to load; r_packages_status.csv has the full reasons):\n")
+base::print(status[, c("package", "status", "source", "install_seconds", "load_seconds", "cause")], row.names = FALSE)
+for (k in which(status$status == "FAILED")) cat("  ", status$package[k], ": ", one_line(status$reason[k], 200), "\n", sep = "")
 
 # What to ask the image maintainers for, grouped by cause: the packages the
 # node cannot install here and why. Written to missing_packages_request.txt.
@@ -2644,12 +2665,27 @@ record <- function(label, pkg, name, status, secs, outputs, detail) {
 }
 # run_exercise(): skipped when the package did not load or the data lacks what
 # the exercise needs; failed with the error otherwise; ok with its outputs.
+# What the package prints, warns or messages while it runs goes to
+# exercise_logs/<package>_<input>.txt, so the console keeps one line per exercise.
+EXERCISE_LOGS <- file.path(OUT, "exercise_logs")
+dir.create(EXERCISE_LOGS, showWarnings = FALSE)
 run_exercise <- function(label, pkg, name, needs_ok, needs_msg, fn) {
   if (!has(pkg)) { record(label, pkg, name, "skipped", 0, "", "package not loaded"); return(invisible()) }
   if (!needs_ok) { record(label, pkg, name, "skipped", 0, "", needs_msg); return(invisible()) }
   t0 <- Sys.time()
-  res <- tryCatch(fn(), error = function(e) structure(list(error = conditionMessage(e)), class = "exercise_error"))
+  chatter <- character(0)
+  printed <- character(0)
+  res <- tryCatch(
+    withCallingHandlers({
+      printed <- capture.output(value <- fn(), type = "output")
+      value
+    }, warning = function(w) { chatter <<- c(chatter, paste("warning:", conditionMessage(w))); invokeRestart("muffleWarning") },
+       message = function(m) { chatter <<- c(chatter, paste("message:", trimws(conditionMessage(m)))); invokeRestart("muffleMessage") }),
+    error = function(e) structure(list(error = conditionMessage(e)), class = "exercise_error"))
   secs <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+  log_lines <- c(printed[nzchar(trimws(printed))], chatter)
+  if (length(log_lines) > 0)
+    writeLines(c(paste0(pkg, " on ", label, ": ", name), "", log_lines), file.path(EXERCISE_LOGS, paste0(pkg, "_", label, ".txt")))
   if (inherits(res, "exercise_error")) {
     record(label, pkg, name, "failed", secs, "", res$error)
   } else {
@@ -2741,7 +2777,7 @@ analyse_cohort <- function(inp) {
   stats <- NULL
   if (length(num_cols) > 0) {
     stats <- do.call(rbind, lapply(num_cols, function(c) {
-      x <- df[[c]]
+      x <- suppressWarnings(as.numeric(df[[c]]))   # a numeric column with a class of its own (a time, a big integer) counts as numbers
       data.frame(column = c, n = sum(!is.na(x)), missing = sum(is.na(x)),
                  mean = scalar(mean(x, na.rm = TRUE)), sd = scalar(sd(x, na.rm = TRUE)),
                  min = scalar(suppressWarnings(min(x, na.rm = TRUE))), q25 = scalar(quantile(x, 0.25, na.rm = TRUE, names = FALSE)),
@@ -2752,7 +2788,25 @@ analyse_cohort <- function(inp) {
     write.csv(stats, file.path(OUT, paste0("summary_stats_", label, ".csv")), row.names = FALSE)
     note("wrote summary_stats_", label, ".csv (", length(num_cols), " numeric columns)")
   }
-  small <- df[, head(num_cols, 6), drop = FALSE]   # a few complete numeric columns for the table/imputation exercises
+  small <- df[, head(num_cols, 6), drop = FALSE]   # a few complete numeric columns for the table exercises
+  # For the imputation exercises: numeric columns with some missing values (1-60%),
+  # the most complete first; when every column is complete, a copy of `small`
+  # with 10% of its cells blanked at random, so the imputers have work to do.
+  miss_pct <- vapply(num_cols, function(c) 100 * mean(is.na(df[[c]])), numeric(1))
+  imp_cols <- head(num_cols[miss_pct >= 1 & miss_pct <= 60], 6)
+  if (length(imp_cols) >= 2) {
+    imp_data <- df[, imp_cols, drop = FALSE]
+    imp_note <- paste0(length(imp_cols), " columns with 1-60% missing values")
+  } else if (ncol(small) >= 2) {
+    set.seed(1)
+    imp_data <- small
+    for (c in names(imp_data)) imp_data[sample(nrow(imp_data), ceiling(0.1 * nrow(imp_data))), c] <- NA
+    imp_note <- "no column with missing values: 10% of the cells of the complete columns blanked at random first"
+  } else {
+    imp_data <- small; imp_note <- ""
+  }
+  # timeROC (0.4) and the survival trees call Surv() unqualified: survival must be attached.
+  if (avail("survival")) suppressPackageStartupMessages(library(survival))
 
   cat("-- exercises --\n")
   # writexl: the summary statistics as an Excel workbook
@@ -2871,12 +2925,14 @@ analyse_cohort <- function(inp) {
   })
   # sysfonts / showtext: the fonts the image has, and a plot rendered through showtext
   run_exercise(label, "sysfonts", "font_files() and font_families() of the image", TRUE, "", function() {
-    ff <- sysfonts::font_files()
+    ff <- sysfonts::font_files()     # a data frame of the system's font files; the image may have none
     fam <- sysfonts::font_families()
-    out <- data.frame(what = c("font files", "families registered"), count = c(nrow(ff), length(fam)),
-                      examples = c(paste(head(unique(ff$family), 8), collapse = "; "), paste(head(fam, 8), collapse = "; ")))
+    n_files <- if (is.data.frame(ff)) nrow(ff) else length(ff)
+    families <- if (is.data.frame(ff) && "family" %in% names(ff)) unique(ff$family) else character(0)
+    out <- data.frame(what = c("font files", "families registered"), count = c(n_files, length(fam)),
+                      examples = c(paste(head(families, 8), collapse = "; "), paste(head(fam, 8), collapse = "; ")))
     f <- out_file("sysfonts", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
-    list(outputs = f, detail = paste(nrow(ff), "font files on the image"))
+    list(outputs = f, detail = paste0(n_files, " font files on the image, ", length(fam), " families registered (", paste(head(fam, 4), collapse = ", "), ")"))
   })
   run_exercise(label, "showtext", "showtext_auto() and a plot with text", TRUE, "", function() {
     showtext::showtext_auto()
@@ -2888,39 +2944,48 @@ analyse_cohort <- function(inp) {
     list(outputs = g, detail = "rendered")
   })
   # LTRCtrees / LTRCforests: survival trees and forests for left-truncated right-censored data
-  # (no truncation time in these files: entry at 0, so they run as ordinary survival trees)
-  run_exercise(label, "LTRCtrees", "LTRCART() survival tree of time-to-event on the covariates", has_time, "needs an event and a follow-up time", function() {
-    dat <- md; dat$start <- 0; dat$stop <- pmax(dat[[time_col]], 1e-6)
-    fit <- LTRCtrees::LTRCART(reformulate(covs, "survival::Surv(start, stop, event)"), data = dat)
+  # (no truncation time in these files: entry at 0, so they run as ordinary survival
+  # trees; rows with a follow-up of 0 are left out, an interval needs a length)
+  ltrc_data <- function() {
+    dat <- md[md[[time_col]] > 0, , drop = FALSE]
+    dat$start <- 0; dat$stop <- dat[[time_col]]; dat$id <- seq_len(nrow(dat))
+    dat
+  }
+  run_exercise(label, "LTRCtrees", "LTRCART() survival tree of time-to-event on the covariates", has_time && sum(md[[time_col]] > 0) >= 30, "needs an event and 30 rows with a follow-up time > 0", function() {
+    dat <- ltrc_data()
+    fit <- LTRCtrees::LTRCART(reformulate(covs, "Surv(start, stop, event)"), data = dat)
+    if (nrow(fit$frame) <= 1)   # no split improves the fit: nothing to draw (expected on a shuffled sample)
+      return(list(outputs = character(0), detail = paste0("fitted on ", nrow(dat), " rows: a root only, no covariate splits the data (expected on a shuffled sample)")))
     g <- save_png(out_file("LTRCtrees", label, "png"), { plot(fit); text(fit, cex = 0.8) }, width = 1000, height = 650)
-    list(outputs = g, detail = paste(nrow(fit$frame), "nodes"))
+    list(outputs = g, detail = paste(nrow(fit$frame), "nodes on", nrow(dat), "rows"))
   })
-  run_exercise(label, "LTRCforests", "ltrccif() conditional inference forest (50 trees)", has_time, "needs an event and a follow-up time", function() {
-    dat <- md; dat$start <- 0; dat$stop <- pmax(dat[[time_col]], 1e-6); dat$id <- seq_len(nrow(dat))
-    fit <- LTRCforests::ltrccif(reformulate(covs, "survival::Surv(start, stop, event)"), data = dat, id = id, ntree = 50)
-    list(outputs = character(0), detail = paste("forest of", fit$ntree, "trees fitted"))
+  run_exercise(label, "LTRCforests", "ltrccif() conditional inference forest (50 trees)", has_time && sum(md[[time_col]] > 0) >= 30, "needs an event and 30 rows with a follow-up time > 0", function() {
+    dat <- ltrc_data()
+    fit <- LTRCforests::ltrccif(reformulate(covs, "Surv(start, stop, event)"), data = dat, id = id, ntree = 50)
+    list(outputs = character(0), detail = paste("forest of", fit$ntree, "trees fitted on", nrow(dat), "rows"))
   })
   run_exercise(label, "ksamplesLTRC", "load and list the exported functions", TRUE, "", function() {
     ex <- sort(getNamespaceExports("ksamplesLTRC"))
     f <- out_file("ksamplesLTRC", label, "csv"); write.csv(data.frame(exported_function = ex), file.path(OUT, f), row.names = FALSE)
     list(outputs = f, detail = paste(length(ex), "exports:", paste(head(ex, 6), collapse = ", ")))
   })
-  # miceRanger / Amelia: imputation of the most complete numeric columns
-  run_exercise(label, "miceRanger", "miceRanger() one imputation, two iterations", ncol(small) >= 2 && nrow(small) >= 30, "needs two numeric columns", function() {
-    dat <- small[rowSums(!is.na(small)) >= 1, ]
+  # miceRanger / Amelia: imputation of numeric columns with missing values (see imp_data above)
+  run_exercise(label, "miceRanger", "miceRanger() one imputation, two iterations", ncol(imp_data) >= 2 && nrow(imp_data) >= 30, "needs two numeric columns", function() {
+    dat <- imp_data[rowSums(!is.na(imp_data)) >= 1, , drop = FALSE]
     imp <- miceRanger::miceRanger(dat, m = 1, maxiter = 2, verbose = FALSE)
     comp <- miceRanger::completeData(imp)[[1]]
     out <- data.frame(column = names(dat), missing_before = colSums(is.na(dat)), missing_after = colSums(is.na(as.data.frame(comp))))
     f <- out_file("miceRanger", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
-    list(outputs = f, detail = paste(sum(out$missing_before), "cells imputed"))
+    list(outputs = f, detail = paste0(sum(out$missing_before), " cells imputed (", imp_note, ")"))
   })
-  run_exercise(label, "Amelia", "amelia() one imputation of the numeric columns", ncol(small) >= 2 && nrow(small) >= 30, "needs two numeric columns", function() {
-    dat <- small[rowSums(!is.na(small)) >= 1, ]
+  run_exercise(label, "Amelia", "amelia() one imputation of the numeric columns", ncol(imp_data) >= 2 && nrow(imp_data) >= 30, "needs two numeric columns", function() {
+    dat <- imp_data[rowSums(!is.na(imp_data)) >= 1, , drop = FALSE]
     am <- Amelia::amelia(dat, m = 1, p2s = 0)
+    if (!is.null(am$code) && am$code != 1) stop("Amelia error code ", am$code, ": ", paste(am$message, collapse = " "))
     comp <- am$imputations[[1]]
     out <- data.frame(column = names(dat), missing_before = colSums(is.na(dat)), missing_after = colSums(is.na(comp)))
     f <- out_file("Amelia", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
-    list(outputs = f, detail = paste(sum(out$missing_before), "cells imputed"))
+    list(outputs = f, detail = paste0(sum(out$missing_before), " cells imputed (", imp_note, ")"))
   })
   # grf: a causal forest when a binary treatment exists, a regression forest otherwise
   run_exercise(label, "grf", if (has_treat) "causal_forest() and its average treatment effect" else "regression_forest() and variable importance",
@@ -2985,11 +3050,6 @@ for (inp in INPUTS) tryCatch(analyse_cohort(inp), error = function(e)
   note(inp$label, ": analysis stopped - ", conditionMessage(e), " (the other cohorts and the result files are unaffected)"))
 
 write.csv(exercises, file.path(OUT, "package_exercises.csv"), row.names = FALSE)
-cat("\nExercises per package and cohort (package_exercises.csv):\n")
-if (nrow(exercises) > 0) {
-  shown <- exercises; shown$detail <- ifelse(nchar(shown$detail) > 60, paste0(substr(shown$detail, 1, 60), "..."), shown$detail)
-  base::print(shown[, c("cohort", "package", "status", "seconds", "detail")], row.names = FALSE)
-}
 # The status table gets an "exercise" column: what happened when the package was used.
 status$exercise <- vapply(status$package, function(p) {
   e <- exercises[exercises$package == p, ]
@@ -3009,6 +3069,7 @@ writeLines(c("load-R-packages - run summary", paste0("R ", R.version.string), ""
              if (nrow(sources_used) > 0) paste0("  ", sources_used$cohort, ": ", sources_used$source) else "  (none available)",
              "", notes),
            file.path(OUT, "README.txt"))
-cat("\nDone. Files in", OUT, ":\n")
-base::print(list.files(OUT))
+files <- list.files(OUT, recursive = TRUE)
+cat("\nDone: ", length(files), " files in ", OUT, " - README.txt, r_packages_status.csv, package_exercises.csv, summary_stats_<cohort>.csv/.xlsx, ",
+    "<package>_<cohort>.csv/.png, install_logs/, exercise_logs/", if (nrow(replaced) > 0) ", snapshot_replacements.csv" else "", "\n", sep = "")
 '''
