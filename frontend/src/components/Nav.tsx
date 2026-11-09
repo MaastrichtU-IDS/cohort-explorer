@@ -1365,10 +1365,12 @@ export function Nav() {
                       <div className="mt-6 pt-4 border-t">
                         <p className="text-sm font-semibold mb-1">Are you planning to use R for analysis scripts?</p>
                         <p className="text-xs text-base-content/60 mb-3">
-                          If yes, a node named <code>load-R-packages</code> will be added. Its purpose is to install a set of R packages
-                          from CRAN at run time (survival, dplyr, data.table, ggplot2, glmnet, xgboost, caret, mgcv and others) and to run
-                          a few basic statistics and plots on each cohort&apos;s data, using the shuffled sample of a cohort whose full data
-                          is not uploaded yet, as a starting point for analyses in R. The node is allowed outbound internet access to the R package repositories only (CRAN, Posit Package Manager and
+                          If yes, a node named <code>load-R-packages</code> will be added. Its purpose is to install the R packages the image does not
+                          provide (writexl, gtsummary, labelled, MuMIn, merTools, corrr, DHARMa, forestplot, timeROC, RMediation, forestploter,
+                          showtext, sysfonts, LTRCtrees, LTRCforests, ksamplesLTRC, miceRanger, Amelia, grf, caret, isotone, CBPS, WeightIt),
+                          prebuilt binaries first and CRAN sources as fallback, and to run one small exercise with each of them on every cohort&apos;s
+                          data (the shuffled sample while the full data is not uploaded), reporting per package whether it installed, loaded and
+                          ran. The node is allowed outbound internet access to the R package repositories only (CRAN, Posit Package Manager and
                           its download host); every domain it reaches is recorded by Decentriq in the node&apos;s result. Installing
                           the packages makes its first run slow.
                         </p>

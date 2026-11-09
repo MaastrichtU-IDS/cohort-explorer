@@ -1909,17 +1909,17 @@ def r_ca_bundle_content() -> str:
         return fh.read()
 
 
-# Packages the node installs from CRAN at runtime (those the built-in R
-# environment already provides are only loaded) and then loads with library().
-# The image ships no compiler, so only packages without compiled code (and
-# whose missing dependencies have none) can be installed this way; the rest
-# need Decentriq to add them to the image.
+# The packages the analysts asked for that the image does NOT provide (list of
+# 2026-11-09; survival, dplyr, ggplot2, glmnet, xgboost and the like are in the
+# image and need no install). The node installs them at run time, Posit's
+# prebuilt binaries first and CRAN sources as fallback, loads them, and runs
+# one small exercise with each on every cohort's data, so the result says per
+# package whether it installed, loaded and actually works here.
 R_PACKAGES = [
-    "survival", "LTRCtrees", "LTRCforests", "ksamplesLTRC", "dplyr", "data.table",
-    "miceRanger", "ggplot2", "Amelia", "plotly", "grf", "readr", "pROC", "glmnet",
-    "xgboost", "caret", "tibble", "isotone", "mgcv", "CBPS", "WeightIt", "scales",
-    "zoo", "purrr", "MuMIn", "merTools", "corrr", "DHARMa", "forestplot", "timeROC",
-    "RMediation", "forestploter", "showtext", "sysfonts",
+    "writexl", "gtsummary", "labelled", "MuMIn", "merTools", "corrr", "DHARMa",
+    "forestplot", "timeROC", "RMediation", "forestploter", "showtext", "sysfonts",
+    "LTRCtrees", "LTRCforests", "ksamplesLTRC", "miceRanger", "Amelia", "grf",
+    "caret", "isotone", "CBPS", "WeightIt",
 ]
 
 
@@ -1937,13 +1937,13 @@ def r_packages_script(inputs: list[dict], liberal_proxy: bool = False) -> str:
                     when the full data file is absent (not uploaded yet)
       - 'source':   what the input is, in words, for the script header
 
-    The script installs the packages of R_PACKAGES from CRAN (skipping those the
-    environment ships with), loads them, and runs a few basic statistics and
-    plots with some of them over each cohort's data - the full file when
-    uploaded, the shuffled sample otherwise: per-column summary statistics,
-    missingness per column, distributions of the most complete numeric
-    columns, pairwise correlations, and - when a follow-up time and an event
-    column can be recognised - a Kaplan-Meier curve and a logistic regression.
+    The script installs the packages of R_PACKAGES (the ones the image does not
+    provide), loads them, and runs one small exercise with each of them over
+    each cohort's data - the full file when uploaded, the shuffled sample
+    otherwise - writing per package whether it installed, loaded and ran, with
+    the error when it did not (r_packages_status.csv, package_exercises.csv,
+    README.txt). Base R and the image's own packages (survival, ggplot2, lme4)
+    are used only for the data preparation and plain plots the exercises need.
     Every file it writes holds aggregates only: no data rows leave the node.
     """
     def q(v):
@@ -1960,9 +1960,10 @@ def r_packages_script(inputs: list[dict], liberal_proxy: bool = False) -> str:
         "#      package installs actually contact; the allow-list of the regular\n"
         "#      node is then set from that list."
         if liberal_proxy else
-        "#      The node is allowed outbound access to packagemanager.posit.co and\n"
-        "#      cloud.r-project.org ONLY (a transparent SNI filter; a host outside\n"
-        "#      the list is cut off during the TLS handshake)."
+        "#      The node is allowed outbound access to cloud.r-project.org,\n"
+        "#      packagemanager.posit.co and its download host rspm-sync.rstudio.com\n"
+        "#      ONLY (a transparent SNI filter; a host outside the list is cut off\n"
+        "#      during the TLS handshake)."
     )
     packages = ", ".join(f'"{p}"' for p in R_PACKAGES)
     return _R_PACKAGES_SCRIPT.replace("__INPUT_SOURCES__", sources) \
@@ -2011,18 +2012,21 @@ __PROXY_NOTE__
 #      and written to README.txt. The analyses below only use a package when
 #      it loaded.
 #   2. Loads every available package with library().
-#   3. Runs basic statistics and plots over each input, writing AGGREGATES ONLY
-#      to /output (never data rows):
-#        summary_stats_<input>.csv        n, missing, mean, sd, quartiles per numeric column
-#        column_types_<input>.csv         how many columns of each type (dplyr)
-#        missingness_<input>.png          share of missing values per column (ggplot2, scales)
-#        distributions_<input>.png        histograms of the most complete numeric columns (ggplot2)
-#        correlations_<input>.csv/.png    pairwise correlations of numeric columns (corrr, ggplot2)
-#        kaplan_meier_<input>.png/.csv    survival curve when a follow-up time and an event
-#                                         column are recognised by name (survival)
-#        logistic_regression_<input>.csv  event ~ most complete numeric columns (glm)
+#   3. Runs ONE SMALL EXERCISE WITH EACH PACKAGE over each input - a model, a
+#      table or a plot that the package is for - so the result says, per
+#      package and cohort, whether it works in this room, not only whether it
+#      installed. The data preparation (summary statistics, which columns look
+#      like an event, a follow-up time, a treatment) uses base R and the image's
+#      own packages (survival, ggplot2, lme4). On a shuffled sample every model
+#      is a smoke test: the numbers mean nothing, the fact that the code ran does.
+#      Written to /output, AGGREGATES ONLY (never data rows):
+#        package_exercises.csv            per cohort and package: ok / failed / skipped, seconds,
+#                                         the files written, the error or the reason
+#        summary_stats_<input>.csv        n, missing, mean, sd, quartiles per numeric column (base R)
+#        <package>_<input>.csv/.png/.xlsx the exercise's own output, e.g. corrr_X.csv,
+#                                         forestplot_X.png, caret_X.csv, summary_stats_X.xlsx (writexl)
 #        data_sources_used.csv            per cohort: full data or shuffled sample, rows, columns
-#        README.txt                       what ran and what was skipped, and why
+#        README.txt                       what installed, loaded and ran, and what did not, and why
 #        install_logs/<package>.out       R CMD INSTALL output of every package attempted
 #        provided_packages.csv            the image's own packages with their versions
 #        missing_packages_request.txt     the packages that cannot be installed here, grouped
@@ -2456,7 +2460,60 @@ save_plot <- function(p, file, width = 10, height = 6) {
   note("wrote ", file)
 }
 
-# ---- 3. basic statistics and plots per input ---------------------------------
+# ---- 3. one exercise per package, on every input ---------------------------
+# avail(): the package loaded here, or the image provides it (survival,
+# ggplot2, lme4 ...) - used for the preparation and plain plots only.
+avail <- function(pkg) has(pkg) || suppressWarnings(requireNamespace(pkg, quietly = TRUE))
+exercises <- data.frame(cohort = character(0), package = character(0), exercise = character(0),
+                        status = character(0), seconds = numeric(0), outputs = character(0),
+                        detail = character(0), stringsAsFactors = FALSE)
+record <- function(label, pkg, name, status, secs, outputs, detail) {
+  exercises <<- rbind(exercises, data.frame(cohort = label, package = pkg, exercise = name, status = status,
+                                            seconds = round(secs, 1), outputs = paste(outputs, collapse = "; "),
+                                            detail = one_line(detail, 300), stringsAsFactors = FALSE))
+  cat(sprintf("  %-13s %-8s %s%s\n", pkg, status, name, if (nzchar(detail)) paste0(" - ", one_line(detail, 160)) else ""))
+}
+# run_exercise(): skipped when the package did not load or the data lacks what
+# the exercise needs; failed with the error otherwise; ok with its outputs.
+run_exercise <- function(label, pkg, name, needs_ok, needs_msg, fn) {
+  if (!has(pkg)) { record(label, pkg, name, "skipped", 0, "", "package not loaded"); return(invisible()) }
+  if (!needs_ok) { record(label, pkg, name, "skipped", 0, "", needs_msg); return(invisible()) }
+  t0 <- Sys.time()
+  res <- tryCatch(fn(), error = function(e) structure(list(error = conditionMessage(e)), class = "exercise_error"))
+  secs <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+  if (inherits(res, "exercise_error")) {
+    record(label, pkg, name, "failed", secs, "", res$error)
+  } else {
+    record(label, pkg, name, "ok", secs, res$outputs, if (is.null(res$detail)) "" else res$detail)
+  }
+  invisible()
+}
+out_file <- function(pkg, label, ext) paste0(pkg, "_", label, ".", ext)
+save_png <- function(file, expr, width = 1000, height = 650) {
+  png(file.path(OUT, file), width = width, height = height)
+  on.exit(dev.off(), add = TRUE)
+  force(expr)
+  file
+}
+# Columns that look like a binary treatment / exposure: 0/1 with both arms present.
+find_binary_col <- function(df, exclude = character(0), min_arm = 10) {
+  for (c in setdiff(names(df), exclude)) {
+    ev <- as_event(df[[c]])
+    if (!is.null(ev) && sum(!is.na(ev)) > 2 * min_arm) {
+      tab <- table(ev)
+      if (length(tab) == 2 && min(tab) >= min_arm) return(c)
+    }
+  }
+  NULL
+}
+glm_table <- function(fit) {
+  co <- as.data.frame(summary(fit)$coefficients)
+  data.frame(term = rownames(co), estimate = round(co[, 1], 4), std_error = round(co[, 2], 4),
+             odds_ratio = round(exp(co[, 1]), 4), lower95 = round(exp(co[, 1] - 1.96 * co[, 2]), 4),
+             upper95 = round(exp(co[, 1] + 1.96 * co[, 2]), 4), p_value = signif(co[, 4], 3),
+             stringsAsFactors = FALSE)
+}
+
 sources_used <- data.frame(cohort = character(0), source = character(0), file = character(0), rows = integer(0), columns = integer(0))
 for (inp in INPUTS) {
   label <- inp$label
@@ -2470,139 +2527,297 @@ for (inp in INPUTS) {
   df <- tryCatch(read_table(src$path), error = function(e) { note(label, ": could not read ", src$path, " - ", conditionMessage(e)); NULL })
   if (is.null(df)) next
   note(label, ": ", src$kind, ", ", nrow(df), " rows x ", ncol(df), " columns",
-       if (src$kind == "shuffled sample") " (values shuffled per column: only per-column figures are meaningful)" else "")
+       if (src$kind == "shuffled sample") " (values shuffled per column: every model below is a smoke test)" else "")
   sources_used <- rbind(sources_used, data.frame(cohort = label, source = src$kind, file = src$path, rows = nrow(df), columns = ncol(df)))
 
-  num_cols <- names(df)[vapply(df, is.numeric, logical(1))]
+  # ---- preparation (base R, image packages): what the exercises work on ----
   complete <- vapply(df, function(x) sum(!is.na(x)), numeric(1))
+  num_cols <- names(df)[vapply(df, is.numeric, logical(1))]
+  num_cols <- num_cols[vapply(num_cols, function(c) sd(df[[c]], na.rm = TRUE) > 0, logical(1))]
+  num_cols <- num_cols[order(-complete[num_cols])]
+  event_col <- find_event_col(df)
+  time_col <- if (is.null(event_col)) NULL else find_time_col(df, exclude = event_col)
+  treat_col <- find_binary_col(df, exclude = c(event_col, time_col))
+  covs <- head(setdiff(num_cols, c(event_col, time_col, treat_col)), 4)
+  # md: complete cases of the columns the models use (event, time, treatment, covariates)
+  used <- c(covs, event_col, time_col, treat_col)
+  md <- df[, used, drop = FALSE]
+  if (!is.null(event_col)) md$event <- as_event(df[[event_col]])
+  if (!is.null(treat_col)) md$treat <- as_event(df[[treat_col]])
+  md_rows <- which(complete.cases(md))   # the rows of df the models use
+  md <- md[md_rows, , drop = FALSE]
+  has_event <- !is.null(event_col) && nrow(md) >= 30 && length(covs) >= 1 && length(unique(md$event)) == 2
+  has_time <- has_event && !is.null(time_col) && all(md[[time_col]] >= 0)
+  has_treat <- !is.null(treat_col) && nrow(md) >= 30 && length(covs) >= 1 && length(unique(md$treat)) == 2
+  cat("prepared: ", length(num_cols), " varying numeric columns; event: ", if (is.null(event_col)) "-" else event_col,
+      "; time: ", if (is.null(time_col)) "-" else time_col, "; treatment: ", if (is.null(treat_col)) "-" else treat_col,
+      "; covariates: ", paste(covs, collapse = ", "), "; complete rows: ", nrow(md), "\n", sep = "")
+  if (has_event) {
+    fit_glm <- glm(reformulate(covs, "event"), data = md, family = binomial())
+    or_tab <- glm_table(fit_glm)
+  }
 
-  # summary statistics of every numeric column (aggregates)
+  # summary statistics of every numeric column (base R) - the table several exercises reuse
+  stats <- NULL
   if (length(num_cols) > 0) {
     stats <- do.call(rbind, lapply(num_cols, function(c) {
       x <- df[[c]]
       data.frame(column = c, n = sum(!is.na(x)), missing = sum(is.na(x)),
                  mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE),
-                 min = suppressWarnings(min(x, na.rm = TRUE)),
-                 q25 = unname(quantile(x, 0.25, na.rm = TRUE)),
-                 median = median(x, na.rm = TRUE),
-                 q75 = unname(quantile(x, 0.75, na.rm = TRUE)),
-                 max = suppressWarnings(max(x, na.rm = TRUE)),
-                 stringsAsFactors = FALSE)
+                 min = suppressWarnings(min(x, na.rm = TRUE)), q25 = unname(quantile(x, 0.25, na.rm = TRUE)),
+                 median = median(x, na.rm = TRUE), q75 = unname(quantile(x, 0.75, na.rm = TRUE)),
+                 max = suppressWarnings(max(x, na.rm = TRUE)), stringsAsFactors = FALSE)
     }))
     stats[, -1] <- lapply(stats[, -1], function(v) round(v, 4))
     write.csv(stats, file.path(OUT, paste0("summary_stats_", label, ".csv")), row.names = FALSE)
     note("wrote summary_stats_", label, ".csv (", length(num_cols), " numeric columns)")
-  } else {
-    note(label, ": no numeric column, summary statistics skipped")
   }
+  small <- df[, head(num_cols, 6), drop = FALSE]   # a few complete numeric columns for the table/imputation exercises
 
-  # how many columns of each type (dplyr)
-  if (has("dplyr")) {
-    types <- tibble::tibble(column = names(df), type = vapply(df, function(x) class(x)[1], character(1)),
-                            complete = complete) %>%
-      dplyr::group_by(type) %>%
-      dplyr::summarise(columns = dplyr::n(), mean_complete = round(mean(complete), 1), .groups = "drop")
-    write_table(types, paste0("column_types_", label, ".csv"))
-    note("wrote column_types_", label, ".csv")
-  }
-
-  # missingness per column (ggplot2 + scales)
-  if (has("ggplot2")) {
-    miss <- data.frame(column = names(df), missing = 1 - complete / nrow(df), stringsAsFactors = FALSE)
-    miss <- miss[order(-miss$missing), ][seq_len(min(40, nrow(miss))), ]
-    p <- ggplot2::ggplot(miss, ggplot2::aes(x = reorder(column, missing), y = missing)) +
-      ggplot2::geom_col(fill = "#c0392b") +
-      ggplot2::coord_flip() +
-      ggplot2::scale_y_continuous(labels = if (has("scales")) scales::percent else ggplot2::waiver(), limits = c(0, 1)) +
-      ggplot2::labs(title = paste0("Missing values per column - ", label),
-                    subtitle = paste0(nrow(df), " rows; the ", nrow(miss), " columns with most missing values"),
-                    x = NULL, y = "share missing") +
-      ggplot2::theme_minimal(base_size = 11)
-    save_plot(p, paste0("missingness_", label, ".png"), height = 8)
-  }
-
-  # distributions of the most complete numeric columns (ggplot2)
-  if (has("ggplot2") && length(num_cols) > 0) {
-    top <- head(num_cols[order(-complete[num_cols])], 8)
-    long <- do.call(rbind, lapply(top, function(c) data.frame(column = c, value = df[[c]][!is.na(df[[c]])])))
-    p <- ggplot2::ggplot(long, ggplot2::aes(x = value)) +
-      ggplot2::geom_histogram(bins = 30, fill = "#2e86c1", colour = "white") +
-      ggplot2::facet_wrap(~ column, scales = "free", ncol = 4) +
-      ggplot2::labs(title = paste0("Distributions - ", label), x = NULL, y = "count") +
-      ggplot2::theme_minimal(base_size = 11)
-    save_plot(p, paste0("distributions_", label, ".png"), height = 5)
-  }
-
-  # pairwise correlations of numeric columns (corrr + ggplot2)
-  cor_cols <- head(num_cols[order(-complete[num_cols])], 20)
-  cor_cols <- cor_cols[vapply(cor_cols, function(c) sd(df[[c]], na.rm = TRUE) > 0, logical(1))]
-  if (length(cor_cols) >= 2) {
-    if (has("corrr")) {
-      cm <- corrr::correlate(df[, cor_cols], use = "pairwise.complete.obs", quiet = TRUE)
-      long <- corrr::stretch(cm)
-      write_table(cm, paste0("correlations_", label, ".csv"))
+  cat("-- exercises --\n")
+  # writexl: the summary statistics as an Excel workbook
+  run_exercise(label, "writexl", "write the summary statistics to .xlsx", !is.null(stats), "no numeric column", function() {
+    f <- paste0("summary_stats_", label, ".xlsx")
+    writexl::write_xlsx(list(summary_stats = stats, data_source = sources_used[sources_used$cohort == label, ]), file.path(OUT, f))
+    list(outputs = f, detail = paste(nrow(stats), "rows"))
+  })
+  # labelled: variable labels on the columns, then a data dictionary with look_for()
+  run_exercise(label, "labelled", "set variable labels and build a dictionary with look_for()", ncol(small) > 0, "no numeric column", function() {
+    lab <- small
+    labels <- setNames(as.list(gsub("[_.]", " ", names(lab))), names(lab))
+    lab <- labelled::set_variable_labels(lab, .labels = labels)
+    dict <- as.data.frame(labelled::look_for(lab, details = FALSE))
+    f <- out_file("labelled", label, "csv")
+    write.csv(dict[, intersect(c("pos", "variable", "label", "col_type"), names(dict))], file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = paste(nrow(dict), "variables labelled"))
+  })
+  # gtsummary: a descriptive table of a few columns (by treatment arm when there is one)
+  run_exercise(label, "gtsummary", "tbl_summary() of the most complete numeric columns", ncol(small) > 0, "no numeric column", function() {
+    dat <- small
+    if (has_treat) { dat <- small[md_rows, , drop = FALSE]; dat$treat <- factor(md$treat) }
+    tbl <- if (has_treat) gtsummary::tbl_summary(dat, by = "treat") else gtsummary::tbl_summary(dat)
+    out <- as.data.frame(gtsummary::as_tibble(tbl))
+    f <- out_file("gtsummary", label, "csv")
+    write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = paste(nrow(out), "table rows"))
+  })
+  # corrr: correlations of numeric columns, as a table and a plot
+  run_exercise(label, "corrr", "correlate() the numeric columns, rplot()", length(num_cols) >= 2, "fewer than two varying numeric columns", function() {
+    cols <- head(num_cols, 12)
+    cm <- corrr::correlate(df[, cols], use = "pairwise.complete.obs", quiet = TRUE)
+    f <- out_file("corrr", label, "csv")
+    write.csv(as.data.frame(cm), file.path(OUT, f), row.names = FALSE)
+    outs <- f
+    if (avail("ggplot2")) {
+      p <- corrr::rplot(corrr::shave(cm), print_cor = TRUE) + ggplot2::labs(title = paste("Correlations -", label))
+      g <- out_file("corrr", label, "png"); ggplot2::ggsave(file.path(OUT, g), p, width = 9, height = 7, dpi = 120, bg = "white")
+      outs <- c(outs, g)
+    }
+    list(outputs = outs, detail = paste(length(cols), "columns"))
+  })
+  # MuMIn: all-subsets model selection of the event model
+  run_exercise(label, "MuMIn", "dredge() the logistic model of the event", has_event, "no event column with enough complete rows", function() {
+    fit <- glm(reformulate(covs, "event"), data = md, family = binomial(), na.action = na.fail)
+    dd <- MuMIn::dredge(fit, trace = FALSE)
+    out <- head(as.data.frame(dd), 12)
+    f <- out_file("MuMIn", label, "csv")
+    write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = paste(nrow(dd), "candidate models, best AICc", round(min(dd$AICc), 1)))
+  })
+  # merTools: prediction intervals of a mixed model with a random intercept
+  run_exercise(label, "merTools", "predictInterval() of a random-intercept lmer model", avail("lme4") && length(covs) >= 2 && nrow(md) >= 40,
+               "needs lme4 (image) and two covariates", function() {
+    dat <- md[, covs[1:2]]; names(dat) <- c("y", "x")
+    grp <- find_group_col(df)
+    dat$g <- if (!is.null(grp)) factor(df[[grp]][md_rows]) else cut(dat$x, breaks = 4, labels = FALSE)
+    dat <- dat[complete.cases(dat), ]
+    fit <- lme4::lmer(y ~ x + (1 | g), data = dat)
+    pi <- merTools::predictInterval(fit, newdata = head(dat, 50), n.sims = 200, level = 0.9, stat = "median")
+    out <- data.frame(statistic = c("median fit", "median lower 90%", "median upper 90%", "n rows predicted"),
+                      value = c(median(pi$fit), median(pi$lwr), median(pi$upr), nrow(pi)))
+    f <- out_file("merTools", label, "csv")
+    write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = paste("random intercept on", if (!is.null(grp)) grp else "4 bins of x"))
+  })
+  # DHARMa: residual diagnostics of the event model
+  run_exercise(label, "DHARMa", "simulateResiduals() + testDispersion() on the event model", has_event, "no event column with enough complete rows", function() {
+    sim <- DHARMa::simulateResiduals(fit_glm, n = 100, plot = FALSE)
+    disp <- DHARMa::testDispersion(sim, plot = FALSE)
+    unif <- DHARMa::testUniformity(sim, plot = FALSE)
+    out <- data.frame(test = c("dispersion", "uniformity (KS)"), statistic = c(disp$statistic, unif$statistic), p_value = c(disp$p.value, unif$p.value))
+    f <- out_file("DHARMa", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
+    g <- save_png(out_file("DHARMa", label, "png"), plot(sim), width = 1100, height = 550)
+    list(outputs = c(f, g), detail = sprintf("dispersion p=%.3f", disp$p.value))
+  })
+  # forestplot / forestploter: the odds ratios of the event model as forest plots
+  run_exercise(label, "forestplot", "forestplot() of the event model's odds ratios", has_event, "no event column with enough complete rows", function() {
+    t <- or_tab[or_tab$term != "(Intercept)", ]
+    g <- save_png(out_file("forestplot", label, "png"), {
+      print(forestplot::forestplot(labeltext = cbind(c("term", t$term), c("OR (95% CI)", sprintf("%.2f (%.2f-%.2f)", t$odds_ratio, t$lower95, t$upper95))),
+                                   mean = c(NA, t$odds_ratio), lower = c(NA, t$lower95), upper = c(NA, t$upper95),
+                                   is.summary = c(TRUE, rep(FALSE, nrow(t))), zero = 1, xlog = TRUE,
+                                   title = paste0("Odds ratios of ", event_col, " - ", label)))
+    }, width = 900, height = 450)
+    list(outputs = g, detail = paste(nrow(t), "terms"))
+  })
+  run_exercise(label, "forestploter", "forest() of the same odds ratios", has_event, "no event column with enough complete rows", function() {
+    t <- or_tab[or_tab$term != "(Intercept)", ]
+    dt <- data.frame(Term = t$term, ` ` = paste(rep(" ", 24), collapse = ""), `OR (95% CI)` = sprintf("%.2f (%.2f-%.2f)", t$odds_ratio, t$lower95, t$upper95),
+                     check.names = FALSE, stringsAsFactors = FALSE)
+    p <- forestploter::forest(dt, est = t$odds_ratio, lower = t$lower95, upper = t$upper95, ci_column = 2, ref_line = 1, x_trans = "log",
+                              title = paste0("Odds ratios of ", event_col, " - ", label))
+    g <- save_png(out_file("forestploter", label, "png"), plot(p), width = 900, height = 450)
+    list(outputs = g, detail = paste(nrow(t), "terms"))
+  })
+  # timeROC: time-dependent ROC of the first covariate as a marker for the event
+  run_exercise(label, "timeROC", "timeROC() of the first covariate as marker, AUC at three horizons", has_time, "needs an event and a follow-up time", function() {
+    tt <- unname(quantile(md[[time_col]][md[[time_col]] > 0], c(0.25, 0.5, 0.75)))
+    roc <- timeROC::timeROC(T = md[[time_col]], delta = md$event, marker = md[[covs[1]]], cause = 1, times = tt, iid = FALSE)
+    out <- data.frame(time = roc$times, AUC = round(roc$AUC, 4), cases = roc$Stats[, 1], survivors = roc$Stats[, 2])
+    f <- out_file("timeROC", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
+    g <- save_png(out_file("timeROC", label, "png"), plot(roc, time = tt[2], title = FALSE), width = 650, height = 650)
+    list(outputs = c(f, g), detail = sprintf("marker %s, AUC at median time %.3f", covs[1], roc$AUC[2]))
+  })
+  # RMediation: a mediation effect (a x b) with its distribution-of-the-product CI
+  run_exercise(label, "RMediation", "medci() for covariate 1 -> covariate 2 -> event", has_event && length(covs) >= 2, "needs an event and two covariates", function() {
+    a_fit <- lm(reformulate(covs[1], covs[2]), data = md)
+    b_fit <- glm(reformulate(covs[1:2], "event"), data = md, family = binomial())
+    a <- coef(summary(a_fit))[covs[1], ]; b <- coef(summary(b_fit))[covs[2], ]
+    ci <- RMediation::medci(mu.x = a[1], mu.y = b[1], se.x = a[2], se.y = b[2], type = "dop")
+    out <- data.frame(path = c("a (x -> m)", "b (m -> y | x)", "a x b"), estimate = c(a[1], b[1], ci$Estimate),
+                      lower95 = c(NA, NA, ci$`95% CI`[1]), upper95 = c(NA, NA, ci$`95% CI`[2]))
+    f <- out_file("RMediation", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = sprintf("x=%s, m=%s", covs[1], covs[2]))
+  })
+  # sysfonts / showtext: the fonts the image has, and a plot rendered through showtext
+  run_exercise(label, "sysfonts", "font_files() and font_families() of the image", TRUE, "", function() {
+    ff <- sysfonts::font_files()
+    fam <- sysfonts::font_families()
+    out <- data.frame(what = c("font files", "families registered"), count = c(nrow(ff), length(fam)),
+                      examples = c(paste(head(unique(ff$family), 8), collapse = "; "), paste(head(fam, 8), collapse = "; ")))
+    f <- out_file("sysfonts", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = paste(nrow(ff), "font files on the image"))
+  })
+  run_exercise(label, "showtext", "showtext_auto() and a plot with text", TRUE, "", function() {
+    showtext::showtext_auto()
+    on.exit(showtext::showtext_auto(FALSE), add = TRUE)
+    g <- save_png(out_file("showtext", label, "png"), {
+      plot.new(); text(0.5, 0.6, paste("showtext renders this text -", label), cex = 2)
+      text(0.5, 0.4, paste("families:", paste(head(sysfonts::font_families(), 4), collapse = ", ")), cex = 1.2)
+    }, width = 800, height = 400)
+    list(outputs = g, detail = "rendered")
+  })
+  # LTRCtrees / LTRCforests: survival trees and forests for left-truncated right-censored data
+  # (no truncation time in these files: entry at 0, so they run as ordinary survival trees)
+  run_exercise(label, "LTRCtrees", "LTRCART() survival tree of time-to-event on the covariates", has_time, "needs an event and a follow-up time", function() {
+    dat <- md; dat$start <- 0; dat$stop <- pmax(dat[[time_col]], 1e-6)
+    fit <- LTRCtrees::LTRCART(reformulate(covs, "survival::Surv(start, stop, event)"), data = dat)
+    g <- save_png(out_file("LTRCtrees", label, "png"), { plot(fit); text(fit, cex = 0.8) }, width = 1000, height = 650)
+    list(outputs = g, detail = paste(nrow(fit$frame), "nodes"))
+  })
+  run_exercise(label, "LTRCforests", "ltrccif() conditional inference forest (50 trees)", has_time, "needs an event and a follow-up time", function() {
+    dat <- md; dat$start <- 0; dat$stop <- pmax(dat[[time_col]], 1e-6); dat$id <- seq_len(nrow(dat))
+    fit <- LTRCforests::ltrccif(reformulate(covs, "survival::Surv(start, stop, event)"), data = dat, id = id, ntree = 50)
+    list(outputs = character(0), detail = paste("forest of", fit$ntree, "trees fitted"))
+  })
+  run_exercise(label, "ksamplesLTRC", "load and list the exported functions", TRUE, "", function() {
+    ex <- sort(getNamespaceExports("ksamplesLTRC"))
+    f <- out_file("ksamplesLTRC", label, "csv"); write.csv(data.frame(exported_function = ex), file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = paste(length(ex), "exports:", paste(head(ex, 6), collapse = ", ")))
+  })
+  # miceRanger / Amelia: imputation of the most complete numeric columns
+  run_exercise(label, "miceRanger", "miceRanger() one imputation, two iterations", ncol(small) >= 2 && nrow(small) >= 30, "needs two numeric columns", function() {
+    dat <- small[rowSums(!is.na(small)) >= 1, ]
+    imp <- miceRanger::miceRanger(dat, m = 1, maxiter = 2, verbose = FALSE)
+    comp <- miceRanger::completeData(imp)[[1]]
+    out <- data.frame(column = names(dat), missing_before = colSums(is.na(dat)), missing_after = colSums(is.na(as.data.frame(comp))))
+    f <- out_file("miceRanger", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = paste(sum(out$missing_before), "cells imputed"))
+  })
+  run_exercise(label, "Amelia", "amelia() one imputation of the numeric columns", ncol(small) >= 2 && nrow(small) >= 30, "needs two numeric columns", function() {
+    dat <- small[rowSums(!is.na(small)) >= 1, ]
+    am <- Amelia::amelia(dat, m = 1, p2s = 0)
+    comp <- am$imputations[[1]]
+    out <- data.frame(column = names(dat), missing_before = colSums(is.na(dat)), missing_after = colSums(is.na(comp)))
+    f <- out_file("Amelia", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = paste(sum(out$missing_before), "cells imputed"))
+  })
+  # grf: a causal forest when a binary treatment exists, a regression forest otherwise
+  run_exercise(label, "grf", if (has_treat) "causal_forest() and its average treatment effect" else "regression_forest() and variable importance",
+               (has_treat || has_event) && length(covs) >= 2, "needs two covariates and an event or a treatment", function() {
+    X <- as.matrix(md[, covs])
+    if (has_treat) {
+      Y <- if (has_event) md$event else md[[covs[1]]]
+      cf <- grf::causal_forest(X, Y, md$treat, num.trees = 200)
+      ate <- grf::average_treatment_effect(cf)
+      out <- data.frame(statistic = c("ATE", "std error", "n"), value = c(ate[["estimate"]], ate[["std.err"]], nrow(X)))
+      detail <- sprintf("ATE %.3f (se %.3f) of %s on %s", ate[["estimate"]], ate[["std.err"]], treat_col, if (has_event) event_col else covs[1])
     } else {
-      cm <- cor(df[, cor_cols], use = "pairwise.complete.obs")
-      write_table(data.frame(term = rownames(cm), round(cm, 4), check.names = FALSE), paste0("correlations_", label, ".csv"))
-      long <- data.frame(x = rep(rownames(cm), ncol(cm)), y = rep(colnames(cm), each = nrow(cm)), r = as.vector(cm))
+      rf <- grf::regression_forest(X, md$event, num.trees = 200)
+      vi <- grf::variable_importance(rf)
+      out <- data.frame(covariate = covs, importance = round(as.numeric(vi), 4))
+      detail <- paste("most important:", covs[which.max(vi)])
     }
-    note("wrote correlations_", label, ".csv (", length(cor_cols), " columns)")
-    if (has("ggplot2")) {
-      p <- ggplot2::ggplot(long, ggplot2::aes(x = x, y = y, fill = r)) +
-        ggplot2::geom_tile() +
-        ggplot2::scale_fill_gradient2(low = "#2166ac", mid = "white", high = "#b2182b", limits = c(-1, 1), na.value = "grey90") +
-        ggplot2::labs(title = paste0("Pairwise correlations - ", label), x = NULL, y = NULL) +
-        ggplot2::theme_minimal(base_size = 10) +
-        ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
-      save_plot(p, paste0("correlation_heatmap_", label, ".png"), width = 9, height = 8)
-    }
-  } else {
-    note(label, ": fewer than two varying numeric columns, correlations skipped")
-  }
-
-  # survival: Kaplan-Meier when a follow-up time and an event column are recognised
-  event_col <- find_event_col(df)
-  time_col <- if (is.null(event_col)) NULL else find_time_col(df, exclude = event_col)
-  if (!is.null(event_col) && !is.null(time_col) && has("survival")) {
-    sd_ <- data.frame(time = df[[time_col]], event = as_event(df[[event_col]]))
-    group_col <- find_group_col(df)
-    if (!is.null(group_col)) sd_$group <- as.factor(df[[group_col]])
-    sd_ <- sd_[!is.na(sd_$time) & !is.na(sd_$event) & sd_$time >= 0, ]
-    fit <- if (!is.null(group_col)) survival::survfit(survival::Surv(time, event) ~ group, data = sd_)
-           else survival::survfit(survival::Surv(time, event) ~ 1, data = sd_)
-    png(file.path(OUT, paste0("kaplan_meier_", label, ".png")), width = 1000, height = 650)
-    plot(fit, col = seq_len(max(1, length(fit$strata))), lwd = 2, xlab = time_col, ylab = "survival probability",
-         main = paste0("Kaplan-Meier - ", label, " (event: ", event_col, ")"))
-    if (!is.null(group_col)) legend("bottomleft", legend = names(fit$strata), col = seq_along(fit$strata), lwd = 2, bty = "n")
-    dev.off()
-    note("wrote kaplan_meier_", label, ".png (time: ", time_col, ", event: ", event_col,
-         if (!is.null(group_col)) paste0(", by ", group_col) else "", ")")
-    probs <- c(0.25, 0.5, 0.75)
-    sfit <- summary(fit, times = unname(quantile(sd_$time, probs)), extend = TRUE)
-    surv_tab <- data.frame(stratum = if (is.null(sfit$strata)) "all" else as.character(sfit$strata),
-                           time = sfit$time, n_risk = sfit$n.risk, n_event = sfit$n.event,
-                           survival = round(sfit$surv, 4), lower95 = round(sfit$lower, 4), upper95 = round(sfit$upper, 4))
-    write.csv(surv_tab, file.path(OUT, paste0("kaplan_meier_", label, ".csv")), row.names = FALSE)
-
-    # logistic regression of the event on the most complete numeric columns (glm)
-    covs <- head(setdiff(cor_cols, c(time_col, event_col)), 5)
-    if (length(covs) >= 1) {
-      md <- df[, covs, drop = FALSE]
-      md$event <- as_event(df[[event_col]])
-      md <- md[complete.cases(md), ]
-      if (nrow(md) > 10 * (length(covs) + 1)) {
-        fit_glm <- glm(event ~ ., data = md, family = binomial())
-        co <- as.data.frame(summary(fit_glm)$coefficients)
-        co <- data.frame(term = rownames(co), estimate = round(co[, 1], 4), std_error = round(co[, 2], 4),
-                         odds_ratio = round(exp(co[, 1]), 4), p_value = signif(co[, 4], 3), n = nrow(md))
-        write.csv(co, file.path(OUT, paste0("logistic_regression_", label, ".csv")), row.names = FALSE)
-        note("wrote logistic_regression_", label, ".csv (", event_col, " ~ ", paste(covs, collapse = " + "), ")")
-      }
-    }
-  } else {
-    note(label, ": no follow-up time / event column recognised by name (or 'survival' not loaded); survival analysis skipped")
-  }
+    f <- out_file("grf", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = detail)
+  })
+  # caret: 3-fold cross-validated logistic model of the event
+  run_exercise(label, "caret", "train() a glm with 3-fold cross-validation", has_event && nrow(md) >= 60, "needs an event and 60 complete rows", function() {
+    dat <- md[, covs]; dat$event <- factor(ifelse(md$event == 1, "yes", "no"))
+    ctrl <- caret::trainControl(method = "cv", number = 3)
+    fit <- caret::train(event ~ ., data = dat, method = "glm", family = binomial(), trControl = ctrl)
+    out <- fit$results
+    f <- out_file("caret", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = sprintf("accuracy %.3f, kappa %.3f", out$Accuracy[1], out$Kappa[1]))
+  })
+  # isotone: isotonic regression of covariate 2 on covariate 1 (fitted means per decile)
+  run_exercise(label, "isotone", "gpava() isotonic regression of covariate 2 on covariate 1", length(covs) >= 2 && nrow(md) >= 30, "needs two covariates", function() {
+    o <- order(md[[covs[1]]])
+    fit <- isotone::gpava(z = md[[covs[1]]][o], y = md[[covs[2]]][o])
+    dec <- cut(seq_along(fit$x), breaks = 10, labels = FALSE)
+    out <- data.frame(decile_of_x = 1:10, mean_x = tapply(fit$z, dec, mean), fitted_mean_y = tapply(fit$x, dec, mean))
+    f <- out_file("isotone", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = sprintf("%d distinct fitted levels", length(unique(fit$x))))
+  })
+  # CBPS / WeightIt: propensity-score weights for the treatment, and the balance they give
+  run_exercise(label, "CBPS", "CBPS() covariate-balancing propensity score, balance table", has_treat, "no binary treatment column", function() {
+    dat <- md[, covs]; dat$treat <- md$treat
+    fit <- CBPS::CBPS(reformulate(covs, "treat"), data = dat, ATT = 0, standardize = TRUE)
+    bal <- CBPS::balance(fit)
+    out <- data.frame(covariate = rownames(bal$balanced), balanced = round(bal$balanced[, 1], 4), original = round(bal$original[, 1], 4))
+    f <- out_file("CBPS", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = paste("treatment", treat_col))
+  })
+  run_exercise(label, "WeightIt", "weightit() inverse-probability weights (glm), effective sample sizes", has_treat, "no binary treatment column", function() {
+    dat <- md[, covs]; dat$treat <- md$treat
+    w <- WeightIt::weightit(reformulate(covs, "treat"), data = dat, method = "glm", estimand = "ATE")
+    sw <- summary(w)
+    ess <- as.data.frame(sw$effective.sample.size)
+    out <- data.frame(statistic = c("ESS control (unweighted)", "ESS treated (unweighted)", "ESS control (weighted)", "ESS treated (weighted)"),
+                      value = c(ess[1, 1], ess[1, 2], ess[2, 1], ess[2, 2]))
+    f <- out_file("WeightIt", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
+    list(outputs = f, detail = paste("treatment", treat_col, "- weights range", paste(round(range(w$weights), 2), collapse = " to ")))
+  })
 }
+
+write.csv(exercises, file.path(OUT, "package_exercises.csv"), row.names = FALSE)
+cat("\nExercises per package and cohort (package_exercises.csv):\n")
+if (nrow(exercises) > 0) {
+  shown <- exercises; shown$detail <- ifelse(nchar(shown$detail) > 60, paste0(substr(shown$detail, 1, 60), "..."), shown$detail)
+  print(shown[, c("cohort", "package", "status", "seconds", "detail")], row.names = FALSE)
+}
+# The status table gets an "exercise" column: what happened when the package was used.
+status$exercise <- vapply(status$package, function(p) {
+  e <- exercises[exercises$package == p, ]
+  if (nrow(e) == 0) return(if (status$status[status$package == p] == "FAILED") "not installed" else "no exercise")
+  n_ok <- sum(e$status == "ok"); n_fail <- sum(e$status == "failed"); n_skip <- sum(e$status == "skipped")
+  paste(c(if (n_ok) paste("ok on", n_ok), if (n_fail) paste("failed on", n_fail), if (n_skip) paste("skipped on", n_skip)), collapse = ", ")
+}, character(1))
+write.csv(status, file.path(OUT, "r_packages_status.csv"), row.names = FALSE)
+note("Exercises: ", sum(exercises$status == "ok"), " ok, ", sum(exercises$status == "failed"), " failed, ",
+     sum(exercises$status == "skipped"), " skipped, over ", length(unique(exercises$cohort)), " cohort(s)")
+failed_ex <- exercises[exercises$status == "failed", ]
+if (nrow(failed_ex) > 0) for (i in seq_len(nrow(failed_ex))) note("  failed: ", failed_ex$package[i], " on ", failed_ex$cohort[i], " - ", failed_ex$detail[i])
 
 write.csv(sources_used, file.path(OUT, "data_sources_used.csv"), row.names = FALSE)
 writeLines(c("load-R-packages - run summary", paste0("R ", R.version.string), "",
