@@ -2009,8 +2009,12 @@ __PROXY_NOTE__
 #      install is done. The outcome per package goes to r_packages_status.csv
 #      (already available / installed / FAILED, with the reason), with the
 #      seconds its installation and its loading took; the totals are printed
-#      and written to README.txt. The analyses below only use a package when
-#      it loaded.
+#      and written to README.txt. A package whose CURRENT version does not
+#      fit this image (needs a newer R, or a newer version of one of the
+#      image's packages, which this node never upgrades) is taken instead from
+#      Posit's snapshot of the CRAN of the image's date (see SNAPSHOT_DATE):
+#      the version of that day was built for this R and these dependencies.
+#      The analyses below only use a package when it loaded.
 #   2. Loads every available package with library().
 #   3. Runs ONE SMALL EXERCISE WITH EACH PACKAGE over each input - a model, a
 #      table or a plot that the package is for - so the result says, per
@@ -2056,6 +2060,8 @@ if (!nzchar(Sys.getenv("FONTCONFIG_FILE"))) {
   if (length(fc) > 0) Sys.setenv(FONTCONFIG_FILE = fc[1])
 }
 if (!nzchar(Sys.getenv("XDG_CACHE_HOME"))) Sys.setenv(XDG_CACHE_HOME = file.path(tempdir(), "cache"))
+# The image has no usable /etc/localtime: without TZ every date call warns about it.
+if (!nzchar(Sys.getenv("TZ"))) Sys.setenv(TZ = "UTC")
 
 notes <- character(0)
 note <- function(...) {
@@ -2138,6 +2144,16 @@ BINARY_CODENAME <- if (!is.na(distro) && !is.na(codename) && distro %in% c("ubun
 cat("Distribution:", if (length(os) == 0) "no /etc/os-release" else paste(distro, codename),
     if (nix_r) "(Nix-built R)" else "", "- Posit binaries built for", BINARY_CODENAME, "tried first, CRAN sources as fallback\n")
 PPM <- sprintf("https://packagemanager.posit.co/cran/__linux__/%s/latest", BINARY_CODENAME)
+# The same repository frozen at a date consistent with the image's own package
+# versions (R 4.3.2 of 2023-10-31; ggplot2 3.4.4, glue 1.6.2, i.e. the CRAN of
+# November 2023, nixpkgs 23.11). A package whose current version needs a newer
+# R or a newer version of an image package than the image has is taken from
+# here instead: the version of that day was built for this R and for these
+# dependency versions, as a prebuilt binary too. Older than the image is
+# harmless (an older package asks for older dependencies); newer is not.
+SNAPSHOT_DATE <- "2023-11-30"
+SNAPSHOT <- sprintf("https://packagemanager.posit.co/cran/__linux__/%s/%s", BINARY_CODENAME, SNAPSHOT_DATE)
+AVAILABLE_SNAPSHOT <- NULL   # its package index, fetched on first use
 # The user agent Posit reads to serve a binary: "R/<version> R (<version> <platform> <arch> <os>)".
 options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
                                 paste(getRversion(), R.version$platform, R.version$arch, R.version$os)))
@@ -2250,6 +2266,7 @@ dir.create(INSTALL_LOGS, showWarnings = FALSE)
 #   image package - a dependency needs a newer version of a package the image
 #                   provides, which this node never upgrades (see PROVIDED)
 #   other         - anything else: the .out file says what
+# Every cause but "network" gets a second chance from the snapshot (below).
 failure_cause <- function(pkg, msgs) {
   m <- paste(msgs, collapse = " ")
   if (grepl("not available for this version of R", m)) return("newer R")
@@ -2282,7 +2299,31 @@ failure_cause <- function(pkg, msgs) {
   "other"
 }
 
-status <- data.frame(package = PACKAGES, status = NA_character_,
+# The snapshot's package index (minus the image's packages), fetched once.
+snapshot_index <- function() {
+  if (is.null(AVAILABLE_SNAPSHOT)) {
+    r <- capture(available.packages(repos = c(SNAPSHOT = SNAPSHOT)))
+    idx <- if (is.null(r$value)) matrix(character(0), 0, 0) else r$value[!(rownames(r$value) %in% PROVIDED), , drop = FALSE]
+    cat("Snapshot of ", SNAPSHOT_DATE, " (", SNAPSHOT, "): ",
+        if (nrow(idx) > 0) paste(nrow(idx), "packages listed") else paste("NOT reachable -", one_line(r$messages)), "\n", sep = "")
+    AVAILABLE_SNAPSHOT <<- idx
+  }
+  AVAILABLE_SNAPSHOT
+}
+in_snapshot <- function(pkg) { idx <- snapshot_index(); nrow(idx) > 0 && pkg %in% rownames(idx) }
+# Install a package's version of the snapshot date into our library (its
+# dependencies from the snapshot too, those already in the library kept).
+# Returns install.packages()'s messages; is_installed() says whether it worked.
+install_snapshot <- function(pkg) {
+  idx <- snapshot_index()
+  if (nrow(idx) == 0) return(paste("snapshot repository", SNAPSHOT, "not reachable"))
+  if (!(pkg %in% rownames(idx))) return(paste0("'", pkg, "' is not in the snapshot of ", SNAPSHOT_DATE))
+  r <- capture(install.packages(pkg, lib = LIB, repos = c(SNAPSHOT = SNAPSHOT), available = idx, quiet = TRUE,
+                                dependencies = c("Depends", "Imports", "LinkingTo"), keep_outputs = INSTALL_LOGS))
+  r$messages
+}
+
+status <- data.frame(package = PACKAGES, status = NA_character_, source = "",
                      install_seconds = NA_real_, load_seconds = NA_real_,
                      cause = "", reason = "", stringsAsFactors = FALSE)
 t_install <- Sys.time()
@@ -2290,6 +2331,7 @@ for (i in seq_along(PACKAGES)) {
   pkg <- PACKAGES[i]
   if (is_installed(pkg)) {
     status$status[i] <- "already available"
+    status$source[i] <- "image"
     next
   }
   if (length(REPOS) == 0) {
@@ -2322,9 +2364,27 @@ for (i in seq_along(PACKAGES)) {
                                    keep_outputs = INSTALL_LOGS))
     r$messages <- unique(c(r$messages, paste("source retry:", r2$messages)))
   }
+  # Still not installed, and not for want of network: the current version does
+  # not fit this image (a newer R, or a newer version of an image package,
+  # asked by the package itself or by a dependency). The version of the
+  # snapshot date is installed instead, with the current version's problem
+  # kept as the reason.
+  if (!is_installed(pkg, LIB) && length(REPOS) > 0 && !grepl("^network", failure_cause(pkg, r$messages))) {
+    cat("  the current version does not install here (", failure_cause(pkg, r$messages), "); trying the version of ", SNAPSHOT_DATE, "\n", sep = "")
+    m3 <- install_snapshot(pkg)
+    if (is_installed(pkg, LIB)) {
+      status$source[i] <- paste("snapshot", SNAPSHOT_DATE)
+      status$reason[i] <- one_line(c(paste0("current CRAN version does not fit this image (", failure_cause(pkg, r$messages),
+                                            "); installed version ", as.character(packageVersion(pkg, lib.loc = LIB)), " of ", SNAPSHOT_DATE, " instead:"), r$messages))
+      cat("  installed ", pkg, " ", as.character(packageVersion(pkg, lib.loc = LIB)), " from the snapshot\n", sep = "")
+    } else {
+      r$messages <- unique(c(r$messages, paste("snapshot retry:", m3)))
+    }
+  }
   status$install_seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1)
   if (is_installed(pkg, LIB)) {
     status$status[i] <- "installed"
+    if (!nzchar(status$source[i])) status$source[i] <- "current CRAN"
   } else {
     status$status[i] <- "FAILED"
     msgs <- if (length(r$messages) > 0) r$messages else "no message from install.packages; see the console log above"
@@ -2333,32 +2393,134 @@ for (i in seq_along(PACKAGES)) {
     cat("  FAILED (", status$cause[i], "): ", status$reason[i], "\n", sep = "")
   }
 }
+# ---- 1b. do the installed packages accept the image's package versions? -----
+# A current prebuilt package installs fine and then fails to load when it (or
+# a dependency installed with it) imports a newer version of an image package
+# than the image has (run of 2026-11-09: gtsummary wanted glue >= 1.8.0 against
+# 1.6.2, WeightIt wanted ggplot2 >= 4.0.0 against 3.4.4). The requirements in
+# the DESCRIPTION files of our library are checked against the versions on the
+# path; a package with an unmet one is replaced by its version of the snapshot
+# date, which asked for what the image has. Repeated while anything changes.
+dep_requirements <- function(p) {
+  d <- tryCatch(suppressWarnings(packageDescription(p, lib.loc = LIB)), error = function(e) NULL)
+  if (is.null(d) || !is.list(d)) return(NULL)
+  items <- unlist(lapply(c("Depends", "Imports", "LinkingTo"), function(f)
+    if (is.null(d[[f]]) || is.na(d[[f]])) character(0) else strsplit(gsub("[[:space:]]+", " ", d[[f]]), ",")[[1]]))
+  items <- trimws(items)
+  items <- items[nzchar(items)]
+  if (length(items) == 0) return(NULL)
+  dep <- sub("^([A-Za-z0-9.]+).*$", "\\1", items)
+  has_min <- grepl("\\(\\s*>=?\\s*[0-9.-]+\\s*\\)", items)
+  min_version <- ifelse(has_min, sub("^.*\\(\\s*>=?\\s*([0-9.-]+)\\s*\\).*$", "\\1", items), NA_character_)
+  data.frame(dep = dep, min_version = min_version, stringsAsFactors = FALSE)[dep != "R", , drop = FALSE]
+}
+unmet_requirements <- function(p) {
+  req <- dep_requirements(p)
+  if (is.null(req) || nrow(req) == 0) return(character(0))
+  out <- character(0)
+  for (k in seq_len(nrow(req))) {
+    if (is.na(req$min_version[k])) next
+    inst <- tryCatch(as.character(packageVersion(req$dep[k])), error = function(e) NA_character_)
+    if (is.na(inst)) next
+    if (utils::compareVersion(inst, req$min_version[k]) < 0)
+      out <- c(out, sprintf("%s >= %s (the image has %s)", req$dep[k], req$min_version[k], inst))
+  }
+  out
+}
+replaced <- character(0)
+for (round in 1:3) {
+  changed <- FALSE
+  for (p in rownames(installed.packages(lib.loc = LIB, noCache = TRUE))) {
+    u <- unmet_requirements(p)
+    if (length(u) == 0) next
+    old <- as.character(packageVersion(p, lib.loc = LIB))
+    i <- match(p, PACKAGES)
+    if (!in_snapshot(p)) {
+      note("Installed ", p, " ", old, " needs ", paste(u, collapse = ", "), " and has no version in the snapshot of ",
+           SNAPSHOT_DATE, ": it, and what imports it, will not load")
+      next
+    }
+    cat("Installed ", p, " ", old, " needs ", paste(u, collapse = ", "), "; replacing it with its version of ", SNAPSHOT_DATE, "\n", sep = "")
+    suppressMessages(remove.packages(p, lib = LIB))
+    m <- install_snapshot(p)
+    if (is_installed(p, LIB)) {
+      changed <- TRUE
+      new <- as.character(packageVersion(p, lib.loc = LIB))
+      replaced <- c(replaced, sprintf("%s %s -> %s (%s needed %s)", p, old, new, old, paste(u, collapse = ", ")))
+      cat("  installed ", p, " ", new, " from the snapshot\n", sep = "")
+      if (!is.na(i)) {
+        status$source[i] <- paste("snapshot", SNAPSHOT_DATE)
+        status$reason[i] <- one_line(paste0("current version ", old, " needs ", paste(u, collapse = ", "), "; installed version ", new, " of ", SNAPSHOT_DATE, " instead"))
+      }
+    } else {
+      note("  ", p, " could not be reinstalled from the snapshot (", one_line(m, 160), "): what imports it will not load")
+      if (!is.na(i)) {
+        status$status[i] <- "FAILED"
+        status$cause[i] <- paste0("image package (", paste(sub(" >=.*", "", u), collapse = ", "), ")")
+        status$reason[i] <- one_line(c(paste0("version ", old, " needs ", paste(u, collapse = ", "), "; snapshot retry:"), m))
+      }
+    }
+  }
+  if (!changed) break
+}
 total_install <- round(as.numeric(difftime(Sys.time(), t_install, units = "secs")), 1)
 
 # ---- 2. load every available package, timing each library() call -----------
-loaded <- character(0)
-t_load <- Sys.time()
-for (i in seq_along(PACKAGES)) {
-  pkg <- PACKAGES[i]
-  if (!is_installed(pkg)) next
-  t0 <- Sys.time()
-  # A package can be installed and still not load (a system library the enclave
-  # lacks, a dependency version it does not like): that is a FAILED row with
-  # the load error as its reason, never the end of the run.
-  err <- tryCatch({ suppressPackageStartupMessages(library(pkg, character.only = TRUE)); NULL },
-                  error = function(e) conditionMessage(e))
-  status$load_seconds[i] <- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
-  if (is.null(err)) {
-    loaded <- c(loaded, pkg)
-  } else {
-    status$status[i] <- "FAILED"
-    status$reason[i] <- one_line(paste("installed but does not load:", err))
+# A package can be installed and still not load (a system library the enclave
+# lacks, a dependency version it does not like): that is a FAILED row with
+# the load error as its reason, never the end of the run.
+# A shared library a prebuilt binary needs may be in the image under a path
+# the dynamic linker does not search (libfreetype.so.6 for sysfonts, run of
+# 2026-11-09): it is looked for in the Nix store and the usual library
+# directories, loaded into the process, and the package is tried again.
+find_shared_lib <- function(name) {
+  hits <- Sys.glob(c(file.path("/nix/store/*/lib", name), file.path("/nix/store/*/lib", paste0(name, ".*")),
+                     file.path(c("/usr/lib", "/usr/lib64", "/lib", "/lib64", "/usr/lib/x86_64-linux-gnu"), name)))
+  hits[file.exists(hits)]
+}
+preloaded_libs <- character(0)
+load_with_libs <- function(pkg) {
+  for (attempt in 1:6) {
+    err <- tryCatch({ suppressPackageStartupMessages(library(pkg, character.only = TRUE)); NULL },
+                    error = function(e) conditionMessage(e))
+    if (is.null(err)) return(NULL)
     lib <- regmatches(err, regexpr("[A-Za-z0-9_+.-]+[.]so[.0-9]*(?=: cannot open shared object file)", err, perl = TRUE))
-    status$cause[i] <- if (length(lib) > 0) paste0("system library (", lib[1], ")") else "load error"
-    cat("Loading", pkg, "... FAILED (", status$cause[i], "): ", status$reason[i], "\n", sep = "")
+    if (length(lib) == 0) return(err)
+    hit <- find_shared_lib(lib[1])
+    if (length(hit) == 0) return(err)
+    ok <- tryCatch({ dyn.load(hit[1], local = FALSE); TRUE }, error = function(e) FALSE)
+    if (!ok) return(err)
+    cat("  preloaded ", lib[1], " from ", hit[1], " for ", pkg, "\n", sep = "")
+    preloaded_libs <<- c(preloaded_libs, paste0(lib[1], " (", hit[1], ")"))
+  }
+  err
+}
+loaded <- character(0)
+try_load <- function(i) {
+  pkg <- PACKAGES[i]
+  t0 <- Sys.time()
+  err <- load_with_libs(pkg)
+  status$load_seconds[i] <<- round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 2)
+  if (is.null(err)) {
+    loaded <<- c(loaded, pkg)
+    if (status$status[i] == "FAILED") { status$status[i] <<- "installed"; status$cause[i] <<- ""; status$reason[i] <<- "" }
+  } else {
+    status$status[i] <<- "FAILED"
+    status$reason[i] <<- one_line(paste("installed but does not load:", err))
+    lib <- regmatches(err, regexpr("[A-Za-z0-9_+.-]+[.]so[.0-9]*(?=: cannot open shared object file)", err, perl = TRUE))
+    status$cause[i] <<- if (length(lib) > 0) paste0("system library (", lib[1], ")") else "load error"
+    cat("Loading ", pkg, " ... FAILED (", status$cause[i], "): ", status$reason[i], "\n", sep = "")
   }
 }
+t_load <- Sys.time()
+for (i in seq_along(PACKAGES)) if (is_installed(PACKAGES[i])) try_load(i)
+# A second pass for what failed to load: a package may only have needed one
+# loaded after it (showtext needs sysfonts, whose library was found above).
+failed_load <- which(status$status == "FAILED" & !is.na(status$load_seconds))
+for (i in failed_load) if (is_installed(PACKAGES[i])) { cat("Retrying ", PACKAGES[i], " ...\n", sep = ""); try_load(i) }
 total_load <- round(as.numeric(difftime(Sys.time(), t_load, units = "secs")), 1)
+if (length(replaced) > 0) note("Replaced by the version of ", SNAPSHOT_DATE, " because the current version needs newer image packages: ", paste(replaced, collapse = "; "))
+if (length(preloaded_libs) > 0) note("Shared libraries of the image preloaded for prebuilt binaries: ", paste(unique(preloaded_libs), collapse = ", "))
 
 write.csv(status, file.path(OUT, "r_packages_status.csv"), row.names = FALSE)
 cat("\nPackage status (seconds to install / to load; full reasons in r_packages_status.csv):\n")
@@ -2379,8 +2541,8 @@ if (nrow(failed_rows) > 0) {
     head_line <- switch(k,
       "compiler" = "Need a C/C++/Fortran compiler (the image has none), or the packages pre-installed:",
       "system library" = "Need a system library or header the image lacks (see install_logs/<package>.out):",
-      "newer R" = paste0("Need a newer R than ", R.version$major, ".", R.version$minor, " (CRAN has no build for this version):"),
-      "image package" = "Need a newer version of a package the image provides (this node never upgrades those):",
+      "newer R" = paste0("Need a newer R than ", R.version$major, ".", R.version$minor, " (CRAN has no build for this version, and the snapshot of ", SNAPSHOT_DATE, " none either):"),
+      "image package" = paste0("Need a newer version of a package the image provides (this node never upgrades those; the snapshot of ", SNAPSHOT_DATE, " did not help):"),
       "network" = "A download was refused by the node's internet allow-list (the host in brackets must be allowed; accessed_domains.txt lists it):",
       "load error" = "Installed (prebuilt binary) but failed to load for another reason (see r_packages_status.csv):",
       "Failed for another reason (see install_logs/<package>.out):")
@@ -2515,20 +2677,31 @@ glm_table <- function(fit) {
 }
 
 sources_used <- data.frame(cohort = character(0), source = character(0), file = character(0), rows = integer(0), columns = integer(0))
-for (inp in INPUTS) {
+# One value or NA: a statistic of an odd column must never change the row count.
+scalar <- function(v) if (length(v) == 1) as.numeric(v) else NA_real_
+analyse_cohort <- function(inp) {
   label <- inp$label
   src <- pick_source(inp)
   if (is.null(src)) {
     note(label, ": neither the full data file (", inp$path, ") nor a shuffled sample (",
          if (nzchar(inp$fallback)) inp$fallback else "none in this room", ") is available yet - skipped")
-    next
+    return(invisible())
   }
   cat("\n==== ", label, " - ", src$kind, " (", src$path, ") ====\n", sep = "")
   df <- tryCatch(read_table(src$path), error = function(e) { note(label, ": could not read ", src$path, " - ", conditionMessage(e)); NULL })
-  if (is.null(df)) next
+  if (is.null(df)) return(invisible())
+  # Column names as R expects them, unique and syntactic: a header with an
+  # empty or repeated name gives NULL when the column is taken by name (the
+  # run of 2026-11-09 halted on exactly that in the summary statistics).
+  fixed <- make.names(names(df), unique = TRUE)
+  if (any(fixed != names(df))) {
+    note(label, ": ", sum(fixed != names(df)), " column name(s) made unique and syntactic, e.g. ",
+         paste(head(sprintf("'%s' -> %s", names(df)[fixed != names(df)], fixed[fixed != names(df)]), 3), collapse = ", "))
+    names(df) <- fixed
+  }
   note(label, ": ", src$kind, ", ", nrow(df), " rows x ", ncol(df), " columns",
        if (src$kind == "shuffled sample") " (values shuffled per column: every model below is a smoke test)" else "")
-  sources_used <- rbind(sources_used, data.frame(cohort = label, source = src$kind, file = src$path, rows = nrow(df), columns = ncol(df)))
+  sources_used <<- rbind(sources_used, data.frame(cohort = label, source = src$kind, file = src$path, rows = nrow(df), columns = ncol(df)))
 
   # ---- preparation (base R, image packages): what the exercises work on ----
   complete <- vapply(df, function(x) sum(!is.na(x)), numeric(1))
@@ -2563,10 +2736,10 @@ for (inp in INPUTS) {
     stats <- do.call(rbind, lapply(num_cols, function(c) {
       x <- df[[c]]
       data.frame(column = c, n = sum(!is.na(x)), missing = sum(is.na(x)),
-                 mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE),
-                 min = suppressWarnings(min(x, na.rm = TRUE)), q25 = unname(quantile(x, 0.25, na.rm = TRUE)),
-                 median = median(x, na.rm = TRUE), q75 = unname(quantile(x, 0.75, na.rm = TRUE)),
-                 max = suppressWarnings(max(x, na.rm = TRUE)), stringsAsFactors = FALSE)
+                 mean = scalar(mean(x, na.rm = TRUE)), sd = scalar(sd(x, na.rm = TRUE)),
+                 min = scalar(suppressWarnings(min(x, na.rm = TRUE))), q25 = scalar(quantile(x, 0.25, na.rm = TRUE, names = FALSE)),
+                 median = scalar(median(x, na.rm = TRUE)), q75 = scalar(quantile(x, 0.75, na.rm = TRUE, names = FALSE)),
+                 max = scalar(suppressWarnings(max(x, na.rm = TRUE))), stringsAsFactors = FALSE)
     }))
     stats[, -1] <- lapply(stats[, -1], function(v) round(v, 4))
     write.csv(stats, file.path(OUT, paste0("summary_stats_", label, ".csv")), row.names = FALSE)
@@ -2799,6 +2972,10 @@ for (inp in INPUTS) {
     list(outputs = f, detail = paste("treatment", treat_col, "- weights range", paste(round(range(w$weights), 2), collapse = " to ")))
   })
 }
+# One cohort's failure (an unexpected column, a model that cannot be fit) is a
+# note, never the end of the run: the other cohorts and the files below follow.
+for (inp in INPUTS) tryCatch(analyse_cohort(inp), error = function(e)
+  note(inp$label, ": analysis stopped - ", conditionMessage(e), " (the other cohorts and the result files are unaffected)"))
 
 write.csv(exercises, file.path(OUT, "package_exercises.csv"), row.names = FALSE)
 cat("\nExercises per package and cohort (package_exercises.csv):\n")

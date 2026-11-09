@@ -1368,7 +1368,9 @@ export function Nav() {
                           If yes, a node named <code>load-R-packages</code> will be added. Its purpose is to install the R packages the image does not
                           provide (writexl, gtsummary, labelled, MuMIn, merTools, corrr, DHARMa, forestplot, timeROC, RMediation, forestploter,
                           showtext, sysfonts, LTRCtrees, LTRCforests, ksamplesLTRC, miceRanger, Amelia, grf, caret, isotone, CBPS, WeightIt),
-                          prebuilt binaries first and CRAN sources as fallback, and to run one small exercise with each of them on every cohort&apos;s
+                          prebuilt binaries first and CRAN sources as fallback (a package whose current version needs a newer R or newer
+                          image packages than the image has is taken from Posit&apos;s snapshot of the image&apos;s date instead), and to run
+                          one small exercise with each of them on every cohort&apos;s
                           data (the shuffled sample while the full data is not uploaded), reporting per package whether it installed, loaded and
                           ran. The node is allowed outbound internet access to the R package repositories only (CRAN, Posit Package Manager and
                           its download host); every domain it reaches is recorded by Decentriq in the node&apos;s result. Installing
