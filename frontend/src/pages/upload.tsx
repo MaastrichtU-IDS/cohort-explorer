@@ -12,10 +12,10 @@ import LoginPrompt from '@/components/LoginPrompt';
 const WizardSteps = ({currentStep}: {currentStep: number}) => {
   return (
     <ul className="steps w-full mb-8">
-      <li className={`step ${currentStep >= 1 ? 'step-info' : ''}`}>
+      <li className={`step ${currentStep >= 1 ? 'step-omop' : ''}`}>
         <span className="text-sm sm:text-base">Upload Metadata</span>
       </li>
-      <li className={`step ${currentStep >= 2 ? 'step-info' : ''}`}>
+      <li className={`step ${currentStep >= 2 ? 'step-omop' : ''}`}>
         <span className="text-sm sm:text-base">Create Data Clean Room</span>
       </li>
     </ul>
@@ -370,7 +370,7 @@ export default function UploadPage() {
         <WizardSteps currentStep={step} />
 
         {operationMessage && (
-          <div role="alert" className={`alert alert-${operationMessage.type} mb-4 shadow-md`}>
+          <div role="alert" className={`alert alert-${operationMessage.type === 'info' ? 'omop' : operationMessage.type} mb-4 shadow-md`}>
             {operationMessage.type === 'error' && <XCircle className="stroke-current shrink-0 h-6 w-6" />}
             {operationMessage.type === 'success' && <Check className="stroke-current shrink-0 h-6 w-6" />}
             {operationMessage.type === 'warning' && <AlertTriangle className="stroke-current shrink-0 h-6 w-6" />}
@@ -394,7 +394,7 @@ export default function UploadPage() {
                   role="alert" 
                   className={`p-4 mb-4 rounded-lg shadow {
                     validationStatusMessage.includes("Critical") ? 'alert alert-error' : 
-                    (isValidated ? 'alert alert-success' : 'alert alert-info')
+                    (isValidated ? 'alert alert-success' : 'alert alert-omop')
                   }`}>
                   <div className="flex items-center">
                     {validationStatusMessage.includes("Critical") && <AlertTriangle size={20} className="mr-2 shrink-0" />}
@@ -423,7 +423,7 @@ export default function UploadPage() {
               )}
 
               {!validationStatusMessage && (!validationErrors || validationErrors.length === 0) && (
-                <div className="alert alert-info mt-4">
+                <div className="alert alert-omop mt-4">
                   <InfoIcon size={20} className="mr-2 shrink-0" />
                   <span>Validation has not been performed for the current file, or no issues were found previously.</span>
                 </div>
@@ -480,7 +480,7 @@ export default function UploadPage() {
                   {cohortId && (
                     <div className="mt-2">
                       {metadataExists ? (
-                        <div role="alert" className="alert alert-info">
+                        <div role="alert" className="alert alert-omop">
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="stroke-current shrink-0 w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                           <span>Metadata already exists for cohort <strong>{cohortsData?.[cohortId]?.label || cohortId}</strong>. You can proceed directly to Step 2 or upload a new file to replace the existing metadata. You may view the current metadata dictionary{' '}
                             <a
@@ -511,7 +511,7 @@ export default function UploadPage() {
                       <input
                         type="file"
                         id="metadataFile"
-                        className={`file-input file-input-bordered file-input-info w-full max-w-xs ${!metadataExists ? 'file-input-required' : ''}`}
+                        className={`file-input file-input-bordered file-input-omop w-full max-w-xs ${!metadataExists ? 'file-input-required' : ''}`}
                         accept=".csv"
                         onChange={(event) => {if (event.target.files) setMetadataFile(event.target.files[0])}}
                         required={!metadataExists}
@@ -547,7 +547,7 @@ export default function UploadPage() {
 
                    <button 
                      type="submit" 
-                     className="btn btn-info" 
+                     className="btn btn-omop" 
                      disabled={isLoading || isValdating || !cohortId || !isValidated || !metadataFile}
                    >
                      {isLoading ? <span className="loading loading-spinner loading-xs"></span> : <Upload className="w-4 h-4" />}
@@ -648,11 +648,11 @@ export default function UploadPage() {
                        <label key={v} className="label cursor-pointer gap-2 py-0" title={variableLabelOf(v) || v}>
                          <input
                            type="checkbox"
-                           className="checkbox checkbox-sm checkbox-secondary"
+                           className="checkbox checkbox-sm checkbox-omop"
                            checked
                            onChange={() => toggleCustomStratifier(v)}
                          />
-                         <span className="label-text font-mono text-secondary">{v}</span>
+                         <span className="label-text font-mono text-omop">{v}</span>
                          {variableLabelOf(v) && <span className="label-text text-xs text-base-content/60 max-w-[14rem] truncate">{variableLabelOf(v)}</span>}
                        </label>
                      ))}
@@ -676,10 +676,10 @@ export default function UploadPage() {
                        stratifierCandidates.map(v => {
                          const on = customStratifiers.includes(v.name);
                          return (
-                           <label key={v.name} className={`flex items-start gap-3 px-3 py-1.5 cursor-pointer border-b border-base-200 last:border-b-0 hover:bg-base-200/60 ${on ? 'bg-secondary/10' : ''}`}>
+                           <label key={v.name} className={`flex items-start gap-3 px-3 py-1.5 cursor-pointer border-b border-base-200 last:border-b-0 hover:bg-base-200/60 ${on ? 'bg-omop-row' : ''}`}>
                              <input
                                type="checkbox"
-                               className="checkbox checkbox-xs checkbox-secondary mt-1"
+                               className="checkbox checkbox-xs checkbox-omop mt-1"
                                checked={on}
                                onChange={() => toggleCustomStratifier(v.name)}
                              />

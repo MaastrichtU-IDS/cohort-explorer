@@ -218,3 +218,62 @@ a.link {
     animation: none;
   }
 }
+
+/* The light blue of the "OMOP ID" badge on the Explore page's variable cards
+   (#dbeafe fill, #1e3a8a text, #bfdbfe border); the upload wizard uses it in
+   place of the theme's info blue and for the extra-stratifier checkboxes. */
+.text-omop {
+  color: #1e3a8a;
+}
+.bg-omop-row {
+  background-color: rgba(219, 234, 254, 0.5);
+}
+.checkbox-omop {
+  --chkbg: #dbeafe;
+  --chkfg: #1e3a8a;
+  border-color: #bfdbfe;
+}
+.checkbox-omop:hover,
+.checkbox-omop:focus-visible {
+  border-color: #93c5fd;
+  outline-color: #bfdbfe;
+}
+.checkbox-omop:checked,
+.checkbox-omop[aria-checked='true'] {
+  border-color: #bfdbfe;
+  background-color: #dbeafe;
+  color: #1e3a8a;
+}
+.steps .step-omop + .step-omop:before {
+  background-color: #dbeafe;
+}
+.steps .step-omop:after {
+  background-color: #dbeafe;
+  color: #1e3a8a;
+}
+.alert-omop {
+  border-color: #bfdbfe;
+  background-color: #dbeafe;
+  color: #1e3a8a;
+}
+.file-input-omop {
+  border-color: #bfdbfe;
+}
+.file-input-omop:focus {
+  outline-color: #bfdbfe;
+}
+.file-input-omop::file-selector-button {
+  border-color: #bfdbfe;
+  background-color: #dbeafe;
+  color: #1e3a8a;
+}
+.btn-omop {
+  border-color: #bfdbfe;
+  background-color: #dbeafe;
+  color: #1e3a8a;
+}
+.btn-omop:hover {
+  border-color: #93c5fd;
+  background-color: #bfdbfe;
+  color: #1e3a8a;
+}
