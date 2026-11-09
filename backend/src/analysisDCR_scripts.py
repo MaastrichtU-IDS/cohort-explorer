@@ -2519,6 +2519,13 @@ for (i in seq_along(PACKAGES)) if (is_installed(PACKAGES[i])) try_load(i)
 failed_load <- which(status$status == "FAILED" & !is.na(status$load_seconds))
 for (i in failed_load) if (is_installed(PACKAGES[i])) { cat("Retrying ", PACKAGES[i], " ...\n", sep = ""); try_load(i) }
 total_load <- round(as.numeric(difftime(Sys.time(), t_load, units = "secs")), 1)
+# What the attached packages mask (LTRCforests exports a plain print(), run of
+# 2026-11-09): the script calls base::print() itself; analysts copying it
+# should know what else their calls may reach.
+masked <- tryCatch(conflicts(detail = TRUE), error = function(e) list())
+masked <- masked[grepl("^package:", names(masked)) & !(names(masked) %in% c("package:base", "package:stats", "package:utils", "package:graphics", "package:grDevices", "package:methods", "package:datasets"))]
+if (length(masked) > 0) note("Functions masked by the attached packages (call base::, stats:: ... explicitly if you need the original): ",
+                             paste(unlist(lapply(names(masked), function(nm) paste0(sub("^package:", "", nm), ": ", paste(masked[[nm]], collapse = ", ")))), collapse = "; "))
 if (length(replaced) > 0) note("Replaced by the version of ", SNAPSHOT_DATE, " because the current version needs newer image packages: ", paste(replaced, collapse = "; "))
 if (length(preloaded_libs) > 0) note("Shared libraries of the image preloaded for prebuilt binaries: ", paste(unique(preloaded_libs), collapse = ", "))
 
@@ -2526,7 +2533,7 @@ write.csv(status, file.path(OUT, "r_packages_status.csv"), row.names = FALSE)
 cat("\nPackage status (seconds to install / to load; full reasons in r_packages_status.csv):\n")
 shown <- status
 shown$reason <- ifelse(nchar(shown$reason) > 70, paste0(substr(shown$reason, 1, 70), "..."), shown$reason)
-print(shown, row.names = FALSE)
+base::print(shown, row.names = FALSE)
 
 # What to ask the image maintainers for, grouped by cause: the packages the
 # node cannot install here and why. Written to missing_packages_request.txt.
@@ -2826,7 +2833,7 @@ analyse_cohort <- function(inp) {
   run_exercise(label, "forestplot", "forestplot() of the event model's odds ratios", has_event, "no event column with enough complete rows", function() {
     t <- or_tab[or_tab$term != "(Intercept)", ]
     g <- save_png(out_file("forestplot", label, "png"), {
-      print(forestplot::forestplot(labeltext = cbind(c("term", t$term), c("OR (95% CI)", sprintf("%.2f (%.2f-%.2f)", t$odds_ratio, t$lower95, t$upper95))),
+      base::print(forestplot::forestplot(labeltext = cbind(c("term", t$term), c("OR (95% CI)", sprintf("%.2f (%.2f-%.2f)", t$odds_ratio, t$lower95, t$upper95))),
                                    mean = c(NA, t$odds_ratio), lower = c(NA, t$lower95), upper = c(NA, t$upper95),
                                    is.summary = c(TRUE, rep(FALSE, nrow(t))), zero = 1, xlog = TRUE,
                                    title = paste0("Odds ratios of ", event_col, " - ", label)))
@@ -2981,7 +2988,7 @@ write.csv(exercises, file.path(OUT, "package_exercises.csv"), row.names = FALSE)
 cat("\nExercises per package and cohort (package_exercises.csv):\n")
 if (nrow(exercises) > 0) {
   shown <- exercises; shown$detail <- ifelse(nchar(shown$detail) > 60, paste0(substr(shown$detail, 1, 60), "..."), shown$detail)
-  print(shown[, c("cohort", "package", "status", "seconds", "detail")], row.names = FALSE)
+  base::print(shown[, c("cohort", "package", "status", "seconds", "detail")], row.names = FALSE)
 }
 # The status table gets an "exercise" column: what happened when the package was used.
 status$exercise <- vapply(status$package, function(p) {
@@ -3003,5 +3010,5 @@ writeLines(c("load-R-packages - run summary", paste0("R ", R.version.string), ""
              "", notes),
            file.path(OUT, "README.txt"))
 cat("\nDone. Files in", OUT, ":\n")
-print(list.files(OUT))
+base::print(list.files(OUT))
 '''
