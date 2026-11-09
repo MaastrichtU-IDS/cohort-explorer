@@ -2611,11 +2611,16 @@ pick_source <- function(inp) {
 
 # Columns that look like a follow-up time / an event indicator / a study label,
 # recognised by name and content. Returns NULL when nothing fits.
+# The follow-up time: among the columns whose name says time, the one with
+# the most rows that have a positive value (a time-to-first-hospitalisation
+# column is 0 for most patients and starves the survival trees of intervals).
 find_time_col <- function(df, exclude = character(0)) {
-  cand <- names(df)[grepl("time|follow|fu_|duration|days|months|years|survival", names(df), ignore.case = TRUE)]
+  cand <- names(df)[grepl("^fu$|time|follow|fu_|_fu|duration|days|months|years|survival", names(df), ignore.case = TRUE)]
   cand <- setdiff(cand, exclude)
-  cand <- cand[vapply(cand, function(c) is.numeric(df[[c]]) && sum(!is.na(df[[c]])) > 20, logical(1))]
-  if (length(cand) == 0) NULL else cand[which.max(vapply(cand, function(c) sum(!is.na(df[[c]])), numeric(1)))]
+  cand <- cand[vapply(cand, function(c) is.numeric(df[[c]]), logical(1))]
+  positive <- vapply(cand, function(c) sum(!is.na(df[[c]]) & df[[c]] > 0), numeric(1))
+  cand <- cand[positive > 20]
+  if (length(cand) == 0) NULL else cand[which.max(positive[cand])]
 }
 as_event <- function(x) {
   if (is.logical(x)) return(as.integer(x))
@@ -2925,14 +2930,25 @@ analyse_cohort <- function(inp) {
   })
   # sysfonts / showtext: the fonts the image has, and a plot rendered through showtext
   run_exercise(label, "sysfonts", "font_files() and font_families() of the image", TRUE, "", function() {
-    ff <- sysfonts::font_files()     # a data frame of the system's font files; the image may have none
-    fam <- sysfonts::font_families()
-    n_files <- if (is.data.frame(ff)) nrow(ff) else length(ff)
+    # font_files() lists the system's font files and fails outright when there are
+    # none (this image: "incorrect number of dimensions", run of 2026-11-09).
+    ff <- tryCatch(sysfonts::font_files(), error = function(e) NULL)
+    n_files <- if (is.data.frame(ff)) nrow(ff) else 0
     families <- if (is.data.frame(ff) && "family" %in% names(ff)) unique(ff$family) else character(0)
-    out <- data.frame(what = c("font files", "families registered"), count = c(n_files, length(fam)),
-                      examples = c(paste(head(families, 8), collapse = "; "), paste(head(fam, 8), collapse = "; ")))
+    # A font file from the Nix store, registered with font_add(): the thing sysfonts is for.
+    store_fonts <- Sys.glob(c("/nix/store/*/share/fonts/truetype/*/*.ttf", "/nix/store/*/share/fonts/truetype/*.ttf",
+                              "/nix/store/*/share/fonts/*/*.ttf", "/nix/store/*/share/fonts/*.ttf", "/usr/share/fonts/truetype/*/*.ttf"))
+    added <- if (length(store_fonts) > 0) {
+      sysfonts::font_add("imagefont", regular = store_fonts[1])
+      paste0("registered ", basename(store_fonts[1]), " as 'imagefont' (", length(store_fonts), " .ttf files in the store)")
+    } else "no .ttf file in the image to register"
+    fam <- sysfonts::font_families()
+    out <- data.frame(what = c("font files found by font_files()", "families registered", ".ttf files in the image"),
+                      count = c(n_files, length(fam), length(store_fonts)),
+                      examples = c(paste(head(families, 8), collapse = "; "), paste(head(fam, 8), collapse = "; "), paste(head(basename(store_fonts), 4), collapse = "; ")))
     f <- out_file("sysfonts", label, "csv"); write.csv(out, file.path(OUT, f), row.names = FALSE)
-    list(outputs = f, detail = paste0(n_files, " font files on the image, ", length(fam), " families registered (", paste(head(fam, 4), collapse = ", "), ")"))
+    list(outputs = f, detail = paste0(if (is.null(ff)) "font_files() finds no system fonts" else paste(n_files, "system font files"),
+                                      "; families: ", paste(fam, collapse = ", "), "; ", added))
   })
   run_exercise(label, "showtext", "showtext_auto() and a plot with text", TRUE, "", function() {
     showtext::showtext_auto()
