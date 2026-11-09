@@ -31,7 +31,6 @@ from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
-from src.analysisDCR_scripts import RPY2_PROBE_NODE_NAME, RPY2_PROBE_DOMAINS, rpy2_probe_script
 from src.analysisDCR_scripts import data_fragment_script, visualization_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script, r_packages_script, r_ca_bundle_content, R_PACKAGES_NODE_NAME, R_CRAN_DOMAINS, R_CA_BUNDLE_FILE
 from src.mapping import resolve_selected_mapping_files
 from src.models import Cohort
@@ -684,7 +683,6 @@ async def get_compute_dcr_definition(
     include_merge_chain: bool = True,
     include_r_packages_node: bool = False,
     r_packages_proxy_liberal: bool = False,
-    include_rpy2_probe_node: bool = False,
 ) -> Any:
     # Request emails trimmed and lower-cased like everywhere else (split_emails,
     # build_dcr_participants), so a casing difference between the session email
@@ -1400,27 +1398,6 @@ async def get_compute_dcr_definition(
     elif include_r_packages_node:
         logging.info("No-code room: R compute node intentionally not added")
 
-    # Optional Python probe (wizard checkbox under the R question): can R be
-    # driven from a Python node with rpy2, and would that install the R
-    # packages the R node cannot? Reads no data (no dependencies, so it runs
-    # at once), writes a report; internet access to PyPI and the R
-    # repositories only. Every participant can run it.
-    if include_rpy2_probe_node and not nocode_room:
-        builder.add_node_definition(
-            PythonComputeNodeDefinition(
-                name=RPY2_PROBE_NODE_NAME,
-                script=rpy2_probe_script(),
-                additional_files=[FileContent(name=R_CA_BUNDLE_FILE, content=r_ca_bundle_content())],
-                dependencies=[],
-                enable_logs_on_error=True,
-                enable_logs_on_success=True,
-                proxy_configuration=ProxyConfiguration.allow_list(RPY2_PROBE_DOMAINS),
-            )
-        )
-        for p_email in participants:
-            participants[p_email]["analyst_of"].add(RPY2_PROBE_NODE_NAME)
-        logging.info(f"Added Python probe node '{RPY2_PROBE_NODE_NAME}' (internet access: {', '.join(RPY2_PROBE_DOMAINS)}); every participant may run it")
-
     # Grant all participants (data owners and analysts) access to preview fragment nodes
     for p_email in participants.keys():
         for preview_node in preview_nodes:
@@ -1484,7 +1461,6 @@ async def create_live_compute_dcr(
     include_merge_chain: bool = True,
     include_r_packages_node: bool = False,
     r_packages_proxy_liberal: bool = False,
-    include_rpy2_probe_node: bool = False,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -1508,7 +1484,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, nocode_node_names = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain, include_r_packages_node, r_packages_proxy_liberal, include_rpy2_probe_node)
+    dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, nocode_node_names = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain, include_r_packages_node, r_packages_proxy_liberal)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1892,8 +1868,6 @@ async def api_create_live_compute_dcr(
     include_r_packages_node = bool(cohorts_request.get("include_r_packages_node", False))
     # Diagnostic: give that node a liberal proxy (any domain) instead of the allow-list.
     r_packages_proxy_liberal = include_r_packages_node and bool(cohorts_request.get("r_packages_proxy_liberal", False))
-    # Whether to add the "probe-R-in-python" Python node (checkbox under the R question).
-    include_rpy2_probe_node = bool(cohorts_request.get("include_rpy2_probe_node", False))
 
     # No-code DCR analysis specs from the /nocode-dcr wizard, if any.
     nocode_analyses = cohorts_request.get("nocode_analyses", []) or []
@@ -1941,13 +1915,12 @@ async def api_create_live_compute_dcr(
         include_merge_chain=include_merge_chain,
         include_r_packages_node=include_r_packages_node,
         r_packages_proxy_liberal=r_packages_proxy_liberal,
-        include_rpy2_probe_node=include_rpy2_probe_node,
         participants=participants_for_log,
     )
 
     # Create and publish the live compute DCR
     try:
-        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain, include_r_packages_node, r_packages_proxy_liberal, include_rpy2_probe_node)
+        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain, include_r_packages_node, r_packages_proxy_liberal)
         duration_ms = int((datetime.now() - publish_started_at).total_seconds() * 1000)
         log_dcr_event(
             "dcr_publish_succeeded",
@@ -2031,7 +2004,7 @@ async def api_get_compute_dcr_definition(
         include_shuffled_samples=include_shuffled_samples,
     )
 
-    dcr_definition, _dcr_title, _participants, _mapping_nodes, _merge_warnings, _nocode = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name, include_merge_chain=bool(cohorts_request.get("include_merge_chain", True)), include_r_packages_node=bool(cohorts_request.get("include_r_packages_node", False)), r_packages_proxy_liberal=bool(cohorts_request.get("r_packages_proxy_liberal", False)), include_rpy2_probe_node=bool(cohorts_request.get("include_rpy2_probe_node", False)))
+    dcr_definition, _dcr_title, _participants, _mapping_nodes, _merge_warnings, _nocode = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name, include_merge_chain=bool(cohorts_request.get("include_merge_chain", True)), include_r_packages_node=bool(cohorts_request.get("include_r_packages_node", False)), r_packages_proxy_liberal=bool(cohorts_request.get("r_packages_proxy_liberal", False)))
 
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }
