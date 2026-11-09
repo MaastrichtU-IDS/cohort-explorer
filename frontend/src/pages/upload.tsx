@@ -46,7 +46,7 @@ export default function UploadPage() {
   // the metadata dictionary; the creator can opt out or add extra variables.
   const [excludedDefaultStratifiers, setExcludedDefaultStratifiers] = useState<string[]>([]);
   const [customStratifiers, setCustomStratifiers] = useState<string[]>([]);
-  const [newStratifierVar, setNewStratifierVar] = useState('');
+  const [stratifierSearch, setStratifierSearch] = useState('');
   
   const [operationMessage, setOperationMessage] = useState<{text: string, type: 'error' | 'success' | 'info' | 'warning'} | null>(null);
 
@@ -91,7 +91,7 @@ export default function UploadPage() {
     setNewAnalystEmail('');
     setExcludedDefaultStratifiers([]);
     setCustomStratifiers([]);
-    setNewStratifierVar('');
+    setStratifierSearch('');
   }, [cohortId]);
 
   // Fetch participants preview when modal opens
@@ -171,17 +171,26 @@ export default function UploadPage() {
     );
   }, []);
 
-  const addCustomStratifier = useCallback(() => {
-    const v = newStratifierVar.trim();
-    if (v && !customStratifiers.includes(v)) {
-      setCustomStratifiers([...customStratifiers, v]);
-      setNewStratifierVar('');
-    }
-  }, [newStratifierVar, customStratifiers]);
-
-  const removeCustomStratifier = useCallback((v: string) => {
-    setCustomStratifiers(prev => prev.filter(x => x !== v));
+  const toggleCustomStratifier = useCallback((v: string) => {
+    setCustomStratifiers(prev => (prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]));
   }, []);
+
+  // The cohort's variables as stratifier candidates: name, label, OMOP domain and
+  // concept name, sorted by name, filtered by the search box over all four.
+  const stratifierCandidates = useMemo(() => {
+    const vars = Object.values(cohortsData?.[cohortId]?.variables || {}) as any[];
+    const q = stratifierSearch.trim().toLowerCase();
+    return vars
+      .map(v => ({
+        name: String(v.var_name || ''),
+        label: String(v.var_label || ''),
+        domain: String(v.omop_domain || ''),
+        concept: String(v.concept_name || v.mapped_label || ''),
+      }))
+      .filter(v => v.name && (!q || [v.name, v.label, v.domain, v.concept].some(x => x.toLowerCase().includes(q))))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, {sensitivity: 'base'}));
+  }, [cohortsData, cohortId, stratifierSearch]);
+  const variableLabelOf = (name: string) => (cohortsData?.[cohortId]?.variables as any)?.[name]?.var_label || '';
 
   const clearMetadataFile = () => {
     setMetadataFile(null);
@@ -622,7 +631,8 @@ export default function UploadPage() {
                      automatically via their OMOP annotations in the metadata dictionary; untick to opt out,
                      or add other variables from this cohort as extra stratifiers.
                    </p>
-                   <div className="flex flex-wrap items-center gap-6 mb-3">
+                   {/* The stratifiers in force: sex and age (default), then the variables picked below */}
+                   <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mb-3">
                      {[{ name: 'sex', label: 'Sex' }, { name: 'age', label: 'Age' }].map(d => (
                        <label key={d.name} className="label cursor-pointer gap-2 py-0">
                          <input
@@ -634,48 +644,60 @@ export default function UploadPage() {
                          <span className="label-text">{d.label} (default)</span>
                        </label>
                      ))}
+                     {customStratifiers.map(v => (
+                       <label key={v} className="label cursor-pointer gap-2 py-0" title={variableLabelOf(v) || v}>
+                         <input
+                           type="checkbox"
+                           className="checkbox checkbox-sm checkbox-secondary"
+                           checked
+                           onChange={() => toggleCustomStratifier(v)}
+                         />
+                         <span className="label-text font-mono text-secondary">{v}</span>
+                         {variableLabelOf(v) && <span className="label-text text-xs text-base-content/60 max-w-[14rem] truncate">{variableLabelOf(v)}</span>}
+                       </label>
+                     ))}
                    </div>
-                   <div className="flex gap-2">
-                     <input
-                       type="text"
-                       list="stratifier-var-options"
-                       className="input input-bordered input-sm flex-grow"
-                       placeholder="Add another variable as stratifier (e.g. diabetes)"
-                       value={newStratifierVar}
-                       onChange={e => setNewStratifierVar(e.target.value)}
-                       onKeyDown={e => {
-                         if (e.key === 'Enter') {
-                           e.preventDefault();
-                           addCustomStratifier();
-                         }
-                       }}
-                     />
-                     <datalist id="stratifier-var-options">
-                       {Object.keys(cohortsData?.[cohortId]?.variables || {}).map(v => (
-                         <option key={v} value={v} />
-                       ))}
-                     </datalist>
-                     <button type="button" className="btn btn-sm btn-outline" onClick={addCustomStratifier}>
-                       Add
-                     </button>
+                   {/* The cohort's variables to choose extra stratifiers from */}
+                   <input
+                     type="text"
+                     className="input input-bordered input-sm w-full mb-2"
+                     placeholder="Search the cohort's variables by name, label, OMOP domain or concept…"
+                     value={stratifierSearch}
+                     onChange={e => setStratifierSearch(e.target.value)}
+                   />
+                   <div className="max-h-64 overflow-y-auto rounded-lg border border-base-300 bg-base-100">
+                     {stratifierCandidates.length === 0 ? (
+                       <p className="p-3 text-sm text-base-content/60">
+                         {Object.keys(cohortsData?.[cohortId]?.variables || {}).length === 0
+                           ? 'No variables yet: upload the data dictionary first.'
+                           : 'No variable matches the search.'}
+                       </p>
+                     ) : (
+                       stratifierCandidates.map(v => {
+                         const on = customStratifiers.includes(v.name);
+                         return (
+                           <label key={v.name} className={`flex items-start gap-3 px-3 py-1.5 cursor-pointer border-b border-base-200 last:border-b-0 hover:bg-base-200/60 ${on ? 'bg-secondary/10' : ''}`}>
+                             <input
+                               type="checkbox"
+                               className="checkbox checkbox-xs checkbox-secondary mt-1"
+                               checked={on}
+                               onChange={() => toggleCustomStratifier(v.name)}
+                             />
+                             <span className="min-w-0 text-sm">
+                               <span className="font-mono font-semibold">{v.name}</span>
+                               {v.label && <span className="ml-2 text-base-content/80">{v.label}</span>}
+                               {v.domain && <span className="badge badge-xs badge-outline ml-2 align-middle">{v.domain}</span>}
+                               {v.concept && <span className="ml-2 text-xs text-base-content/60">({v.concept})</span>}
+                             </span>
+                           </label>
+                         );
+                       })
+                     )}
                    </div>
-                   {customStratifiers.length > 0 && (
-                     <div className="mt-2 flex flex-wrap gap-2">
-                       {customStratifiers.map(v => (
-                         <span key={v} className="badge badge-outline gap-1">
-                           {v}
-                           <button
-                             type="button"
-                             className="ml-1 hover:text-error"
-                             aria-label={`Remove ${v}`}
-                             onClick={() => removeCustomStratifier(v)}
-                           >
-                             ×
-                           </button>
-                         </span>
-                       ))}
-                     </div>
-                   )}
+                   <p className="text-xs text-base-content/50 mt-1">
+                     {stratifierCandidates.length} of {Object.keys(cohortsData?.[cohortId]?.variables || {}).length} variables shown
+                     {customStratifiers.length > 0 ? ` · ${customStratifiers.length} extra stratifier${customStratifiers.length > 1 ? 's' : ''} selected` : ''}
+                   </p>
                  </div>
 
                  <div className="card-actions justify-between items-center">
