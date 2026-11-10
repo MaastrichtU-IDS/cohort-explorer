@@ -31,7 +31,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
-from src.analysisDCR_scripts import data_fragment_script, visualization_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script, r_packages_script, r_ca_bundle_content, R_PACKAGES_NODE_NAME, R_CRAN_DOMAINS, R_CA_BUNDLE_FILE
+from src.analysisDCR_scripts import data_fragment_script, visualization_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script, merged_data_diagnostics_script, MERGED_DIAGNOSTICS_NODE_NAME, r_packages_script, r_ca_bundle_content, R_PACKAGES_NODE_NAME, R_CRAN_DOMAINS, R_CA_BUNDLE_FILE
 from src.mapping import resolve_selected_mapping_files
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata, split_emails
@@ -45,7 +45,7 @@ try:
 except PackageNotFoundError:
     logger.warning("decentriq-platform is not installed")
 
-# Custom Python environment for the "merge-datasets" node.
+# Custom Python environment for the merge node (see merge_node_name).
 # The environment installs the `cohortpool` package directly from GitHub so it is
 # available inside the enclave.
 MERGE_ENV_NAME = "cohortpool_env"
@@ -85,11 +85,33 @@ else:
 # precedence caveat below: this can only take effect if the base image does
 # not already ship matplotlib.
 MERGE_ENV_REQUIREMENTS = f"{COHORTPOOL_GITHUB_URL}\nmatplotlib>=3.9\n"
-MERGE_NODE_NAME = "merge-datasets"
+
+
+def merge_node_name(n_cohorts: int, use_shuffled: bool = False) -> str:
+    """Name of the merge compute node: it states how many cohorts are pooled
+    ("merging-3-cohorts") and, when the shuffled samples are pooled instead of
+    the full cohort data, says so ("merging-3-cohorts-shuffled-samples"). Every
+    downstream node (fragment, airlock chain, example) is given this name as
+    the folder to read under /input/, so nothing else may hardcode it.
+    """
+    base = f"merging-{n_cohorts}-cohort{'s' if n_cohorts != 1 else ''}"
+    return f"{base}-shuffled-samples" if use_shuffled else base
+
+
 # Fixed airlock percentage for the merged/pooled dataset fragment. Deliberately
 # hardcoded (independent of the per-cohort airlock settings); make it a request
 # parameter if the need ever comes up.
 MERGED_AIRLOCK_PERCENTAGE = 20
+
+
+def parse_merge_cohorts(cohorts_request: dict[str, Any]) -> list[str] | None:
+    """The request's `merge_cohorts` (cohort ids the wizard's checkbox list left
+    ticked), or None when the field is absent or not a list, meaning every
+    cohort of the DCR."""
+    value = cohorts_request.get("merge_cohorts")
+    if not isinstance(value, list):
+        return None
+    return [str(c) for c in value]
 
 
 def dcr_data_owner_emails(cohort: Cohort) -> list[str]:
@@ -683,6 +705,7 @@ async def get_compute_dcr_definition(
     include_merge_chain: bool = True,
     include_r_packages_node: bool = False,
     r_packages_proxy_liberal: bool = False,
+    merge_cohorts: list[str] | None = None,
 ) -> Any:
     # Request emails trimmed and lower-cased like everywhere else (split_emails,
     # build_dcr_participants), so a casing difference between the session email
@@ -719,7 +742,24 @@ async def get_compute_dcr_definition(
     # nodes to merge and pool the results?"). A single-cohort DCR is always
     # treated as "no": there is nothing to pool. When the chain is off the
     # mapping-file nodes are omitted too - they exist only to feed the merge.
-    if len(cohorts_request.get("cohorts", {})) < 2:
+    # Which of the DCR's cohorts feed the merge (wizard checkbox list under the
+    # "yes" answer; every cohort by default). None means all of them; names not
+    # in the request are ignored. Fewer than two merge cohorts leave nothing to
+    # pool, so the chain is omitted, with a warning when the user asked for it.
+    requested_cohort_ids = list(cohorts_request.get("cohorts", {}).keys())
+    if merge_cohorts is None:
+        merge_cohort_ids = list(requested_cohort_ids)
+    else:
+        wanted = {str(c) for c in merge_cohorts}
+        merge_cohort_ids = [c for c in requested_cohort_ids if c in wanted]
+    merge_warnings: list[str] = []
+    if len(requested_cohort_ids) < 2:
+        include_merge_chain = False
+    elif include_merge_chain and len(merge_cohort_ids) < 2 and not nocode_room:
+        msg = (f"Merge / pooling chain NOT added: {len(merge_cohort_ids)} cohort(s) selected "
+               f"for the merge, at least 2 are needed.")
+        logging.warning(msg)
+        merge_warnings.append(msg)
         include_merge_chain = False
     if not include_merge_chain:
         selected_mapping_files = []
@@ -1060,10 +1100,10 @@ async def get_compute_dcr_definition(
     # the participants, so the explorer can fetch results for the wizard's viewer.
     from src.nocode_scripts import nocode_analysis_script, nocode_node_name
 
-    # Human-readable notes about how the room was assembled (cohorts excluded
-    # from the merge, shuffled samples missing, chain omitted). Returned to the
-    # caller so the wizard can show them instead of the room silently changing shape.
-    merge_warnings: list[str] = []
+    # merge_warnings (defined above): human-readable notes about how the room was
+    # assembled (cohorts excluded from the merge, shuffled samples missing, chain
+    # omitted). Returned to the caller so the wizard can show them instead of
+    # the room silently changing shape.
     nocode_node_names: list[str] = []
     for gi, gspec in enumerate(nocode_analyses or [], start=1):
         gspec = dict(gspec)
@@ -1104,10 +1144,10 @@ async def get_compute_dcr_definition(
         nocode_node_names.append(g_node)
         logging.info(f"Added no-code analysis node '{g_node}' ({gspec.get('analysis', {}).get('kind')}) on {g_cohorts}")
 
-    # Add the "merge-datasets" node (single node regardless of the number of cohorts).
-    # It comes after all per-cohort data/visualization nodes and pools every cohort
-    # together using the `cohortpool` package installed from GitHub via a custom
-    # Python environment.
+    # Add the merge node (a single node, named after the number of cohorts it
+    # pools: merge_node_name). It comes after all per-cohort data/visualization
+    # nodes and pools the cohorts selected for the merge using the `cohortpool`
+    # package installed from GitHub via a custom Python environment.
     if nocode_room:
         # No merge/pooling chain (and therefore no merged-data airlock) in a
         # no-code room: cross-cohort harmonization happens inside its own node.
@@ -1123,7 +1163,7 @@ async def get_compute_dcr_definition(
         merge_warnings.append(msg)
         merge_use_shuffled = False
     studies_info = []
-    for cohort_id in ([] if (nocode_room or not include_merge_chain) else list(selected_cohorts.keys())):
+    for cohort_id in ([] if (nocode_room or not include_merge_chain) else [c for c in merge_cohort_ids if c in selected_cohorts]):
         raw_data_node_id = cohort_id.replace(" ", "-")
         metadata_node_id = f"{cohort_id.replace(' ', '-')}_metadata_dictionary"
 
@@ -1167,7 +1207,11 @@ async def get_compute_dcr_definition(
     # lowercased (see get_available_mapping_files), so we match them case-insensitively
     # against the real cohort ids to guarantee study_a/study_b reference the studies
     # by their exact names.
-    study_name_by_lower = {cid.lower(): cid for cid in selected_cohorts.keys()}
+    # Only mappings between two cohorts that are actually pooled are passed on:
+    # cohortpool resolves study_a/study_b against its `studies` dict, and a
+    # cohort left out of the merge is not in it.
+    merged_study_names = {s["study_name"] for s in studies_info}
+    study_name_by_lower = {cid.lower(): cid for cid in merged_study_names}
     merge_mappings_info = []
     for mapping in mapping_nodes:
         cohorts = mapping.get("cohorts", [])
@@ -1178,7 +1222,7 @@ async def get_compute_dcr_definition(
         if not study_a or not study_b:
             logging.warning(
                 f"Skipping mapping node '{mapping['node_name']}': could not match "
-                f"cohorts {cohorts[:2]} to selected studies {list(selected_cohorts.keys())}"
+                f"cohorts {cohorts[:2]} to the merged studies {sorted(merged_study_names)}"
             )
             continue
         merge_mappings_info.append({
@@ -1224,12 +1268,13 @@ async def get_compute_dcr_definition(
         # which copies its .pdf report(s) alone (MERGE_EXPORT_EXTENSIONS). The
         # two cases differ only in their inputs and in the node's name, which
         # says when it pools the shuffled samples.
-        merge_node_name = "merge-shuffled-samples" if merge_use_shuffled else MERGE_NODE_NAME
+        merge_node = merge_node_name(len(studies_info), merge_use_shuffled)
         study_data_nodes = [s["data_node"] for s in studies_info]
-        merge_dependencies = list(dict.fromkeys(study_data_nodes + list(metadata_nodes) + [m["node_name"] for m in mapping_nodes]))
+        merged_metadata_nodes = [s["dict_node"] for s in studies_info if s["dict_node"] in metadata_nodes]
+        merge_dependencies = list(dict.fromkeys(study_data_nodes + merged_metadata_nodes + [m["node_name"] for m in merge_mappings_info]))
         builder.add_node_definition(
             PythonComputeNodeDefinition(
-                name=merge_node_name,
+                name=merge_node,
                 script=merge_datasets_script(studies_info, merge_mappings_info, is_shuffled_data=merge_use_shuffled),
                 dependencies=merge_dependencies,
                 custom_environment=MERGE_ENV_NAME,
@@ -1243,7 +1288,7 @@ async def get_compute_dcr_definition(
             )
         )
         logging.info(
-            f"Added '{merge_node_name}' node using custom env '{MERGE_ENV_NAME}' "
+            f"Added '{merge_node}' node using custom env '{MERGE_ENV_NAME}' "
             f"with {len(studies_info)} studies and {len(merge_mappings_info)} mapping(s); "
             "no direct analysts — accessible only via its airlock chain"
         )
@@ -1263,8 +1308,8 @@ async def get_compute_dcr_definition(
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_fragment_node_name,
-                script=merged_data_fragment_script(merge_node_name, merged_patient_id_cols, merge_airlock_percentage),
-                dependencies=[merge_node_name]
+                script=merged_data_fragment_script(merge_node, merged_patient_id_cols, merge_airlock_percentage),
+                dependencies=[merge_node]
             )
         )
 
@@ -1297,8 +1342,8 @@ async def get_compute_dcr_definition(
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_check_node_name,
-                script=merged_data_overview_script(merge_node_name, merge_preview_node_name),
-                dependencies=[merge_node_name, merge_fragment_node_name]
+                script=merged_data_overview_script(merge_node, merge_preview_node_name),
+                dependencies=[merge_node, merge_fragment_node_name]
             )
         )
         for p_email in participants:
@@ -1313,17 +1358,34 @@ async def get_compute_dcr_definition(
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_example_node_name,
-                script=merged_airlock_example_script(merge_preview_node_name, merge_node_name),
-                dependencies=[merge_node_name]
+                script=merged_airlock_example_script(merge_preview_node_name, merge_node),
+                dependencies=[merge_node]
             )
         )
         for p_email in participants:
             participants[p_email]["analyst_of"].add(merge_example_node_name)
 
+        # Diagnostics of the merged dataset: the node right after the merge
+        # node applies to every column of pooled_dataset.csv the same figures
+        # and summary statistics the per-cohort visualization nodes apply to
+        # each cohort's dataset (shared script blocks). Aggregates only, so
+        # every participant can run it; running it triggers the merge first.
+        builder.add_node_definition(
+            PythonComputeNodeDefinition(
+                name=MERGED_DIAGNOSTICS_NODE_NAME,
+                script=merged_data_diagnostics_script(merge_node, len(studies_info)),
+                dependencies=[merge_node],
+                enable_logs_on_error=True,
+            )
+        )
+        for p_email in participants:
+            participants[p_email]["analyst_of"].add(MERGED_DIAGNOSTICS_NODE_NAME)
+
         logging.info(
             f"Added merged-dataset airlock chain: {merge_fragment_node_name} "
             f"({merge_airlock_percentage}% fragment) -> {merge_preview_node_name} "
-            f"-> {merge_check_node_name}; example node: {merge_example_node_name}"
+            f"-> {merge_check_node_name}; example node: {merge_example_node_name}; "
+            f"diagnostics node: {MERGED_DIAGNOSTICS_NODE_NAME}"
         )
     elif nocode_room:
         logging.info("No-code room: merge/pooling chain intentionally not added")
@@ -1461,6 +1523,7 @@ async def create_live_compute_dcr(
     include_merge_chain: bool = True,
     include_r_packages_node: bool = False,
     r_packages_proxy_liberal: bool = False,
+    merge_cohorts: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create and publish a live compute DCR that is immediately available for use.
     
@@ -1484,7 +1547,7 @@ async def create_live_compute_dcr(
     logging.info(f"Starting live compute DCR creation for user {user['email']} at {start_time}")
     
     # Step 1: Create the DCR definition (reuse existing logic)
-    dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, nocode_node_names = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain, include_r_packages_node, r_packages_proxy_liberal)
+    dcr_definition, dcr_title, participants, mapping_nodes, merge_warnings, nocode_node_names = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain, include_r_packages_node, r_packages_proxy_liberal, merge_cohorts)
     
     # Step 2: Publish the DCR to Decentriq with retry logic for race conditions
     import time
@@ -1862,6 +1925,8 @@ async def api_create_live_compute_dcr(
     # Whether to add the merge/pool compute chain at all (wizard question).
     # Defaults to True; a single-cohort request is forced to False downstream.
     include_merge_chain = bool(cohorts_request.get("include_merge_chain", True))
+    # Which cohorts feed the merge (wizard checkbox list). Absent -> all of them.
+    merge_cohorts = parse_merge_cohorts(cohorts_request)
 
     # Whether to add the "load-R-packages" R compute node (wizard question on
     # the Merging & Pooling step). Defaults to False.
@@ -1913,6 +1978,7 @@ async def api_create_live_compute_dcr(
         selected_mapping_files=[m.get("filename") for m in (selected_mapping_files or []) if isinstance(m, dict)],
         include_mapping_upload_slot=include_mapping_upload_slot,
         include_merge_chain=include_merge_chain,
+        merge_cohorts=merge_cohorts,
         include_r_packages_node=include_r_packages_node,
         r_packages_proxy_liberal=r_packages_proxy_liberal,
         participants=participants_for_log,
@@ -1920,7 +1986,7 @@ async def api_create_live_compute_dcr(
 
     # Create and publish the live compute DCR
     try:
-        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain, include_r_packages_node, r_packages_proxy_liberal)
+        result = await create_live_compute_dcr(cohorts_request, user, client, include_shuffled_samples, additional_analysts, airlock_settings, dcr_name, excluded_data_owners, selected_mapping_files, include_mapping_upload_slot, research_question, merge_use_shuffled, nocode_analyses, include_merge_chain, include_r_packages_node, r_packages_proxy_liberal, merge_cohorts)
         duration_ms = int((datetime.now() - publish_started_at).total_seconds() * 1000)
         log_dcr_event(
             "dcr_publish_succeeded",
@@ -2004,7 +2070,7 @@ async def api_get_compute_dcr_definition(
         include_shuffled_samples=include_shuffled_samples,
     )
 
-    dcr_definition, _dcr_title, _participants, _mapping_nodes, _merge_warnings, _nocode = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name, include_merge_chain=bool(cohorts_request.get("include_merge_chain", True)), include_r_packages_node=bool(cohorts_request.get("include_r_packages_node", False)), r_packages_proxy_liberal=bool(cohorts_request.get("r_packages_proxy_liberal", False)))
+    dcr_definition, _dcr_title, _participants, _mapping_nodes, _merge_warnings, _nocode = await get_compute_dcr_definition(cohorts_request, user, client, include_shuffled_samples, dcr_name=dcr_name, include_merge_chain=bool(cohorts_request.get("include_merge_chain", True)), include_r_packages_node=bool(cohorts_request.get("include_r_packages_node", False)), r_packages_proxy_liberal=bool(cohorts_request.get("r_packages_proxy_liberal", False)), merge_cohorts=parse_merge_cohorts(cohorts_request))
 
     # Generate DCR config JSON
     dcr_config_json = { "dataScienceDataRoom": dcr_definition.high_level }

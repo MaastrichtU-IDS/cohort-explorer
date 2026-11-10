@@ -55,6 +55,10 @@ export function Nav() {
   // Default yes. Only asked when 2+ cohorts are selected; with fewer than 2
   // cohorts the question is hidden and treated as "no" (nothing to pool).
   const [includeMergeChain, setIncludeMergeChain] = useState(true);
+  // Cohorts the user UNTICKED in the checkbox list under the "yes" answer: by
+  // default every cohort of the DCR feeds the merge, and a cohort added later
+  // is included too. Sent to the backend as merge_cohorts (the ticked ones).
+  const [mergeExcludedCohorts, setMergeExcludedCohorts] = useState<string[]>([]);
   // Whether the merge/pool node should combine the shuffled samples (true) instead
   // of the full cohort data (false, default).
   const [mergeUseShuffled, setMergeUseShuffled] = useState(false);
@@ -69,6 +73,11 @@ export function Nav() {
   const [rPackagesProxyLiberal, setRPackagesProxyLiberal] = useState(false);
   const mergeChainAvailable = Object.keys(dataCleanRoom?.cohorts || {}).length >= 2;
   const mergeChainOn = mergeChainAvailable && includeMergeChain;
+  // The cohorts that feed the merge node, in the DCR's order.
+  const mergeCohorts = Object.keys(dataCleanRoom?.cohorts || {}).filter(c => !mergeExcludedCohorts.includes(c));
+  const toggleMergeCohort = (cohortId: string, included: boolean) => {
+    setMergeExcludedCohorts(prev => included ? prev.filter(c => c !== cohortId) : (prev.includes(cohortId) ? prev : [...prev, cohortId]));
+  };
   // The effective per-cohort choice for EVERY selected cohort, defaults included:
   // the Data Samples step shows "shuffled sample" for a cohort that has one and
   // "airlock" for one that does not, but the maps only hold cohorts the user
@@ -410,7 +419,9 @@ export function Nav() {
           ...dataCleanRoom,
           include_shuffled_samples: effectiveSampleSettings().shuffled,
           dcr_name: dcrName || defaultDcrName,
-          session_id: sessionIdRef.current
+          session_id: sessionIdRef.current,
+          include_merge_chain: mergeChainOn,
+          merge_cohorts: mergeChainOn ? mergeCohorts : []
         })
       });
       
@@ -504,6 +515,7 @@ export function Nav() {
           research_question: researchQuestion,
           session_id: sessionIdRef.current,
           include_merge_chain: mergeChainOn,
+          merge_cohorts: mergeChainOn ? mergeCohorts : [],
           selected_mapping_files: mergeChainOn
             ? availableMappingFiles
                 .filter(m => selectedMappingFiles[m.filename] !== false)
@@ -643,6 +655,7 @@ export function Nav() {
     setAvailableMappingFiles([]);
     setSelectedMappingFiles({});
     setIncludeMergeChain(true);
+    setMergeExcludedCohorts([]);
     setMergeUseShuffled(false);
     setWizardStep(0);
   };
@@ -1271,6 +1284,34 @@ export function Nav() {
 
                           {includeMergeChain ? (
                             <>
+                              {/* Which cohorts feed the merge node (all by default) */}
+                              <div className="mt-6 pt-4 border-t">
+                                <p className="text-sm font-semibold mb-1">Cohorts to merge</p>
+                                <p className="text-xs text-base-content/60 mb-3">
+                                  Untick a cohort to leave it out of the merge. Its data nodes stay in the DCR; only the merge node ignores it.
+                                </p>
+                                <div className="space-y-2">
+                                  {Object.keys(dataCleanRoom?.cohorts || {}).map((cohortId) => (
+                                    <div key={cohortId} className="form-control">
+                                      <label className="label cursor-pointer justify-start gap-3">
+                                        <input
+                                          type="checkbox"
+                                          checked={!mergeExcludedCohorts.includes(cohortId)}
+                                          onChange={(e) => toggleMergeCohort(cohortId, e.target.checked)}
+                                          className="checkbox checkbox-primary"
+                                        />
+                                        <span className="label-text text-base">{cohortId}</span>
+                                      </label>
+                                    </div>
+                                  ))}
+                                </div>
+                                <p className={`text-xs mt-2 ${mergeCohorts.length < 2 ? 'text-warning' : 'text-base-content/60'}`}>
+                                  {mergeCohorts.length < 2
+                                    ? 'At least 2 cohorts are needed for a merge: with fewer, the DCR is created without the merge/pool nodes.'
+                                    : `The merge node will be named "merging-${mergeCohorts.length}-cohorts${mergeUseShuffled ? '-shuffled-samples' : ''}".`}
+                                </p>
+                              </div>
+
                               {/* Mapping files feeding the merge/pool step */}
                               <div className="mt-6 pt-4 border-t">
                                 <p className="text-sm font-semibold mb-1">Mapping files</p>
@@ -1309,7 +1350,7 @@ export function Nav() {
                               <div className="mt-6 pt-4 border-t">
                                 <p className="text-sm font-semibold mb-1">Merge / pool data source</p>
                                 <p className="text-xs text-base-content/60 mb-3">
-                                  Choose whether the merge-datasets (pooling) step combines the full cohort data or the shuffled samples.
+                                  Choose whether the merge (pooling) step combines the full cohort data or the shuffled samples.
                                 </p>
                                 <div className="flex gap-2">
                                   <button
@@ -1446,6 +1487,13 @@ export function Nav() {
                         <div className="p-3 bg-base-200 rounded-lg">
                           <strong>Merge / pool nodes:</strong> {mergeChainOn ? 'Included' : 'Not included'}
                         </div>
+                        {mergeChainOn && (
+                          <div className="p-3 bg-base-200 rounded-lg">
+                            <strong>Merged cohorts:</strong> {mergeCohorts.length >= 2
+                              ? `${mergeCohorts.join(', ')} (node "merging-${mergeCohorts.length}-cohorts${mergeUseShuffled ? '-shuffled-samples' : ''}")`
+                              : `${mergeCohorts.join(', ') || 'None'} - fewer than 2, so no merge/pool nodes will be created`}
+                          </div>
+                        )}
                         {mergeChainOn && (
                           <div className="p-3 bg-base-200 rounded-lg">
                             <strong>Mapping Files:</strong> {availableMappingFiles.filter(m => selectedMappingFiles[m.filename] !== false).map(m => m.display_name).join(', ') || 'None'}

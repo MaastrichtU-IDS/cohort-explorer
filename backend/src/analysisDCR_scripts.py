@@ -308,6 +308,230 @@ with open(log_file, "a") as log:
 """
 
 
+# ---------------------------------------------------------------------------
+# Shared pieces of the generated scripts (plain strings, inserted verbatim into
+# the f-strings below). Both the per-cohort visualization node and the
+# diagnostics node of the merged dataset use them, so the merged dataset gets
+# exactly the figures and summary statistics each cohort's dataset gets.
+#
+# They expect, in the generated script: df, selected_columns (list of column
+# names), log_file, output_dir, DATA_SOURCE_NAME, CHART_WIDTH_CM, HISTOGRAM_BINS,
+# MAX_CATEGORIES, categorical_vars (set), get_var_label(col), get_var_domain(col),
+# and COHORT_NAME (the suffix of every PNG file name); pandas as pd, numpy as
+# np, matplotlib.pyplot as plt imported.
+# ---------------------------------------------------------------------------
+
+# Drops the patient-identifier columns from selected_columns (never charted).
+_ID_COLUMN_FILTER_BLOCK = '''# Patient identifier columns are never charted: one value per patient carries no
+# distribution, and drawing it would put row-level values into the output.
+# Matched on the NAME, case- and separator-insensitive.
+import re as _re
+_ID_NAMES = {
+    "id", "pid", "patientid", "patientno", "patientnr", "patientnumber", "patientcode",
+    "recordid", "recordno", "subjectid", "subjectno", "usubjid", "studysubjectid",
+    "caseid", "participantid", "syntheticid", "pooledpatientid",
+}
+
+
+def is_id_column(name):
+    key = _re.sub(r"[^a-z0-9]+", "", str(name).strip().lower())
+    return key in _ID_NAMES or key.endswith("patientid") or key.endswith("subjectid")
+
+
+_id_cols = [c for c in selected_columns if is_id_column(c)]
+if _id_cols:
+    selected_columns = [c for c in selected_columns if not is_id_column(c)]
+    with open(log_file, "a") as log:
+        log.write("Identifier column(s) not charted: {}\\n".format(_id_cols))
+
+with open(log_file, "a") as log:
+    log.write("Selected {} columns for visualization: {}\\n\\n".format(len(selected_columns), selected_columns))'''
+
+# One PNG panel per column (four views for a numeric column, two for a
+# categorical or binary one), the per-column statistics in the log file, and
+# figures_guide.txt describing what each view is suited for.
+_PER_COLUMN_FIGURES_BLOCK = '''def _safe_name(col):
+    # Column names go into file names: anything but letters, digits, "_", "-" and "." is replaced
+    return _re.sub(r"[^A-Za-z0-9_.-]+", "_", str(col)).strip("_") or "column"
+
+
+# Create PNG charts - one panel of several views per variable. No single chart
+# suits every variable (a box plot squashes a skewed biomarker, a histogram
+# hides the median), so numeric variables get four views side by side and
+# categorical ones two; figures_guide.txt explains what each view is suited for.
+saved_charts = []
+guide_entries = []
+
+def _is_skewed(vals):
+    # Strongly right-skewed positive data (biomarkers, durations): also worth a log axis
+    if len(vals) < 10 or (vals <= 0).any():
+        return False
+    med = float(vals.median())
+    return med > 0 and float(vals.max()) / med > 10 and float(vals.skew()) > 2
+
+for col in selected_columns:
+    col_data = df[col].dropna()
+    
+    with open(log_file, "a") as log:
+        log.write("Column: {}\\n".format(col))
+        log.write("  Non-null values: {}\\n".format(len(col_data)))
+        log.write("  Data type: {}\\n".format(df[col].dtype))
+    
+    # Convert cm to inches for matplotlib (1 inch = 2.54 cm)
+    chart_width_inches = CHART_WIDTH_CM / 2.54
+    
+    # Check if numeric or categorical
+    # Treat as categorical if: (1) metadata says it's categorical, (2) it's binary (0/1), or (3) pandas says it's not numeric
+    unique_vals = col_data.unique()
+    is_binary = len(unique_vals) <= 2 and set(unique_vals).issubset({0, 1, 0.0, 1.0})
+    is_categorical_in_metadata = col.lower().strip() in {v.lower().strip() for v in categorical_vars}
+    
+    # Get the variable label and domain from metadata dictionary
+    var_label = get_var_label(col)
+    var_domain = get_var_domain(col)
+    # Truncate label if too long
+    if len(var_label) > 120:
+        var_label = var_label[:117] + '...'
+
+    def _build_title(data_type):
+        # Title: Distribution of <var_name> (<data_type>, <domain>)
+        #        <variable label from metadata>
+        #        Data source: <DATA_SOURCE_NAME>
+        type_info = data_type
+        if var_domain:
+            type_info = '{} - {}'.format(data_type, var_domain)
+        lines = ['Distribution of {} ({})'.format(col, type_info)]
+        if var_label:
+            lines.append(var_label)
+        lines.append('Data source: {}'.format(DATA_SOURCE_NAME))
+        return '\\n'.join(lines)
+
+    if pd.api.types.is_numeric_dtype(col_data) and not is_binary and not is_categorical_in_metadata:
+        vals = pd.to_numeric(col_data, errors='coerce').dropna()
+        if len(vals) == 0:
+            with open(log_file, "a") as log:
+                log.write("  No numeric values, skipped\\n\\n")
+            continue
+        skew = _is_skewed(vals)
+        fig, axes = plt.subplots(2, 2, figsize=(chart_width_inches, chart_width_inches * 0.8))
+        lo, hi = float(vals.min()), float(vals.max())
+
+        # (1) histogram with mean and median
+        ax = axes[0][0]
+        edges = np.logspace(np.log10(lo), np.log10(hi), HISTOGRAM_BINS + 1) if skew and lo > 0 and hi > lo else HISTOGRAM_BINS
+        ax.hist(vals, bins=edges, edgecolor='black', alpha=0.7)
+        mean_val, median_val = vals.mean(), vals.median()
+        ax.axvline(mean_val, color='red', linestyle='--', label='Mean: {:.2f}'.format(mean_val))
+        ax.axvline(median_val, color='green', linestyle='--', label='Median: {:.2f}'.format(median_val))
+        if skew:
+            ax.set_xscale('log')
+        ax.set_xlabel(col + (', log scale' if skew else ''))
+        ax.set_ylabel('Patients')
+        ax.legend(fontsize=8)
+        ax.set_title('Histogram', fontsize=10)
+
+        # (2) cumulative distribution (evaluated on a 200-point grid)
+        ax = axes[0][1]
+        grid = np.logspace(np.log10(lo), np.log10(hi), 200) if skew and lo > 0 else np.linspace(lo, hi, 200)
+        xs = np.sort(vals.values)
+        ax.plot(grid, np.searchsorted(xs, grid, side='right') / len(xs))
+        if skew:
+            ax.set_xscale('log')
+        ax.set_xlabel(col + (', log scale' if skew else ''))
+        ax.set_ylabel('Fraction at or below')
+        ax.set_ylim(0, 1.02)
+        ax.grid(True, alpha=0.3)
+        ax.set_title('Cumulative distribution', fontsize=10)
+
+        # (3) box plot with outliers / (4) without
+        for ax, fliers, sub in ((axes[1][0], True, 'Box plot, outliers shown'), (axes[1][1], False, 'Box plot, outliers not drawn (same n)')):
+            ax.boxplot([vals.values], showfliers=fliers)
+            ax.set_xticks([1])
+            ax.set_xticklabels(['n={}'.format(len(vals))])
+            ax.set_ylabel(col + (', log scale' if skew else ''))
+            if skew:
+                ax.set_yscale('log')
+            ax.set_title(sub, fontsize=10)
+
+        fig.suptitle(_build_title('Numeric'), fontsize=10)
+        guide_entries.append((col, 'numeric', len(vals), skew, None))
+        with open(log_file, "a") as log:
+            log.write("  Mean: {:.4f}, Median: {:.4f}, Std: {:.4f}{}\\n".format(
+                mean_val, median_val, vals.std(), " (log scale: right-skewed)" if skew else ""))
+    else:
+        # Categorical / binary: counts and shares side by side
+        value_counts = col_data.astype(str).value_counts()
+        shown = value_counts.head(MAX_CATEGORIES)
+        fig, axes = plt.subplots(1, 2, figsize=(chart_width_inches, chart_width_inches * 0.45))
+        ypos = range(len(shown))
+        # "2.0" -> "2": a numeric column with blanks is read as float
+        labels = [(str(v)[:-2] if str(v).endswith('.0') else str(v))[:30] for v in shown.index]
+        ax = axes[0]
+        ax.barh(ypos, shown.values)
+        ax.set_yticks(ypos)
+        ax.set_yticklabels(labels)
+        ax.invert_yaxis()
+        ax.set_xlabel('Patients')
+        ax.set_title('Counts', fontsize=10)
+        ax = axes[1]
+        pct = 100.0 * shown.values / max(len(col_data), 1)
+        ax.barh(ypos, pct)
+        ax.set_yticks(ypos)
+        ax.set_yticklabels(labels)
+        ax.invert_yaxis()
+        ax.set_xlabel('% of patients with a value')
+        ax.set_title('Shares', fontsize=10)
+        data_type = 'Binary' if is_binary else 'Categorical'
+        fig.suptitle(_build_title(data_type), fontsize=10)
+        hidden = len(value_counts) - len(shown)
+        guide_entries.append((col, data_type.lower(), len(col_data), False, hidden))
+        with open(log_file, "a") as log:
+            log.write("  Unique values: {}\\n".format(df[col].nunique()))
+            log.write("  Top 5 values: {}\\n".format(dict(value_counts.head(5))))
+    
+    # Save individual image
+    plt.tight_layout()
+    output_filename = "{}_{}.png".format(_safe_name(col), COHORT_NAME)
+    output_path = os.path.join(output_dir, output_filename)
+    plt.savefig(output_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    saved_charts.append(output_filename)
+    
+    with open(log_file, "a") as log:
+        log.write("  Saved to: {}\\n\\n".format(output_filename))
+
+# Guide: what was produced and what each view is suited for
+with open(os.path.join(output_dir, "figures_guide.txt"), "w") as gf:
+    gf.write("FIGURES PRODUCED AND WHAT EACH VIEW IS SUITED FOR\\n")
+    gf.write("Data source: {}\\n\\n".format(DATA_SOURCE_NAME))
+    gf.write("Each numeric variable gets one image with four views:\\n")
+    gf.write("  Histogram -- where the values pile up; the mean and median are marked.\\n")
+    gf.write("    Less suited when the data are strongly skewed and the axis is linear; skewed\\n")
+    gf.write("    variables are therefore drawn on a log axis (noted per variable below).\\n")
+    gf.write("  Cumulative distribution -- the fraction of patients at or below each value;\\n")
+    gf.write("    any percentile can be read off (the curve crosses 0.5 at the median).\\n")
+    gf.write("  Box plot, outliers shown -- median, quartiles, whiskers (1.5 x IQR) and each\\n")
+    gf.write("    value beyond them; shows how extreme the extremes are.\\n")
+    gf.write("  Box plot, outliers not drawn -- the same box with the axis limited to the\\n")
+    gf.write("    whiskers, so the box stays readable when outliers are far out. The n is\\n")
+    gf.write("    unchanged and so are the median, quartiles and whiskers: the outlying\\n")
+    gf.write("    values are still part of the statistics, they are simply not drawn.\\n\\n")
+    gf.write("Each categorical or binary variable gets one image with two views:\\n")
+    gf.write("  Counts -- patients per category (top {} categories).\\n".format(MAX_CATEGORIES))
+    gf.write("  Shares -- the same as percentages of the patients with a value.\\n\\n")
+    gf.write("Variables:\\n")
+    for col, kind, n, skew, hidden in guide_entries:
+        note = ""
+        if skew:
+            note = "; log scale (strongly right-skewed)"
+        if hidden:
+            note = "; {} rare categories not drawn".format(hidden)
+        gf.write("  {}_{}.png  --  {}, n={}{}\\n".format(_safe_name(col), COHORT_NAME, kind, n, note))
+
+with open(log_file, "a") as log:
+    log.write("Visualization complete. {} PNG charts saved: {}\\n".format(len(saved_charts), saved_charts))'''
+
+
 def visualization_script(
     fragment_node_name: str,
     cohort_id: str,
@@ -561,209 +785,12 @@ if SELECTED_VARIABLES is not None:
             log.write("Requested columns: {{}}\\n".format(SELECTED_VARIABLES))
             log.write("\\nNo charts will be generated. Please check the column mismatch files for details.\\n")
 
-# Patient identifier columns are never charted: one value per patient carries no
-# distribution, and drawing it would put row-level values into the output.
-# Matched on the NAME, case- and separator-insensitive.
-import re as _re
-_ID_NAMES = {{
-    "id", "pid", "patientid", "patientno", "patientnr", "patientnumber", "patientcode",
-    "recordid", "recordno", "subjectid", "subjectno", "usubjid", "studysubjectid",
-    "caseid", "participantid", "syntheticid", "pooledpatientid",
-}}
-
-
-def is_id_column(name):
-    key = _re.sub(r"[^a-z0-9]+", "", str(name).strip().lower())
-    return key in _ID_NAMES or key.endswith("patientid") or key.endswith("subjectid")
-
-
-_id_cols = [c for c in selected_columns if is_id_column(c)]
-if _id_cols:
-    selected_columns = [c for c in selected_columns if not is_id_column(c)]
-    with open(log_file, "a") as log:
-        log.write("Identifier column(s) not charted: {{}}\\n".format(_id_cols))
-
-with open(log_file, "a") as log:
-    log.write("Selected {{}} columns for visualization: {{}}\\n\\n".format(len(selected_columns), selected_columns))
+{_ID_COLUMN_FILTER_BLOCK}
 
 # Cohort name for filenames
 COHORT_NAME = "{cohort_id}"
 
-# Create PNG charts - one panel of several views per variable. No single chart
-# suits every variable (a box plot squashes a skewed biomarker, a histogram
-# hides the median), so numeric variables get four views side by side and
-# categorical ones two; figures_guide.txt explains what each view is suited for.
-saved_charts = []
-guide_entries = []
-
-def _is_skewed(vals):
-    # Strongly right-skewed positive data (biomarkers, durations): also worth a log axis
-    if len(vals) < 10 or (vals <= 0).any():
-        return False
-    med = float(vals.median())
-    return med > 0 and float(vals.max()) / med > 10 and float(vals.skew()) > 2
-
-for col in selected_columns:
-    col_data = df[col].dropna()
-    
-    with open(log_file, "a") as log:
-        log.write("Column: {{}}\\n".format(col))
-        log.write("  Non-null values: {{}}\\n".format(len(col_data)))
-        log.write("  Data type: {{}}\\n".format(df[col].dtype))
-    
-    # Convert cm to inches for matplotlib (1 inch = 2.54 cm)
-    chart_width_inches = CHART_WIDTH_CM / 2.54
-    
-    # Check if numeric or categorical
-    # Treat as categorical if: (1) metadata says it's categorical, (2) it's binary (0/1), or (3) pandas says it's not numeric
-    unique_vals = col_data.unique()
-    is_binary = len(unique_vals) <= 2 and set(unique_vals).issubset({{0, 1, 0.0, 1.0}})
-    is_categorical_in_metadata = col.lower().strip() in {{v.lower().strip() for v in categorical_vars}}
-    
-    # Get the variable label and domain from metadata dictionary
-    var_label = get_var_label(col)
-    var_domain = get_var_domain(col)
-    # Truncate label if too long
-    if len(var_label) > 120:
-        var_label = var_label[:117] + '...'
-
-    def _build_title(data_type):
-        # Title: Distribution of <var_name> (<data_type>, <domain>)
-        #        <variable label from metadata>
-        #        Data source: <DATA_SOURCE_NAME>
-        type_info = data_type
-        if var_domain:
-            type_info = '{{}} - {{}}'.format(data_type, var_domain)
-        lines = ['Distribution of {{}} ({{}})'.format(col, type_info)]
-        if var_label:
-            lines.append(var_label)
-        lines.append('Data source: {{}}'.format(DATA_SOURCE_NAME))
-        return '\\n'.join(lines)
-
-    if pd.api.types.is_numeric_dtype(col_data) and not is_binary and not is_categorical_in_metadata:
-        vals = pd.to_numeric(col_data, errors='coerce').dropna()
-        if len(vals) == 0:
-            with open(log_file, "a") as log:
-                log.write("  No numeric values, skipped\\n\\n")
-            continue
-        skew = _is_skewed(vals)
-        fig, axes = plt.subplots(2, 2, figsize=(chart_width_inches, chart_width_inches * 0.8))
-        lo, hi = float(vals.min()), float(vals.max())
-
-        # (1) histogram with mean and median
-        ax = axes[0][0]
-        edges = np.logspace(np.log10(lo), np.log10(hi), HISTOGRAM_BINS + 1) if skew and lo > 0 and hi > lo else HISTOGRAM_BINS
-        ax.hist(vals, bins=edges, edgecolor='black', alpha=0.7)
-        mean_val, median_val = vals.mean(), vals.median()
-        ax.axvline(mean_val, color='red', linestyle='--', label='Mean: {{:.2f}}'.format(mean_val))
-        ax.axvline(median_val, color='green', linestyle='--', label='Median: {{:.2f}}'.format(median_val))
-        if skew:
-            ax.set_xscale('log')
-        ax.set_xlabel(col + (', log scale' if skew else ''))
-        ax.set_ylabel('Patients')
-        ax.legend(fontsize=8)
-        ax.set_title('Histogram', fontsize=10)
-
-        # (2) cumulative distribution (evaluated on a 200-point grid)
-        ax = axes[0][1]
-        grid = np.logspace(np.log10(lo), np.log10(hi), 200) if skew and lo > 0 else np.linspace(lo, hi, 200)
-        xs = np.sort(vals.values)
-        ax.plot(grid, np.searchsorted(xs, grid, side='right') / len(xs))
-        if skew:
-            ax.set_xscale('log')
-        ax.set_xlabel(col + (', log scale' if skew else ''))
-        ax.set_ylabel('Fraction at or below')
-        ax.set_ylim(0, 1.02)
-        ax.grid(True, alpha=0.3)
-        ax.set_title('Cumulative distribution', fontsize=10)
-
-        # (3) box plot with outliers / (4) without
-        for ax, fliers, sub in ((axes[1][0], True, 'Box plot, outliers shown'), (axes[1][1], False, 'Box plot, outliers not drawn (same n)')):
-            ax.boxplot([vals.values], showfliers=fliers)
-            ax.set_xticks([1])
-            ax.set_xticklabels(['n={{}}'.format(len(vals))])
-            ax.set_ylabel(col + (', log scale' if skew else ''))
-            if skew:
-                ax.set_yscale('log')
-            ax.set_title(sub, fontsize=10)
-
-        fig.suptitle(_build_title('Numeric'), fontsize=10)
-        guide_entries.append((col, 'numeric', len(vals), skew, None))
-        with open(log_file, "a") as log:
-            log.write("  Mean: {{:.4f}}, Median: {{:.4f}}, Std: {{:.4f}}{{}}\\n".format(
-                mean_val, median_val, vals.std(), " (log scale: right-skewed)" if skew else ""))
-    else:
-        # Categorical / binary: counts and shares side by side
-        value_counts = col_data.astype(str).value_counts()
-        shown = value_counts.head(MAX_CATEGORIES)
-        fig, axes = plt.subplots(1, 2, figsize=(chart_width_inches, chart_width_inches * 0.45))
-        ypos = range(len(shown))
-        # "2.0" -> "2": a numeric column with blanks is read as float
-        labels = [(str(v)[:-2] if str(v).endswith('.0') else str(v))[:30] for v in shown.index]
-        ax = axes[0]
-        ax.barh(ypos, shown.values)
-        ax.set_yticks(ypos)
-        ax.set_yticklabels(labels)
-        ax.invert_yaxis()
-        ax.set_xlabel('Patients')
-        ax.set_title('Counts', fontsize=10)
-        ax = axes[1]
-        pct = 100.0 * shown.values / max(len(col_data), 1)
-        ax.barh(ypos, pct)
-        ax.set_yticks(ypos)
-        ax.set_yticklabels(labels)
-        ax.invert_yaxis()
-        ax.set_xlabel('% of patients with a value')
-        ax.set_title('Shares', fontsize=10)
-        data_type = 'Binary' if is_binary else 'Categorical'
-        fig.suptitle(_build_title(data_type), fontsize=10)
-        hidden = len(value_counts) - len(shown)
-        guide_entries.append((col, data_type.lower(), len(col_data), False, hidden))
-        with open(log_file, "a") as log:
-            log.write("  Unique values: {{}}\\n".format(df[col].nunique()))
-            log.write("  Top 5 values: {{}}\\n".format(dict(value_counts.head(5))))
-    
-    # Save individual image
-    plt.tight_layout()
-    output_filename = "{{}}_{{}}.png".format(col, COHORT_NAME)
-    output_path = os.path.join(output_dir, output_filename)
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    saved_charts.append(output_filename)
-    
-    with open(log_file, "a") as log:
-        log.write("  Saved to: {{}}\\n\\n".format(output_filename))
-
-# Guide: what was produced and what each view is suited for
-with open(os.path.join(output_dir, "figures_guide.txt"), "w") as gf:
-    gf.write("FIGURES PRODUCED AND WHAT EACH VIEW IS SUITED FOR\\n")
-    gf.write("Data source: {{}}\\n\\n".format(DATA_SOURCE_NAME))
-    gf.write("Each numeric variable gets one image with four views:\\n")
-    gf.write("  Histogram -- where the values pile up; the mean and median are marked.\\n")
-    gf.write("    Less suited when the data are strongly skewed and the axis is linear; skewed\\n")
-    gf.write("    variables are therefore drawn on a log axis (noted per variable below).\\n")
-    gf.write("  Cumulative distribution -- the fraction of patients at or below each value;\\n")
-    gf.write("    any percentile can be read off (the curve crosses 0.5 at the median).\\n")
-    gf.write("  Box plot, outliers shown -- median, quartiles, whiskers (1.5 x IQR) and each\\n")
-    gf.write("    value beyond them; shows how extreme the extremes are.\\n")
-    gf.write("  Box plot, outliers not drawn -- the same box with the axis limited to the\\n")
-    gf.write("    whiskers, so the box stays readable when outliers are far out. The n is\\n")
-    gf.write("    unchanged and so are the median, quartiles and whiskers: the outlying\\n")
-    gf.write("    values are still part of the statistics, they are simply not drawn.\\n\\n")
-    gf.write("Each categorical or binary variable gets one image with two views:\\n")
-    gf.write("  Counts -- patients per category (top {{}} categories).\\n".format(MAX_CATEGORIES))
-    gf.write("  Shares -- the same as percentages of the patients with a value.\\n\\n")
-    gf.write("Variables:\\n")
-    for col, kind, n, skew, hidden in guide_entries:
-        note = ""
-        if skew:
-            note = "; log scale (strongly right-skewed)"
-        if hidden:
-            note = "; {{}} rare categories not drawn".format(hidden)
-        gf.write("  {{}}_{{}}.png  --  {{}}, n={{}}{{}}\\n".format(col, COHORT_NAME, kind, n, note))
-
-with open(log_file, "a") as log:
-    log.write("Visualization complete. {{}} PNG charts saved: {{}}\\n".format(len(saved_charts), saved_charts))
+{_PER_COLUMN_FIGURES_BLOCK}
 {generate_mapping_files_section(mapping_files, include_mapping_upload_slot)}
 """
 
@@ -806,7 +833,8 @@ def merge_datasets_script(
 ) -> str:
     """Generate the merge/pool script that combines all cohorts using the cohortpool package.
 
-    This produces a single "merge-datasets" node script that:
+    This produces the script of the single merge node (named after the number of
+    cohorts it pools, see decentriq.merge_node_name) that:
     - Builds the `studies` dict expected by `cohortpool.pool`, pointing each study to its
       cohort data node and metadata dictionary node inside the DCR (`/input/<node_name>`).
     - Builds the `mappings` list from the cross-study mapping nodes available in the DCR.
@@ -963,7 +991,7 @@ mappings = [
 with open(log_file, "w") as log:
     log.write("Pooling {{}} studies with {{}} mapping file(s)\\n".format(len(studies), len(mappings)))
     log.write("Studies: {{}}\\n".format(list(studies.keys())))
-wlog("merge-datasets: starting - {{}} studies ({{}}), {{}} mapping file(s)".format(len(studies), ", ".join(studies), len(mappings)))
+wlog("merge: starting - {{}} studies ({{}}), {{}} mapping file(s)".format(len(studies), ", ".join(studies), len(mappings)))
 
 # Preprocess: strip leading/trailing spaces from column names in each study's data
 # CSV (written to a cleaned copy under /tmp). Data owners upload raw CSVs whose
@@ -989,7 +1017,7 @@ for study_id, cfg in studies.items():
     if not cfg.get("patient_id"):
         with open(log_file, "a") as log:
             log.write("{{}}: no patient-ID column configured; left to the merge algorithm to resolve\\n".format(study_id))
-wlog("merge-datasets: input headers cleaned; inspecting the mapping files")
+wlog("merge: input headers cleaned; inspecting the mapping files")
 
 # Stream cohortpool's log records live to the append-only /worker/logs file
 # (the only path writable for live logs in the enclave). cohortpool logs via
@@ -1036,7 +1064,7 @@ with open(log_file, "a") as log:
         except Exception as e:
             log.write("Could not inspect mapping file {{}}: {{}}\\n".format(m.get("path"), e))
 
-wlog("merge-datasets: calling cohortpool.pool() - the long step")
+wlog("merge: calling cohortpool.pool() - the long step")
 
 # Pool the datasets together using the cohortpool package.
 # Unit conversions, drug classes, drug target doses and core variables all come
@@ -1082,7 +1110,7 @@ result = pool(
     is_shuffled_data={is_shuffled_data},
 )
 
-wlog("merge-datasets: pool() returned; publishing the pooled dataset")
+wlog("merge: pool() returned; publishing the pooled dataset")
 
 # Persist the published dataset as pooled_dataset.csv — the stable name the
 # downstream nodes (airlock fragment, overview) read. With
@@ -1103,7 +1131,7 @@ if published_df.empty:
                   "accepted (see the harmonization_status counts above; cohortpool "
                   "only accepts 'Identical Match', 'Compatible Match' and "
                   "'Partial Match').\\n")
-    wlog("merge-datasets: ERROR - pooling produced no data (see merge_datasets_log.txt)")
+    wlog("merge: ERROR - pooling produced no data (see merge_datasets_log.txt)")
     raise RuntimeError("Pooling produced no data; see merge_datasets_log.txt")
 output_file = os.path.join(output_dir, "pooled_dataset.csv")
 published_df.to_csv(output_file, index=False)
@@ -1124,7 +1152,7 @@ if _paths:
         for key, path in _paths.items():
             log.write("  {{}}: {{}}\\n".format(key, path))
 
-wlog("merge-datasets: done - pooled_dataset.csv written, {{}} rows x {{}} columns ({{}})".format(len(published_df), len(published_df.columns), published_kind))
+wlog("merge: done - pooled_dataset.csv written, {{}} rows x {{}} columns ({{}})".format(len(published_df), len(published_df.columns), published_kind))
 """
 
 
@@ -1625,6 +1653,137 @@ else:
 
 wlog("example-analysis: done - {{}} columns plotted over {{}} overview page(s) and {{}} per-study page(s)".format(
     len(PLOT_COLUMNS), pages, strat_pages))
+"""
+
+
+MERGED_DIAGNOSTICS_NODE_NAME = "diagnostics-of-merged-dataset"
+
+
+def merged_data_diagnostics_script(merge_node_name: str, n_cohorts: int) -> str:
+    """Generate the diagnostics script for the merged (pooled) dataset.
+
+    The node right after the merge node: it reads the merge node's
+    pooled_dataset.csv (the stable file name the merge script writes, which the
+    fragment, overview and example nodes read too) and applies to EVERY column
+    of it the same figures and summary statistics the per-cohort visualization
+    nodes apply to each cohort's dataset: one PNG panel per column (histogram,
+    cumulative distribution and two box plots for a numeric column; counts and
+    shares for a categorical or binary one), the per-column statistics in
+    visualization_log.txt and figures_guide.txt. The code is the shared
+    _ID_COLUMN_FILTER_BLOCK / _PER_COLUMN_FIGURES_BLOCK, not a second version.
+    Patient identifier columns are counted but never charted; study_id is kept
+    (it names the cohort). Aggregates only, so every participant may run it.
+
+    The merged dataset has no metadata dictionary of its own (cohortpool
+    harmonizes the column names), so the categorical detection relies on the
+    data alone (binary or non-numeric columns) and the titles carry no variable
+    labels or domains.
+
+    Args:
+        merge_node_name: Name of the merge compute node (its output is mounted
+            at /input/<merge_node_name>/ inside this node).
+        n_cohorts: Number of cohorts the merge node pools (shown on every chart).
+
+    Returns:
+        The Python script as a string.
+    """
+    return f"""###############################################################################
+# DIAGNOSTICS OF THE MERGED DATASET
+#
+# Reads the merged (pooled) dataset written by the "{merge_node_name}" node
+# ({n_cohorts} cohorts) and produces, for EVERY column of it, the same figures
+# and summary statistics the per-cohort visualization nodes produce for each
+# cohort's dataset:
+#   - <column>_merged.png - one panel per column: histogram (log axis when
+#     strongly skewed), cumulative distribution and two box plots for a
+#     numeric column; counts and shares (the most frequent categories) for a
+#     categorical or binary one
+#   - visualization_log.txt - rows and columns, patients per study, and per
+#     column its non-null count, type, mean / median / std or unique values
+#   - figures_guide.txt - what was produced and what each view is suited for
+#
+# Patient identifier columns are never charted (study_id is kept: it names the
+# cohort). Everything written here is an aggregate.
+#
+# Because this node depends on the "{merge_node_name}" node, running it also
+# triggers the merge itself when its output is not computed yet (that step can
+# take a while - progress appears in the worker log).
+###############################################################################
+
+import os
+
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+
+def wlog(message):
+    # Live progress to Decentriq's worker log ("/worker/logs"), visible in the
+    # platform while the computation is still running. Best-effort: outside an
+    # enclave the path does not exist and the message is simply dropped.
+    try:
+        with open("/worker/logs", "a") as f:
+            f.write(str(message) + "\\n")
+    except Exception:
+        pass
+
+
+# The full merged (pooled) dataset produced by the "{merge_node_name}" node:
+DATA_FILE = "/input/{merge_node_name}/pooled_dataset.csv"
+DATA_SOURCE_NAME = "merged dataset ({n_cohorts} cohorts)"
+
+# Chart settings, the same as in the per-cohort visualization nodes
+CHART_WIDTH_CM = 15
+HISTOGRAM_BINS = 30
+MAX_CATEGORIES = 20
+
+output_dir = "/output"
+log_file = os.path.join(output_dir, "visualization_log.txt")
+
+wlog("merged-diagnostics: reading the merged dataset")
+df = pd.read_csv(DATA_FILE)
+wlog("merged-diagnostics: loaded {{}} rows x {{}} columns".format(len(df), len(df.columns)))
+
+with open(log_file, "w") as log:
+    log.write("Data source name: {{}}\\n".format(DATA_SOURCE_NAME))
+    log.write("Data source file: {{}}\\n".format(DATA_FILE))
+    log.write("Loaded data: {{}} rows, {{}} columns\\n".format(len(df), len(df.columns)))
+    log.write("Columns: {{}}\\n".format(list(df.columns)))
+    for _c in df.columns:
+        if _c.lower().strip() == "study_id":
+            log.write("Rows per study ({{}}):\\n".format(_c))
+            for _study, _count in df[_c].value_counts(dropna=False).items():
+                log.write("  - {{}}: {{}}\\n".format(_study, _count))
+            break
+    log.write("\\n")
+
+# No metadata dictionary for the merged dataset: categorical detection falls back
+# to the data (binary or non-numeric columns), titles carry no label or domain.
+metadata_df = None
+categorical_vars = set()
+
+
+def get_var_label(var_name):
+    return ''
+
+
+def get_var_domain(var_name):
+    return ''
+
+
+# Every column of the merged dataset
+selected_columns = list(df.columns)
+
+{_ID_COLUMN_FILTER_BLOCK}
+
+# Suffix of every PNG file name
+COHORT_NAME = "merged"
+
+wlog("merged-diagnostics: drawing one panel for each of {{}} columns".format(len(selected_columns)))
+{_PER_COLUMN_FIGURES_BLOCK}
+wlog("merged-diagnostics: done - {{}} PNG charts written".format(len(saved_charts)))
 """
 
 
