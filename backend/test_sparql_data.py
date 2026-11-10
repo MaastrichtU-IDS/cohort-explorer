@@ -45,7 +45,7 @@ print(f"Found {count} studies with dc:identifier in studies_metadata graph")
 
 # Check outcome specifications
 outcome_check = """
-PREFIX cmeo: <https://w3id.org/CMEO/>
+PREFIX cmeo: <http://obolibrary.orgCMEO_>
 PREFIX ro: <http://purl.obolibrary.org/obo/ro.owl/>
 PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
 

@@ -509,7 +509,7 @@ def sparql_prefixes() -> str:
     return (
         "PREFIX obo:  <http://purl.obolibrary.org/obo/>\n"
         "PREFIX sio:  <http://semanticscience.org/resource/>\n"
-        "PREFIX cmeo: <https://w3id.org/CMEO/>\n"
+        "PREFIX cmeo: <http://obolibrary.orgCMEO_>\n"
         "PREFIX dc:   <http://purl.org/dc/elements/1.1/>\n"
         "PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
         "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n"
