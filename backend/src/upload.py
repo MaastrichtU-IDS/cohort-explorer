@@ -2091,7 +2091,9 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df.columns = [" ".join(str(c).split()).lower() for c in df.columns]
     g = init_graph()
     metadata_graph = URIRef(OntologyNamespaces.CMEO.value + "graph/studies_metadata")
-    
+    study_designs: dict[str, URIRef] = {}   # normalized study name -> study design node
+    parent_studies: dict[str, list[str]] = {}  # normalized study name -> normalized "part of study" names
+
     for _i, row in df.iterrows():
         print("now processing cohorts' metadata row: ", _i, row)
         cohort_id = str(row["study name"]).strip()
@@ -2230,8 +2232,12 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         study_uri = URIRef(OntologyNamespaces.CMEO.value + study_name)
         study_design_execution_uri = URIRef(study_uri + "/study_design_execution")
         
-        # Create study design execution entity (without dc:identifier - it goes on study_design per query expectations)
+        # Study design execution. The explorer's queries anchor on the study design's
+        # dc:identifier (added below); CohortVarLinker's study-context query
+        # (query_builder.build_study_context_query) anchors on the execution's, so
+        # both carry the spreadsheet spelling of the study name.
         g.add((study_design_execution_uri, RDF.type, OntologyNamespaces.OBI.value.study_design_execution, metadata_graph))
+        g.add((study_design_execution_uri, DC.identifier, Literal(original_study_name, datatype=XSD.string), metadata_graph))
         
         # Create study design and protocol structure
         study_design_value = row.get("study design", "").lower().strip() if pd.notna(row.get("study design", "")) else None
@@ -2262,9 +2268,35 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         g.add((study_design_variable_specification_uri, RDF.type, OntologyNamespaces.CMEO.value.study_design_variable_specification, metadata_graph))
         g.add((protocol_uri, OntologyNamespaces.RO.value.has_part, study_design_variable_specification_uri, metadata_graph))
         
+        # Duration of observation (Oct-2025 column), same shape as CohortVarLinker's
+        # study_kg.add_study_timing and as the explorer's metadata query reads it.
+        if is_valid_value(row.get("duration of observation", "")):
+            duration_uri = URIRef(study_design_execution_uri + "/duration_of_observation")
+            g.add((duration_uri, RDF.type, OntologyNamespaces.CMEO.value.duration_of_observation, metadata_graph))
+            g.add((duration_uri, OntologyNamespaces.IAO.value.is_about, study_design_execution_uri, metadata_graph))
+            g.add((duration_uri, OntologyNamespaces.CMEO.value.has_value, Literal(str(row["duration of observation"]).strip().lower(), datatype=XSD.string), metadata_graph))
+
+        # Remembered for the membership links added after the loop.
+        study_designs[normalize_text(original_study_name)] = study_design_uri
+        if is_valid_value(row.get("part of study", "")):
+            parent_studies[normalize_text(original_study_name)] = [
+                normalize_text(p) for p in str(row["part of study"]).split(";") if p.strip()]
+
         # Process all metadata fields using unified mapping
         g = process_all_metadata_fields(g, row, study_design_execution_uri, study_design_uri, study_uri, protocol_uri, metadata_graph)
         
+    # "Part of study": obi:member_of / obi:has_member between the two study design
+    # nodes, which is what CohortVarLinker's get_member_studies() walks to treat a
+    # sub-study and its parent as one family (same-family pairs are not mapped).
+    # Linked only when the parent is a row of the same spreadsheet.
+    for child, parents in parent_studies.items():
+        for parent in parents:
+            if parent in study_designs and parent != child:
+                g.add((study_designs[child], OntologyNamespaces.OBI.value.member_of, study_designs[parent], metadata_graph))
+                g.add((study_designs[parent], OntologyNamespaces.OBI.value.has_member, study_designs[child], metadata_graph))
+            else:
+                print(f"⚠️ {child}: 'part of study' {parent!r} is not a study in the spreadsheet; no membership link")
+
     print(f"✅ Cohorts metadata graph created with {len(g)} triples")
     return g
 
@@ -2330,50 +2362,56 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
     
     # Process all fields using simplified mapping with smart defaults
     for excel_field, config in field_config.items():
-        if pd.notna(row.get(excel_field, "")):
+        # A column the spreadsheet does not have is skipped (the Oct-2025 format
+        # dropped "administrator" and "study contact person" for "pi" and "data
+        # provider"; row[...] on a missing column raised KeyError). An empty cell
+        # is still written as before: the explorer's metadata query needs the
+        # descriptor and dc:language nodes to exist even when they are empty.
+        if excel_field not in row or pd.isna(row[excel_field]):
+            continue
             
-            # Handle direct properties
-            if config == "direct_property":
-                if excel_field == "language":
-                    value = str(row[excel_field]).lower().strip()
-                    g.add((study_design_execution_uri, DC.language, Literal(value, datatype=XSD.string), metadata_graph))
-                continue
+        # Handle direct properties
+        if config == "direct_property":
+            if excel_field == "language":
+                value = str(row[excel_field]).lower().strip()
+                g.add((study_design_execution_uri, DC.language, Literal(value, datatype=XSD.string), metadata_graph))
+            continue
             
-            # Process value with smart defaults
-            if config.get("datatype") == "boolean":
-                value = True if str(row[excel_field]).lower().strip() == "yes" else False
-                datatype = XSD.boolean
-            else:
-                value = str(row[excel_field]).strip()
-                datatype = XSD.string
+        # Process value with smart defaults
+        if config.get("datatype") == "boolean":
+            value = True if str(row[excel_field]).lower().strip() == "yes" else False
+            datatype = XSD.boolean
+        else:
+            value = str(row[excel_field]).strip()
+            datatype = XSD.string
             
-            # Create entity with derived properties
-            namespace = get_namespace(config["ns"])
-            rdf_type = config["type"]
-            subject_uri = get_subject_uri(config["target"])
-            uri_suffix = get_uri_suffix(excel_field)
-            relationship = config.get("rel", get_default_relationship(rdf_type))
-            rel_namespace = get_namespace(config.get("rel_ns", "RO")) if config.get("rel_ns") else OntologyNamespaces.RO.value
+        # Create entity with derived properties
+        namespace = get_namespace(config["ns"])
+        rdf_type = config["type"]
+        subject_uri = get_subject_uri(config["target"])
+        uri_suffix = get_uri_suffix(excel_field)
+        relationship = config.get("rel", get_default_relationship(rdf_type))
+        rel_namespace = get_namespace(config.get("rel_ns", "RO")) if config.get("rel_ns") else OntologyNamespaces.RO.value
             
-            # Add RDF triples
-            entity_uri = URIRef(study_uri + uri_suffix)
-            rdf_type_uri = URIRef(namespace + rdf_type)
-            g.add((entity_uri, RDF.type, rdf_type_uri, metadata_graph))
+        # Add RDF triples
+        entity_uri = URIRef(study_uri + uri_suffix)
+        rdf_type_uri = URIRef(namespace + rdf_type)
+        g.add((entity_uri, RDF.type, rdf_type_uri, metadata_graph))
             
-            # Add relationship
-            relationship_uri = URIRef(rel_namespace + relationship)
-            g.add((subject_uri, relationship_uri, entity_uri, metadata_graph))
+        # Add relationship
+        relationship_uri = URIRef(rel_namespace + relationship)
+        g.add((subject_uri, relationship_uri, entity_uri, metadata_graph))
             
-            # Add label if specified
-            if config.get("label"):
-                g.add((entity_uri, RDFS.label, Literal(excel_field, datatype=XSD.string), metadata_graph))
+        # Add label if specified
+        if config.get("label"):
+            g.add((entity_uri, RDFS.label, Literal(excel_field, datatype=XSD.string), metadata_graph))
             
-            # Add rdfs:label with the value itself (for query compatibility)
-            if config.get("use_rdfs_label"):
-                g.add((entity_uri, RDFS.label, Literal(value, datatype=XSD.string), metadata_graph))
+        # Add rdfs:label with the value itself (for query compatibility)
+        if config.get("use_rdfs_label"):
+            g.add((entity_uri, RDFS.label, Literal(value, datatype=XSD.string), metadata_graph))
             
-            # Add value
-            g.add((entity_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=datatype), metadata_graph))
+        # Add value
+        g.add((entity_uri, OntologyNamespaces.CMEO.value.has_value, Literal(value, datatype=datatype), metadata_graph))
     
     # Handle special cases that need custom logic
     g = handle_special_fields(g, row, study_design_execution_uri, study_uri, protocol_uri, metadata_graph)
