@@ -71,6 +71,7 @@ dependencies = [
     "langchain_huggingface",
     "langchain_groq",
     "fastembed",
+    "pint ==0.24.4",  # CohortVarLinker/src/units.py: unit comparison; it raises at import time without pint
     # "fastembed-gpu",
     "onnxruntime <1.20",  # Pin to version compatible with Python 3.10
     # "adapters",  # removed: only a commented-out import used it, and it pinned

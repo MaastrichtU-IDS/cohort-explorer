@@ -392,6 +392,7 @@ dependencies = [
     { name = "openpyxl" },
     { name = "oxrdflib" },
     { name = "pandas", extra = ["excel", "spss"] },
+    { name = "pint" },
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "python-dotenv" },
@@ -448,6 +449,7 @@ requires-dist = [
     { name = "openpyxl" },
     { name = "oxrdflib" },
     { name = "pandas", extras = ["excel", "spss"] },
+    { name = "pint", specifier = "==0.24.4" },
     { name = "pip-tools", marker = "extra == 'test'" },
     { name = "pyarrow" },
     { name = "pydantic" },
@@ -944,6 +946,30 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/01/b2/efb0e62687d09538f60b83e82143d25ff4b4b097da9807e23648c723983c/flatbuffers-25.1.21.tar.gz", hash = "sha256:e24a34dcd9fb4e0ea8cc0fc8ef9c5cd61c9d21527a6d536967587a37a4ff9676", size = 22163 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/55/75/ed93520bceceabd78305717b3500224625f92e03617ba1f8e08d60e8eefb/flatbuffers-25.1.21-py2.py3-none-any.whl", hash = "sha256:0e9736098ba8f4e48246a0640390f4992c0b1a734e7322a9463d5c3eea00558b", size = 30956 },
+]
+
+[[package]]
+name = "flexcache"
+version = "0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/55/b0/8a21e330561c65653d010ef112bf38f60890051d244ede197ddaa08e50c1/flexcache-0.3.tar.gz", hash = "sha256:18743bd5a0621bfe2cf8d519e4c3bfdf57a269c15d1ced3fb4b64e0ff4600656", size = 15816 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/27/cd/c883e1a7c447479d6e13985565080e3fea88ab5a107c21684c813dba1875/flexcache-0.3-py3-none-any.whl", hash = "sha256:d43c9fea82336af6e0115e308d9d33a185390b8346a017564611f1466dcd2e32", size = 13263 },
+]
+
+[[package]]
+name = "flexparser"
+version = "0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/82/99/b4de7e39e8eaf8207ba1a8fa2241dd98b2ba72ae6e16960d8351736d8702/flexparser-0.4.tar.gz", hash = "sha256:266d98905595be2ccc5da964fe0a2c3526fbbffdc45b65b3146d75db992ef6b2", size = 31799 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/5e/3be305568fe5f34448807976dc82fc151d76c3e0e03958f34770286278c1/flexparser-0.4-py3-none-any.whl", hash = "sha256:3738b456192dcb3e15620f324c447721023c0293f6af9955b481e91d00179846", size = 27625 },
 ]
 
 [[package]]
@@ -2294,6 +2320,21 @@ wheels = [
 ]
 
 [[package]]
+name = "pint"
+version = "0.24.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "flexcache" },
+    { name = "flexparser" },
+    { name = "platformdirs" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/20/bb/52b15ddf7b7706ed591134a895dbf6e41c8348171fb635e655e0a4bbb0ea/pint-0.24.4.tar.gz", hash = "sha256:35275439b574837a6cd3020a5a4a73645eb125ce4152a73a2f126bf164b91b80", size = 342225 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b7/16/bd2f5904557265882108dc2e04f18abc05ab0c2b7082ae9430091daf1d5c/Pint-0.24.4-py3-none-any.whl", hash = "sha256:aa54926c8772159fcf65f82cc0d34de6768c151b32ad1deb0331291c38fe7659", size = 302029 },
+]
+
+[[package]]
 name = "pip"
 version = "24.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2318,6 +2359,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/1a/87/1ef453f10fb0772f43549686f924460cc0a2404b828b348f72c52cb2f5bf/pip-tools-7.4.1.tar.gz", hash = "sha256:864826f5073864450e24dbeeb85ce3920cdfb09848a3d69ebf537b521f14bcc9", size = 145417 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0d/dc/38f4ce065e92c66f058ea7a368a9c5de4e702272b479c0992059f7693941/pip_tools-7.4.1-py3-none-any.whl", hash = "sha256:4c690e5fbae2f21e87843e89c26191f0d9454f362d8acdbd695716493ec8b3a9", size = 61235 },
+]
+
+[[package]]
+name = "platformdirs"
+version = "4.14.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/9a/8475be631fb33ca1466915e70fd594c42a4e84b512db650eaa14f90fe75d/platformdirs-4.14.5.tar.gz", hash = "sha256:32e9921db7385aa8169bee4fe9501923e5715ba9fb7ea3b9c69b0d8e0639f7a1", size = 71464 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/ae/ecbbbfd0e4343a6a521d49b3c8656fb4643dee2a4f6eaf941cf3280391a8/platformdirs-4.14.5-py3-none-any.whl", hash = "sha256:8e778c6fa421516f4d3369449f8df3b0e1b72c0e0005fe88e3ec772d0a14e750", size = 35402 },
 ]
 
 [[package]]
