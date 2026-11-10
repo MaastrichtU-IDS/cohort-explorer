@@ -44,7 +44,7 @@ class SPARQLQueryBuilder:
         PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
         PREFIX dc:   <http://purl.org/dc/elements/1.1/>
         PREFIX iao:  <http://purl.obolibrary.org/obo/iao.owl/>
-        PREFIX cmeo: <http://obolibrary.orgCMEO_>
+        PREFIX cmeo: <http://purl.obolibrary.org/obo/CMEO_>
         PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
         PREFIX stato: <http://purl.obolibrary.org/obo/stato.owl/>
         PREFIX ro:    <http://purl.obolibrary.org/obo/ro.owl/>

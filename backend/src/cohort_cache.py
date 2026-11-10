@@ -939,7 +939,7 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
         # but upload.py stores emails directly on the study entity
         try:
             email_query = """
-            PREFIX cmeo: <http://obolibrary.orgCMEO_>
+            PREFIX cmeo: <http://purl.obolibrary.org/obo/CMEO_>
             PREFIX dc: <http://purl.org/dc/elements/1.1/>
             SELECT ?cohortId ?email ?administratorEmail ?administrator ?studyContactPerson
             WHERE {

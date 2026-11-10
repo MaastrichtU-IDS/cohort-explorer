@@ -247,7 +247,7 @@ def get_cohorts_metadata_query() -> str:
     Use get_studies_metadata_query() and get_variables_metadata_query() instead.
     This function is kept for backwards compatibility but may be removed in future versions."""
     query = """
-PREFIX cmeo: <http://obolibrary.orgCMEO_>
+PREFIX cmeo: <http://purl.obolibrary.org/obo/CMEO_>
 PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
 PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
 PREFIX ro: <http://purl.obolibrary.org/obo/ro.owl/>
