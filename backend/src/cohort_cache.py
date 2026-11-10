@@ -555,7 +555,7 @@ def create_cohort_from_metadata_graph(cohort_id: str, cohort_uri: URIRef, g: Dat
         cohort_type_values = get_literal_values(CMEO.cohortType) or get_literal_values(ICARE.cohortType)
         if cohort_type_values:
             cohort.study_type = cohort_type_values[0]  # Take the first one if multiple
-        
+            
         # Study details - try CMEO first, then ICARE
         cohort.study_participants = get_literal_value(CMEO.studyParticipants) or get_literal_value(ICARE.studyParticipants)
         cohort.study_duration = get_literal_value(CMEO.studyDuration) or get_literal_value(ICARE.studyDuration)

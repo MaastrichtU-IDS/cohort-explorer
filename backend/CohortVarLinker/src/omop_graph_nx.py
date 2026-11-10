@@ -296,9 +296,10 @@ class OmopGraphNX:
 
     def get_node_attr(self, nid, attr):
         try:
-            if attr in ('vocabulary', 'concept_name', 'name', 'concept_class', 'domain', 'concept_domain'):
+            if attr in ('vocabulary', 'concept_name', 'name', 'concept_class', 'domain', 'concept_domain',
+                        'code', 'concept_code'):
                 col = {'name': 'concept_name', 'vocabulary': 'concept_vocabulary',
-                       'domain': 'concept_domain'}.get(
+                       'domain': 'concept_domain', 'code': 'concept_code'}.get(
                     attr, f'concept_{attr}' if 'concept' not in attr else attr)
                 meta = self.graph.graph.get('meta')
                 if meta is None or col not in meta.columns:
@@ -1443,6 +1444,9 @@ if __name__ == "__main__":
     omop_nx = OmopGraphNX(csv_path, output_file='graph_nx.pkl.gz')
     run_pair_tests(omop_nx)
     p = omop_nx.explain_path(970250, 21601517, max_depth=4)
+
+    p = omop_nx.explain_path(3030354, 45876002, max_depth=4)
+
     print(p['explanation'])
     for u, v, rel in p['edges']:
         print(f"  {u} ({omop_nx.get_node_attr(u,'name')}, {omop_nx.get_node_attr(u,'vocabulary')}) "

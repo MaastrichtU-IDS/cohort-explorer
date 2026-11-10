@@ -336,36 +336,23 @@ def load_csv_points_dedup(csv_path: str, study_name: str = None,
     return points
 
 
-# # ── Updated search_in_db with adaptive threshold ─────────────
-# def adaptive_retrieval(scores: np.ndarray,  tau: Optional[float] = 0.5) -> int:
-#     """Conformal-floored Adaptive-k retrieval size.
+def adaptive_retrieval(scores: np.ndarray, tau: float = 0.45, alpha: float = settings.ADAPTIVE_ALPHA,
+                       decimals: int = 3) -> int:
+    """
+    Floor: tau_eff = max(tau, alpha * top_score). tau is the absolute lower
+    bound; alpha * top_score drops hits that are much weaker than the best
+    one. With alpha = 0.7 and a top score of 0.9, hits below 0.63 are dropped
+    even though they clear tau = 0.5. With a top score of 0.7, alpha * top is
+    0.49 and tau decides.
 
-#     Composes two adaptive signals:
-#       • k_floor = |{i : s[i] >= τ}|          — conformal coverage guarantee
-#                                                 (Angelopoulos & Bates, 2023)
-#       • k_gap   = argmax_i(s[i] - s[i+1]) + 1 — largest-gap cluster boundary
-#                                                 (Taguchi et al., EMNLP 2025)
+    Gap: cut at the first gap between neighbouring score levels that is more
+    than twice the median gap. The result is min(gap cut, hits above the floor).
 
-#         k = min(k_gap, k_floor)
-#     """
-#     n = scores.size
-#     if n == 0:
-#         return 0
-#     # Use max score instead of fixed tau=1.0
-#     if tau is None:
-#         tau = float(np.max(scores))
-#     k_floor = int(np.searchsorted(-scores, -tau, side="right"))
-#     if k_floor < 2:
-#         return k_floor
-#     k_gap = int(np.argmax(scores[:-1] - scores[1:])) + 1
-#     return min(k_gap, k_floor)
-
-def adaptive_retrieval(scores: np.ndarray, tau: float = 0.5, alpha: float = settings.ADAPTIVE_ALPHA) -> int:
-    """Adaptive-k retrieval with top-relative conformal floor.
-
-    Effective floor = max(tau_static, alpha * top_score). When the top match
-    is strong (e.g. 0.8), weak candidates below alpha*top (e.g. 0.68) are
-    excluded regardless of the static floor.
+    Gaps are taken between distinct score levels (rounded to `decimals`), and
+    every hit tied with the cut level is kept. Gaps between hits tied on
+    score are 0: enough of them made the median gap 0, so any drop counted
+    as significant and only the top hit was kept, and a cut could split hits
+    with the same score.
     """
     n = scores.size
     if n == 0:
@@ -375,18 +362,31 @@ def adaptive_retrieval(scores: np.ndarray, tau: float = 0.5, alpha: float = sett
     k_floor = int(np.searchsorted(-scores, -tau_eff, side="right"))
     if k_floor < 2:
         return k_floor
-    # k_gap = int(np.argmax(scores[:-1] - scores[1:])) + 1
-    diffs = scores[:-1] - scores[1:]
+    rounded = np.round(scores, decimals)
+    levels = np.unique(rounded)[::-1]          # distinct scores, high -> low
+    if levels.size < 2:
+        return k_floor
+    diffs = levels[:-1] - levels[1:]
     median_gap = float(np.median(diffs))
     significant = diffs > 2 * median_gap   # 2× tunable
-    k_gap = int(np.argmax(significant) + 1) if significant.any() else k_floor
+    if not significant.any():
+        return k_floor
+    cut_level = levels[int(np.argmax(significant))]
+    k_gap = int(np.sum(rounded >= cut_level))  # keep every hit tied with the cut level
     return min(k_gap, k_floor)
 
 def search_in_db(vectordb, embedding_model, query_text,
                  limit=settings.LIMIT, target_study=["gissi-hf"],
                  collection_name="studies_metadata",
                  mapping_mode=MappingType.OEH.value,
-                 min_threshold=settings.ADAPTIVE_THRESHOLD) -> List[Any]:
+                 min_threshold=settings.ADAPTIVE_THRESHOLD,
+                 with_names: bool = False) -> List[Any]:
+    """Return (key, score) per hit: the variable name in NE mode, else the main OMOP id.
+
+    with_names=True returns (key, score, variable_names) for every retrieved
+    point instead, so a caller can pair a hit with the target variables of
+    that point rather than with every target variable sharing its main id.
+    """
     query_text = clean_label_remove_temporal_context(query_text).lower()
  
     # print(query_text)
@@ -418,7 +418,22 @@ def search_in_db(vectordb, embedding_model, query_text,
     for r in results[:cutoff]:
         # if r.score < cutoff:
         #     break  # sorted descending, everything below is worse
-        key = r.payload.get('variable_name', '') if is_ne else int(r.payload['variable_omop_id'])
+        if is_ne:
+            key = r.payload.get('variable_name', '')
+        else:
+            try:
+                key = int(r.payload.get('variable_omop_id'))
+            except (TypeError, ValueError):
+                # No OMOP id (e.g. believe:epf_vasc_f in some indexes): the hit
+                # cannot be paired by concept in OEH/OEC, so skip it.
+                continue
+        if with_names:
+            names = tuple(n for n in str(r.payload.get('variable_names') or
+                                         r.payload.get('variable_name') or '').split('|') if n)
+            if key and (key, names) not in seen:
+                seen.add((key, names))
+                out.append((key, round(float(r.score), 4), names))
+            continue
         if key and key not in seen:
             seen.add(key)
             # out.append((key, round(float(r.score), 4)) if is_ne else key)

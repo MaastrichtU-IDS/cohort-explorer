@@ -10,7 +10,7 @@ class VariableProfile:
     def _fetch_chunk(chunk: list, study_name: str) -> list:
         results = []
         try:
-            values_str = " ".join(f'"{v}"' for v in chunk)
+            values_str = " ".join(SPARQLQueryBuilder.literal(v) for v in chunk)
             query = SPARQLQueryBuilder.build_statistic_query(study_name, values_str)
             response = execute_query(query)
             bindings = response.get("results", {}).get("bindings", [])
@@ -35,8 +35,11 @@ class VariableProfile:
                 )
                 results.append(row.model_dump())
         except Exception as e:
-            return e
-            # print(f"Error chunk fetch: {e}")
+            # Re-raise with context: returning the exception made fetch_profiles
+            # fail on data.extend() with a TypeError that hid the real error.
+            raise RuntimeError(
+                f"Profile query failed for {study_name} "
+                f"({len(chunk)} variables, first: {chunk[0]}): {e}") from e
         return results
 
     # =================================================================

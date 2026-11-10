@@ -1,10 +1,11 @@
 """Neuro-symbolic matching with typed VariableNode inputs.
 """
 
+import json
 import os
 from collections import defaultdict
 import pandas as pd
-from typing import Any, Dict, List, Set,Tuple
+from typing import Any, Dict, List
 from .llm_call import LLMConceptMatcher
 from .config import settings
 from .data_model import (
@@ -13,6 +14,7 @@ from .data_model import (
 )
 from .vector_db import search_category_by_id, search_in_db, _embed_cache,  _cache_key
 from .fuzz_match import FuzzyMatcher
+from .derived_variables import compute_derived_variables
 from .graph_similarity import (
     score_context,
     parse_post_cordinating_concepts_labels
@@ -78,6 +80,18 @@ def _build_match_dict(
         **_node_to_profile_cols(src, "source"),
         **_node_to_profile_cols(tgt, "target"),
     }
+
+
+# When one (source, target) pair is reached by several routes, the strongest
+# relation is kept: symbolic evidence first, embedding similarity last.
+_RELATION_RANK = {r.value: i for i, r in enumerate((
+    MappingRelation.SymbolicExactMatch, MappingRelation.SymbolicCloseMatch,
+    MappingRelation.SymbolicNarrowMatch, MappingRelation.SymbolicBroadMatch,
+    MappingRelation.NeuralMatch))}
+
+
+def _relation_rank(relation: str) -> int:
+    return _RELATION_RANK.get((relation or "").strip().lower(), len(_RELATION_RANK))
 
 
 # =====================================================================
@@ -222,196 +236,6 @@ class NeuroSymbolicMatcher:
 
 
     # =================================================================
-    # Derived Variables (dict-based, converted at call site)
-    # cases examples:
-
-    #     one has bmi and other doesnot, but have parameters and dont care about direction. derive it
-    #     both has bmi and regardless they have parameters dont derive it
-    #     both have parameter but both side dont have variable, derive it
-    # =================================================================
-
-    def _extend_with_derived_variables(
-        self,
-        single_source: dict,
-        standard_derived_variable: tuple,
-        parameters_omop_ids: list,
-        variable_name: str,
-        category: str,
-        stats_type: str = "continuous_variable",
-        unit_label: str = "",
-    ) -> List[Dict]:
-        """Check if a derived variable can be synthesized. Returns list of match dicts."""
-        data_context = single_source.copy()
-
-        def _find_omop_id_rows(data_list: list, omop_code: int, code_key: str = "omop_id") -> list:
-            found = []
-            for row in data_list:
-                try:
-                    curr_val = int(row.get(code_key, 0))
-                except (ValueError, TypeError):
-                    continue
-                if curr_val == int(omop_code):
-                    found.append(row)
-            return found
-
-        def _get_parameter_visits(data: dict, parameters_codes: list, side: str = "source") -> Tuple[bool, Set[str]]:
-            code_key_mapped = "somop_id" if side == "source" else "tomop_id"
-            visit_key_mapped = "source_visit" if side == "source" else "target_visit"
-            per_param_visits: List[Set[str]] = []
-            for code in parameters_codes:
-                unmapped_rows = _find_omop_id_rows(data[side], code, code_key="omop_id")
-                mapped_rows = _find_omop_id_rows(data['mapped'], code, code_key=code_key_mapped)
-                visits_for_code: Set[str] = set()
-                if unmapped_rows:
-                    for row in unmapped_rows:
-                        v = str(row.get('visit', '')).strip().lower()
-                        if v:
-                            visits_for_code.add(v)
-                elif mapped_rows:
-                    for row in mapped_rows:
-                        v = str(row.get(visit_key_mapped, '')).strip().lower()
-                        if v:
-                            visits_for_code.add(v)
-                # A parameter with no visit-resolved occurrence cannot anchor a
-                # shared-visit derivation, so the side is not derivable.
-                if not visits_for_code:
-                    return False, set()
-                per_param_visits.append(visits_for_code)
-
-            if not per_param_visits:
-                return False, set()
-
-            # Derivation is only valid at visits where every parameter co-occurs.
-            shared_visits = set.intersection(*per_param_visits)
-            return (len(shared_visits) > 0), shared_visits
-
-        def _find_aligned_visit_pairs(source_visits: Set[str], target_visits: Set[str]) -> Dict[Tuple[str, str], bool]:
-            aligned_pairs = {}
-            for src_vis in source_visits:
-                for tgt_vis in target_visits:
-                    if FuzzyMatcher.check_visit_string(src_vis, tgt_vis):
-                        aligned_pairs[(src_vis, tgt_vis)] = True
-            return aligned_pairs
-
-        def _get_varname_for_visit(derived_rows: list, visit: str, default_name: str, key: str) -> str:
-            for row in derived_rows:
-                row_visit = str(row.get('visit', '')).strip().lower()
-                if row_visit == visit:
-                    return row.get(key, default_name)
-            return default_name
-
-        target_omop_id = int(standard_derived_variable[2])
-        source_derived_rows = _find_omop_id_rows(data_context["source"], target_omop_id, code_key="omop_id")
-        target_derived_rows = _find_omop_id_rows(data_context["target"], target_omop_id, code_key="omop_id")
-        if source_derived_rows and target_derived_rows:
-            return []
-
-        already_mapped = False
-
-        for row in data_context.get("mapped", []):
-            try:
-                s_id = int(float(row.get("somop_id", 0)))
-                t_id = int(float(row.get("tomop_id", 0)))
-            except (TypeError, ValueError):
-                continue
-
-            if s_id == target_omop_id and t_id == target_omop_id:
-                already_mapped = True
-                break
-        if already_mapped:
-            return []
-
-        source_can_calc, source_param_visits = _get_parameter_visits(
-            data_context,
-            parameters_omop_ids,
-            side="source",
-        )
-
-        target_can_calc, target_param_visits = _get_parameter_visits(
-            data_context,
-            parameters_omop_ids,
-            side="target",
-        )
-
-        for row in source_derived_rows:
-            v = str(row.get('visit', '')).strip().lower()
-            if v:
-                source_param_visits.add(v)
-        for row in target_derived_rows:
-            v = str(row.get('visit', '')).strip().lower()
-            if v:
-                target_param_visits.add(v)
-
-        source_valid = (len(source_derived_rows) > 0) or source_can_calc
-        target_valid = (len(target_derived_rows) > 0) or target_can_calc
-        if not (source_valid and target_valid):
-            return []
-
-        aligned_visit_pairs = _find_aligned_visit_pairs(source_param_visits, target_param_visits)
-        if not aligned_visit_pairs:
-            return []
-
-        final_stats_type = stats_type
-        all_rows = source_derived_rows + target_derived_rows
-        if all_rows and all_rows[0].get('stats_type'):
-            final_stats_type = all_rows[0].get('stats_type')
-
-        src_unit, tgt_unit = "", ""
-        if source_derived_rows and source_derived_rows[0].get('unit_label'):
-            src_unit = source_derived_rows[0].get('unit_label')
-        elif target_derived_rows and target_derived_rows[0].get('unit_label'):
-            tgt_unit = target_derived_rows[0].get('unit_label')
-
-        final_results = []
-
-        for (src_visit, tgt_visit) in aligned_visit_pairs.keys():
-            if not src_visit or not tgt_visit:
-                continue
-
-            # src_visit_norm = str(src_visit).strip().lower()
-            # tgt_visit_norm = str(tgt_visit).strip().lower()
-
-            source_varname = _get_varname_for_visit(
-                source_derived_rows,
-                src_visit,
-                f"derived_{variable_name}",
-                "source",
-            )
-
-            target_varname = _get_varname_for_visit(
-                target_derived_rows,
-                tgt_visit,
-                f"derived_{variable_name}",
-                "target",
-            )
-        
-            final_results.append({
-                "source": source_varname, "target": target_varname,
-                "somop_id": target_omop_id, "tomop_id": target_omop_id,
-                "scode": standard_derived_variable[0], "slabel": standard_derived_variable[1],
-                "tcode": standard_derived_variable[0], "tlabel": standard_derived_variable[1],
-                "source_visit": src_visit, "target_visit": tgt_visit,
-                "category": category,
-                "source_type": final_stats_type, "target_type": final_stats_type,
-                "source_unit": src_unit if src_unit else unit_label,
-                "target_unit": tgt_unit if tgt_unit else unit_label,
-                "source_composite_code_labels": standard_derived_variable[1],
-                "source_composite_code_omop_ids": f"{target_omop_id}",
-                "target_composite_code_labels": standard_derived_variable[1],
-                "target_composite_code_omop_ids": f"{target_omop_id}",
-                "mapping_relation": MappingRelation.SymbolicCloseMatch.value,
-                "context_match_type": ContextMatchType.PARTIAL.value,
-                "sim_score": 0.8,
-                "derived_variable_name": variable_name,
-                "transformation_rule": (
-                    f"Derived variable {variable_name} using parameter columns "
-                    f"{parameters_omop_ids}."
-                ),
-              
-            })
-        return final_results
-    
-    # =================================================================
     # Main Matching — Pipeline modularized
     # =================================================================
     def generate_candidates(self, src_collection, tgt_collection, target_study):
@@ -421,14 +245,7 @@ class NeuroSymbolicMatcher:
 
         # Trace one source concept end-to-end through candidate generation.
         # Set TRACE_SOURCE_CONCEPT to an omop id (e.g. 4060077) to print which
-        # route proposed each target and what relation it carried. Written
-        # because 1,027 rows came out `symbolic:exactmatch` between DIFFERENT
-        # concept ids -- allergien (4060077, h/o allergies) against
-        # maligneerkrankung (4078300, history of neoplasm) among them -- and the
-        # three candidate routes (self-id, graph, vector) cannot account for it
-        # from the output alone. The relation is stored per concept_key and set
-        # by whichever pair reaches the bucket first, so first-arrival order is
-        # the prime suspect and is exactly what this makes visible.
+        # route proposed each target and what relation it carried.
         _trace_cid = os.getenv("TRACE_SOURCE_CONCEPT")
         _trace_cid = int(_trace_cid) if _trace_cid and _trace_cid.strip().isdigit() else None
 
@@ -456,9 +273,11 @@ class NeuroSymbolicMatcher:
                       and self.mapping_mode != MappingType.OO.value)
 
         if use_vector:
+            # One query per distinct variable text (description + own concepts),
+            # not one per main OMOP id.
             all_query_texts = list({
-                self._vector_query(nodes[0])
-                for nodes in src_grouped.values() if nodes
+                self._vector_query(node)
+                for nodes in src_grouped.values() for node in nodes
             })
             uncached = [t for t in all_query_texts
                         if _cache_key(self.embed_model.model_name, t) not in _embed_cache]
@@ -468,23 +287,50 @@ class NeuroSymbolicMatcher:
                     _embed_cache[_cache_key(self.embed_model.model_name, text)] = vec.tolist()
                 # print(f" ✅ Pre-embedded {len(uncached)} query texts (1 batch)")
 
-        concept_matches = {}
-        # total_groups = len(src_grouped)
+        # One entry per (source variable, target variable). Each pair keeps its
+        # own relation; a pair reached by several routes keeps the strongest.
+        pairs = {}
 
-        for idx, (sid, s_group) in enumerate(src_grouped.items()):
-            # if (idx + 1) % 50 == 0 or idx == 0:
-            #     print(f"resolve_matches: {idx + 1}/{total_groups} source groups...")
+        def add_pair(src_node, tgt_node, relation, score, trace):
+            if not FuzzyMatcher.visits_compatible(src_node.visit, tgt_node.visit):
+                return
+            key = (id(src_node), id(tgt_node))
+            held = pairs.get(key)
+            if trace:
+                logger.info(f"[TRACE {trace}]     {src_node.name} -> {tgt_node.name} "
+                            f"(tgt.main_id={tgt_node.main_id}) rel={relation}"
+                            + ("" if held is None else f" :: pair already held '{held[2]}'"))
+            if held is None:
+                pairs[key] = [src_node, tgt_node, relation, score]
+            elif _relation_rank(relation) < _relation_rank(held[2]):
+                held[2], held[3] = relation, score
 
-            rep = s_group[0]
-            matched_candidates = set()
+        def targets_of(tid, names=None):
+            if is_ne:
+                tk = (tid or "").lower()
+                tdesc = tgt_name_to_desc.get(tk)
+                return tgt_by_desc.get(tdesc, []) if tdesc else tgt_map.get(tk, [])
+            nodes = tgt_map.get(tid, [])
+            if names:
+                # Only the target variables of the retrieved point. An index
+                # built from an older dictionary may name none of the current
+                # variables; the hit then falls back to the whole main id.
+                wanted = {n.strip().lower() for n in names}
+                own = [n for n in nodes if (n.name or "").strip().lower() in wanted]
+                if own:
+                    return own
+            return nodes
 
-            _trace = _trace_cid is not None and sid == _trace_cid
+        for sid, s_group in src_grouped.items():
+            graph_candidates = set()
+
+            _trace = sid if (_trace_cid is not None and sid == _trace_cid) else None
             if _trace:
                 logger.info(f"[TRACE {sid}] source group: {[n.name for n in s_group]}")
 
             if use_graph:
                 if sid in unique_tgt_ids:
-                    matched_candidates.add((sid, MappingRelation.SymbolicExactMatch.value, None))
+                    graph_candidates.add((sid, MappingRelation.SymbolicExactMatch.value))
                     if _trace:
                         logger.info(f"[TRACE {sid}]   self-id route -> tid={sid} exactmatch"
                                     f" | tgt_map[{sid}] = {[n.name for n in tgt_map.get(sid, [])]}")
@@ -493,81 +339,60 @@ class NeuroSymbolicMatcher:
                     reachable = self.graph.source_to_targets_paths(
                         sid, others, max_depth=settings.DEFAULT_GRAPH_DEPTH)
                     if reachable:
-                        matched_candidates.update((tid, rel, None) for tid, rel in reachable)
+                        graph_candidates.update((tid, rel) for tid, rel in reachable)
                     if _trace:
                         logger.info(f"[TRACE {sid}]   graph route  -> {len(reachable or [])} target(s): "
                                     f"{sorted(reachable or [])[:12]}")
 
+            # Self-id and graph routes work on concept ids, so they pair every
+            # variable of the group.
+            for tid, relation in sorted(graph_candidates, key=lambda c: (str(c[0]), str(c[1]))):
+                for tgt_node in targets_of(tid):
+                    for src_node in s_group:
+                        add_pair(src_node, tgt_node, relation, None, _trace)
+
             if use_vector:
-                graph_tids = {tid for tid, _, score in matched_candidates}
-                query = self._vector_query(rep)
-                # print(f"query ={query}")
-                raw_matches = search_in_db(
-                    vectordb=self.vector_db,
-                    embedding_model=self.embed_model,
-                    query_text=query,
-                    target_study=[target_study],
-                    limit=settings.LIMIT,
-                    min_threshold=self.similarity_threshold,
-                    collection_name=self.collection_name,
-                    mapping_mode=self.mapping_mode,
-                )
-                if is_ne:
+                # Each variable searches with its own description and concepts;
+                # variables with identical query text share one search.
+                graph_tids = {tid for tid, _ in graph_candidates}
+                by_query = {}
+                for node in s_group:
+                    by_query.setdefault(self._vector_query(node), []).append(node)
+                for query, members in by_query.items():
+                    raw_matches = search_in_db(
+                        vectordb=self.vector_db,
+                        embedding_model=self.embed_model,
+                        query_text=query,
+                        target_study=[target_study],
+                        limit=settings.LIMIT,
+                        min_threshold=self.similarity_threshold,
+                        collection_name=self.collection_name,
+                        mapping_mode=self.mapping_mode,
+                        with_names=not is_ne,
+                    )
+                    if _trace:
+                        logger.info(f"[TRACE {sid}]   vector route {[n.name for n in members]} -> "
+                                    f"{len(raw_matches)} hit(s): {raw_matches[:12]}")
                     seen_descs = set()
                     for item in raw_matches:
-                        tid, score = item if isinstance(item, tuple) else (item, 0.0)
-                        tk = (tid or "").lower()
-                        tdesc = tgt_name_to_desc.get(tk)
-                        if tdesc and tdesc not in seen_descs and tid not in graph_tids:
-                            seen_descs.add(tdesc)
-                            matched_candidates.add((tid, MappingRelation.NeuralMatch.value, score))
-                else:
-                    for item in raw_matches:
-                        tid, score = item if isinstance(item, tuple) else (item, 0.0)
-                        if tid not in graph_tids:
-                            matched_candidates.add((tid, MappingRelation.NeuralMatch.value, score))  # score preserved
-                if _trace:
-                    vec = [(t, s) for t, s in (
-                        (i if isinstance(i, tuple) else (i, 0.0)) for i in raw_matches)]
-                    logger.info(f"[TRACE {sid}]   vector route -> {len(vec)} hit(s): {vec[:12]}")
-
-            for tid, relation, score in matched_candidates:
-                if is_ne:
-                    tdesc = tgt_name_to_desc.get(tid)
-                    tgt_nodes = tgt_by_desc.get(tdesc, []) if tdesc else tgt_map.get(tid, [])
-                else:
-                    tgt_nodes = tgt_map.get(tid, [])
-                
-                # seen_pairs = set()
-                for tgt_node in tgt_nodes:
-                    for src_node in s_group:
-                        if not FuzzyMatcher.visits_compatible(src_node.visit, tgt_node.visit):
+                        item = item if isinstance(item, tuple) else (item, 0.0)
+                        tid, score = item[0], item[1]
+                        names = item[2] if len(item) > 2 else None
+                        if tid in graph_tids:
                             continue
-                        ckey = self._concept_key(src_node, tgt_node)
-                        if _trace:
-                            held = concept_matches.get(ckey, {}).get("relation")
-                            note = ("NEW bucket" if held is None
-                                    else f"joins bucket holding '{held}'"
-                                         + ("  <-- RELATION OVERRIDDEN" if held != relation else ""))
-                            logger.info(f"[TRACE {sid}]     {src_node.name} -> {tgt_node.name} "
-                                        f"(tid={tid}, tgt.main_id={tgt_node.main_id}) rel={relation} :: {note}")
-                            logger.info(f"[TRACE {sid}]        ckey={ckey}")
-                        if ckey not in concept_matches:
-                            concept_matches[ckey] = {
-                                "relation": relation,
-                                "src_rep": src_node,
-                                "tgt_rep": tgt_node,
-                                "group_pairs": [],
-                                # "visit":(src_node.visit, tgt_node.visit)
-                            }
-                        concept_matches[ckey]["group_pairs"].append((src_node, tgt_node, score))
-        
-        # print(f"total concept_matches unique pairs: {len(concept_matches)}")
-        for ckey, entry in concept_matches.items():
-            rel_str = entry["relation"].strip().lower() if entry["relation"] else "unknown"
-            for src_node, tgt_node, score in entry["group_pairs"]:
-                final_matches.append(_build_match_dict(
-                    src_node, tgt_node, rel_str, ContextMatchType.PENDING.value, score))
+                        if is_ne:
+                            tdesc = tgt_name_to_desc.get((tid or "").lower())
+                            if not tdesc or tdesc in seen_descs:
+                                continue
+                            seen_descs.add(tdesc)
+                        for tgt_node in targets_of(tid, names):
+                            for src_node in members:
+                                add_pair(src_node, tgt_node, MappingRelation.NeuralMatch.value, score, _trace)
+
+        for src_node, tgt_node, relation, score in pairs.values():
+            rel_str = relation.strip().lower() if relation else "unknown"
+            final_matches.append(_build_match_dict(
+                src_node, tgt_node, rel_str, ContextMatchType.PENDING.value, score))
         return final_matches
 
     def resolve_pending_with_llm(self,
@@ -649,7 +474,13 @@ class NeuroSymbolicMatcher:
             logger.info(f"  🤖 LLM Validating : {len(flat_keys)} concept pairs")
         else:
             logger.debug(f"  🤖 LLM Validating : {len(flat_keys)} concept pair")
-        grouped_results, _stats = self.llm_matcher.assess(groups, case_ids=case_ids)
+        grouped_results, stats = self.llm_matcher.assess(groups, case_ids=case_ids)
+        if stats.get("not_reached") or stats.get("unreadable"):
+            logger.warning(
+                f"  🤖 LLM {stats.get('model')}: {stats.get('total_targets')} pairs, "
+                f"{stats.get('not_reached', 0)} not reached, {stats.get('unreadable', 0)} unreadable "
+                f"({stats.get('total_llm_calls')} calls); their structural verdicts are kept and flagged"
+            )
 
         # ── Step 4: convert verdicts to LLMEvidence
 
@@ -658,10 +489,11 @@ class NeuroSymbolicMatcher:
         for grp_verdicts in grouped_results:
             for verdict_tuple in grp_verdicts:
                 ckey = flat_keys[flat_pos]
-                # tuple_to_evidence handles missing/empty tuples → IMPOSSIBLE.
+                # A missing result is a failure to get a verdict, not a rejection.
                 ckey_to_evidence[ckey] = tuple_to_evidence(
                     verdict_tuple if verdict_tuple else
-                    (None, ContextMatchType.NOT_APPLICABLE.value, 0.0, "")
+                    (None, ContextMatchType.PENDING.value, 0.0,
+                     json.dumps({"status": "NOT_REACHED", "reason": "no result returned for this pair"}))
                 )
                 flat_pos += 1
 
@@ -679,35 +511,11 @@ class NeuroSymbolicMatcher:
     
 
     def compute_derived_variables(self, df: pd.DataFrame, src_collection, tgt_collection) -> pd.DataFrame:
-        """Phase 3: Append derived variables to the mapped DataFrame."""
+        """Phase 3: Append derived variables to the mapped DataFrame (see derived_variables.py)."""
         if self.mapping_mode == MappingType.NE.value:
             return df
-            
-        single_source_context = {
-            "source": [n.to_element_dict("source") for n in src_collection.variables],
-            "target": [n.to_element_dict("target") for n in tgt_collection.variables],
-            "mapped": df.to_dict('records'),
-        }
-        
-        new_matches = []
-        for derived_def in settings.DERIVED_VARIABLES_LIST:
-            derived_match = self._extend_with_derived_variables(
-                single_source=single_source_context,
-                standard_derived_variable=(
-                    derived_def["code"], derived_def["label"], derived_def["omop_id"]),
-                parameters_omop_ids=derived_def["required_omops"],
-                variable_name=derived_def["name"],
-                category=derived_def["category"],
-                unit_label=derived_def.get("unit", ""),
-            )
-            if derived_match:
-                new_matches.extend(derived_match)
-                
-        if new_matches:
-            new_df = pd.DataFrame(new_matches)
-            df = pd.concat([df, new_df], ignore_index=True)
-            
-        return df
+        return compute_derived_variables(
+            df, src_collection, tgt_collection, self.graph, settings.DERIVED_VARIABLES_LIST)
 
     def _concept_key(self, src_node, tgt_node):
         """Build a concept-level key that collapses visit variants."""

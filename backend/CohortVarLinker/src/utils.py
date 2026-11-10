@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from rdflib import Dataset, Namespace,Graph, RDF, RDFS, URIRef, DC, Literal
-from SPARQLWrapper import SPARQLWrapper, JSON
+from SPARQLWrapper import SPARQLWrapper, JSON, POST
 from urllib.parse import quote
 import pandas as pd
 from .config import settings
@@ -1652,6 +1652,7 @@ def execute_query(query: str) -> Iterable[Dict[str, Any]]:
     sparql = SPARQLWrapper(settings.query_endpoint)
     sparql.setQuery(query)
     sparql.setReturnFormat(JSON)
+    sparql.setMethod(POST)
     return sparql.query().convert()
 
 def get_embedding_model(model_name="biolord"):

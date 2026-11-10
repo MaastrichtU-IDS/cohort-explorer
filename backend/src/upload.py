@@ -229,6 +229,11 @@ def build_variables_graph(g: Dataset, dict_path: str, cohort_id: str, cohort_gra
     The builder writes its quads under its own lower-cased graph IRI; they are
     re-homed into the cohort's graph so there is one graph per cohort. Revisit
     this function when CohortVarLinker changes its builder.
+
+    TODO (cohort-explorer developer): when switching to CohortVarLinker/src_1,
+    import process_variables_metadata_file from CohortVarLinker.src_1.variables_kg
+    (new term_iri IRIs) and rebuild every cohort graph; graphs built with src
+    and src_1 cannot be mixed.
     """
     from CohortVarLinker.src.variables_kg import process_variables_metadata_file
 
@@ -2062,6 +2067,22 @@ def is_valid_value(value: Any) -> bool:
         # If any error occurs during conversion, consider it invalid
         return False
 
+# TODO (cohort-explorer developer): this graph still uses the old CMEO/OBI IRIs.
+# CohortVarLinker/src_1 (the new model) reads studies_metadata in the shape built by
+# CohortVarLinker/src_1/study_kg.py generate_studies_kg(); see the NOTE there.
+# Before switching the mapping to src_1, update this function to:
+#   - use the term_iri() / OntologyNamespaces IRIs from src_1/data_model.py instead
+#     of the hard-coded old ones (classes and properties, incl. has_value);
+#   - add dc:identifier on the study_design_execution node (the study-context query
+#     anchors on it; today it is only on the cohort and the study design);
+#   - write "part of study" links as has_member / member_of between study designs
+#     (get_member_studies in src_1/utils.py returns nothing without them);
+#   - type the study design with study_design_class(), create per-study morbidity
+#     nodes, and type eligibility criteria with term_iri();
+#   - keep the cohort-level triples the explorer needs (cmeo:email, icare:cohort, ...).
+# Alternatively call generate_studies_kg() and add only the cohort-level triples here.
+# Then update the SPARQL that reads this graph (src/utils.py, src/cohort_cache.py)
+# and regenerate the studies_metadata graph.
 def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df = pd.read_excel(filepath, sheet_name="Descriptions")
     df = df.fillna("")

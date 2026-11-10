@@ -10,7 +10,7 @@ from .config import settings
 from .query_builder import SPARQLQueryBuilder
 from .constraints import compute_structural, make_timepoint_info
 from .policy import decide, should_consult_llm, llm_priority_key, CLAIMING_VERDICTS
-from .verdict import LLMEvidence
+from .verdict import LLMEvidence, LLM_OK, LLM_SKIPPED, llm_evidence_from_tuple
 from .data_model import (
     MappingType, MatchLevel, VariableNode, VariableCollection,
     Statistics, StatisticalType, ContextMatchType, _safe_float
@@ -29,16 +29,6 @@ from .harmonized_variable import (
     suggest_harmonized_variable_without_llm,
 )
 logger = setup_logger('storelog.log')
-
-_CTX_TYPE_TO_VERDICT = {
-    ContextMatchType.EXACT.value:           "COMPLETE",
-    ContextMatchType.COMPATIBLE.value:      "COMPATIBLE",
-    ContextMatchType.SUBSUMED.value:        "COMPATIBLE",
-    ContextMatchType.PARTIAL.value:         "PARTIAL",
-    ContextMatchType.NOT_APPLICABLE.value:  "IMPOSSIBLE",
-}
-
-
 
 _LOGPROB_KEYS = (
     "logprob_usable", "logprob_distribution_type", "logprob_observability",
@@ -63,46 +53,11 @@ def _evidence_for_output(evidence: LLMEvidence) -> dict:
     return out
 
 
-def _llm_tuple_to_evidence(parsed_tuple) -> LLMEvidence:
-    """Adapter: llm_call.py returns (matched_or_none, ctx_type, conf, reason_json).
-
-    Here `conf` is already logprob-based confidence if llm_call.py applied
-    _apply_logprob_confidence().
-    """
-    matched, ctx_type, conf, reason_json = parsed_tuple
-
-    if matched is False or ctx_type == ContextMatchType.NOT_APPLICABLE.value:
-        verdict = "IMPOSSIBLE"
-    else:
-        verdict = _CTX_TYPE_TO_VERDICT.get(ctx_type, "IMPOSSIBLE")
-
-    reason = transform = transform_dir = ""
-    harmonized = ""
-    d = {}
-
-    try:
-        d = json.loads(reason_json) if isinstance(reason_json, str) else {}
-        reason = d.get("reason", "") or ""
-        transform = d.get("transform", "") or ""
-        transform_dir = d.get("alignment_direction", "") or ""
-        harmonized = (d.get("harmonized_variable") or "").strip()
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    self_reported_conf = float(d.get("llm_self_reported_confidence") or conf or 0.0)
+# Failures to get a verdict become LLMEvidence with status not_reached /
+# unreadable (verdict.llm_evidence_from_tuple), never an IMPOSSIBLE verdict.
+_llm_tuple_to_evidence = llm_evidence_from_tuple
 
 
-    return LLMEvidence(
-        verdict=verdict,
-        confidence=self_reported_conf,
-        reason=reason,
-        transform=transform,
-        transform_direction=transform_dir,
-        harmonized_variable=harmonized,
-        confidence_source=d.get("confidence_source") or "",
-    )
-    
-    
 class StudyMapper:
 
     def __init__(self, vector_db: Any, embedding_model: Any, omop_graph: Any = None,
@@ -219,18 +174,22 @@ class StudyMapper:
         src_nodes: List[VariableNode] = []
         tgt_nodes: List[VariableNode] = []
 
+        def domain(result, key):
+            # A variable without a domain annotation contributes "" to the
+            # GROUP_CONCAT; drop those so the joined string has no blank parts.
+            raw = result.get(key, {}).get("value", "")
+            return "||".join(p for p in raw.split("||") if p.strip()).strip().lower()
+
+        empty_concepts = []
         for result in bindings:
             omop = int(result["omop_id"]["value"])
             code_label = result.get("code_label", {}).get("value", "")
             code_value = result.get("code_value", {}).get("value", "")
-            # source_domain / target_domain are GROUP_CONCAT aggregates over
-            # OPTIONAL values within a UNION: for an omop_id present in only one
-            # study, the other side's aggregate is empty and some SPARQL engines
-            # (e.g. Oxigraph) omit the binding entirely. Read defensively — an
-            # unbound domain means that side has no variables here anyway, so the
-            # empty category is never attached to a node.
-            src_cat = result.get("source_domain", {}).get("value", "").strip().lower()
-            tgt_cat = result.get("target_domain", {}).get("value", "").strip().lower()
+            src_cat = domain(result, "source_domain")
+            tgt_cat = domain(result, "target_domain")
+            if not (result.get("source_definition", {}).get("value")
+                    or result.get("target_definition", {}).get("value")):
+                empty_concepts.append(omop)
 
             def parse_raw(raw: str) -> List[Tuple[str, str, str]]:
                 out = []
@@ -261,6 +220,15 @@ class StudyMapper:
                 )
                 # node.var_label = label
                 tgt_nodes.append(node)
+
+        if empty_concepts:
+            # Every concept comes from a coded variable, so a concept with no
+            # variable on either side means the triple store dropped them.
+            logger.warning(
+                f"⚠️ {len(empty_concepts)} of {len(bindings)} concepts came back with no "
+                f"variables on either side ({src_study} -> {tgt_study}); their variables "
+                f"are excluded from matching. Check the SPARQL engine version. "
+                f"First ids: {empty_concepts[:10]}")
 
         src_col = VariableCollection(study=src_study, variables=src_nodes)
         tgt_col = VariableCollection(study=tgt_study, variables=tgt_nodes)
@@ -330,6 +298,7 @@ class StudyMapper:
             node.unit_concept_id = _as_int(p.get("unit_omop_id")) if mapping_mode != MappingType.NE.value else node.unit_concept_id
             node.context_labels = _split_labels(p.get("composite_code_labels")) if mapping_mode != MappingType.NE.value else []
             node.context_ids = _split_ids(p.get("composite_code_omop_ids"))   if mapping_mode != MappingType.NE.value else []
+            node.context_codes = _split_labels(p.get("composite_code_values")) if mapping_mode != MappingType.NE.value else []
             node.category_labels = _split_labels(p.get("categories_labels"))
             node.category_ids = _split_ids(p.get("categories_omop_ids"))  if mapping_mode != MappingType.NE.value else []
             node.original_categories = _split_labels(p.get("original_categories"))
@@ -399,6 +368,11 @@ class StudyMapper:
             for idx, _prio in ordered:
                 if claimed:
                     total_skipped += 1
+                    llm_evidence[idx] = LLMEvidence(
+                        verdict="", confidence=0.0, status=LLM_SKIPPED,
+                        reason=("Not sent to the LLM: the source already has a complete or "
+                                "compatible match (source-claim early exit)."),
+                    )
                     continue
                 # Reuse the existing concept-key-aware path. Single-element
                 # lists preserve caching and concept dedup semantics.
@@ -490,11 +464,9 @@ class StudyMapper:
                 variables=self._fetch_unmapped_variables(src_study, role="source"))
             tgt_col = VariableCollection(study=tgt_study,
                 variables=self._fetch_unmapped_variables(tgt_study, role="target"))
-
         else:
             query = SPARQLQueryBuilder.build_alignment_query(src_study, tgt_study)
             src_col, tgt_col = self._parse_sparql_results(query, src_study, tgt_study)
-        
         # ── Step 1b: Fetch unmapped variables (OEH/NE) ─────
         if mapping_mode == MappingType.OEH.value:
             for col, study in [(src_col, src_study), (tgt_col, tgt_study)]:
@@ -509,6 +481,11 @@ class StudyMapper:
         self._enrich_with_profiles(src_col,  mapping_mode)
         self._enrich_with_profiles(tgt_col,  mapping_mode)
         logger.info(f"📊 Parsed {len(src_col)} source, {len(tgt_col)} target variables")
+        empty = [s for s, col in ((src_study, src_col), (tgt_study, tgt_col)) if len(col) == 0]
+        if empty:
+            raise ValueError(
+                f"No variables found for {', '.join(empty)} ({src_study} -> {tgt_study}). "
+                f"Check that the study graph is loaded and the study name matches it.")
 
         # ── Step 2: Discover Candidates ────────────
         ns_matches = self.matcher.generate_candidates(src_collection=src_col, tgt_collection=tgt_col, target_study=tgt_study)
@@ -562,7 +539,7 @@ class StudyMapper:
                         ambiguous, structurals, src_study, tgt_study,
                     )
                     logger.info(
-                        f"🤖 Phase B: LLM consulted on {len(llm_evidence)}/{len(recs)} "
+                        f"🤖 Phase B: LLM consulted on {len(llm_evidence) - n_skipped_claim}/{len(recs)} "
                         f"candidates "
                         f"({n_skipped_structural} skipped by structural confidence, "
                         f"{n_skipped_claim} skipped by source-claim early-exit)"
@@ -577,6 +554,15 @@ class StudyMapper:
                             ambiguous, structurals, src_study, tgt_study,
                             tuple_to_evidence=_llm_tuple_to_evidence,
                         )
+
+                outcomes = Counter(ev.status for ev in llm_evidence.values())
+                failed = sum(n for st, n in outcomes.items() if st not in (LLM_OK, LLM_SKIPPED))
+                if failed:
+                    logger.warning(
+                        f"🤖 Phase B: {failed} of {sum(outcomes.values())} LLM verdicts missing "
+                        f"({dict(outcomes)}); those pairs keep their structural verdict, "
+                        f"flagged in llm_status. Re-running retries only them (failures are not cached)."
+                    )
 
             # Phase C: one policy.decide() per row, immutable verdict, single write
             # logger.info(f"⚖️  Phase C: policy decision for {len(structurals)} candidates...")
@@ -596,6 +582,7 @@ class StudyMapper:
             transformation_rules = []
             # llm_use = True if self.llm_model else False
             llm_evidences = []
+            llm_statuses = []
             for idx in range(len(recs)):
                 s, t, struct_ev = structurals[idx]
                 tp = make_timepoint_info(
@@ -650,6 +637,7 @@ class StudyMapper:
                 transformation_rules.append(details.pop("transformation_rule", "") or "")
                 descriptions.append(json.dumps(details, default=str, ensure_ascii=False))
                 statuses.append(status)
+                llm_statuses.append(details.get("llm_status", ""))
 
                 ev = llm_evidence.get(idx)                        # NEW
                 llm_evidences.append(                             # NEW
@@ -675,6 +663,8 @@ class StudyMapper:
             ]
             df["harmonization_status"]  = statuses
             df["LLMEvidence"]          = llm_evidences
+            # ok / not_reached / unreadable / skipped / not_needed / not_configured
+            df["llm_status"]           = llm_statuses
         
         df.dropna(subset=["source", "target"], inplace=True)
         df.drop(columns=["context_match_type", "derived_variable_name"],

@@ -8,8 +8,8 @@ load_dotenv()  # reads .env into os.environ
 @dataclass(frozen=True)
 class Settings:
     # Thresholds
-    ADAPTIVE_THRESHOLD: float = 0.5 # minimum score for adaptive retrival from vector db
-    ADAPTIVE_ALPHA = 0.8 # upper bound
+    ADAPTIVE_THRESHOLD: float = 0.5 # minimum score for adaptive retrival from vector db, use 0.45 for NE for article results
+    ADAPTIVE_ALPHA = 0.75 # upper bound, use 0.8 to reproduce article results
     LIMIT: int = 10 # limit for adaptive retrival from vector db
 
     DATE_HINTS: List[str] = field(default_factory=lambda: ["visit date", "date of visit", "date of event", "event date"])
@@ -75,9 +75,9 @@ class Settings:
     },
     {
         "name": "eGFR_CKD_EPI", # 2021 CKD-EPI is race-free
-        "omop_id": 3030354,                                  
-        "code": "loinc:33914-3",
-        "label": "Glomerular filtration rate/1.73 sq M.predicted by Creatinine-based formula (CKD-EPI)",
+        "omop_id": 37393011,                                  
+        "code": "snomed:1011481000000105",
+        "label": "eGFR (estimated glomerular filtration rate) using creatinine Chronic Kidney Disease Epidemiology Collaboration equation per 1.73 square metres",
         "unit": "ucum:mL/min/{1.73_m2}",
         "required_omops": [3025315, 3016723, 3022304, 46235213],  # Weight, Serum creatinine, Age, Sex/Gender proxy
         "category": "measurement",
@@ -86,9 +86,9 @@ class Settings:
     },
     {
         "name": "eGFR_MDRD",
-        "omop_id": 3053283,
-        "code": "loinc:48643-1",
-        "label": "Glomerular filtration rate/1.73 sq M predicted by Creatinine-based formula (MDRD)",
+        "omop_id": 46236952,
+        "code": "loinc:77147-7",
+        "label": "Glomerular filtration rate [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)/1.73 sq M",
         "unit": "ucum:mL/min/{1.73_m2}",
         "required_omops": [4324383, 3022304, 46235213],        # Creatinine, Age, Sex assigned at birth
         "category": "measurement",
@@ -134,7 +134,7 @@ class Settings:
         "code": "snomed:248367009",
         "label": "Ratio of waist circumference to hip circumference",
         "unit": "ucum:1",
-        "required_omops": [40329251, 4111665],                 # Waist circumference, Hip circumference — verify
+        "required_omops": [4172830, 4111665],                 # Waist circumference, Hip circumference — verify
         "category": "measurement",
         "data_type": "continuous_variable",
         "formula": "WHR = waist / hip"
@@ -145,10 +145,13 @@ class Settings:
         "code": "loinc:13457-7",
         "label": "Cholesterol in LDL [Mass/volume] in Serum or Plasma by calculation",
         "unit": "ucum:mg/dL",
-        "required_omops": [4008265, 3007070, 3022192],        # Total cholesterol measurement, Cholesterol in HDL [Mass/volume] in Serum or Plasma, Triglyceride [Mass/volume] in Serum or Plasma
+        "required_omops": [3027114, 3007070, 3022192],        # Cholesterol [Mass/volume] in Serum or Plasma, Cholesterol in HDL [Mass/volume] in Serum or Plasma, Triglyceride [Mass/volume] in Serum or Plasma
         "category": "measurement",
         "data_type": "continuous_variable",
-        "formula": "LDL = TC - HDL - TG/5 ; invalid if TG >= 400 mg/dL (use Martin-Hopkins or direct LDL)"
+        "formula": "LDL = TC - HDL - TG/5 ; invalid if TG >= 400 mg/dL (use Martin-Hopkins or direct LDL)",
+        # checked against the triglyceride min/max (src/derived_variables.py)
+        "condition": {"input": 3022192, "op": "<", "value": 400, "unit": "mg/dL",
+                      "converted": {"mmol/L": 4.52}, "note": "fasting sample"},
     },
     {
         "name": "Non_HDL_Cholesterol",
@@ -156,7 +159,7 @@ class Settings:
         "code": "loinc:43396-1",
         "label": "Cholesterol non HDL [Mass/volume] in Serum or Plasma",
         "unit": "ucum:mg/dL",
-        "required_omops": [4008265, 3007070],                 # Total cholesterol measurement, Cholesterol in HDL [Mass/volume] in Serum or Plasma
+        "required_omops": [3027114, 3007070],                 # Cholesterol [Mass/volume] in Serum or Plasmat, Cholesterol in HDL [Mass/volume] in Serum or Plasma
         "category": "measurement",
         "data_type": "continuous_variable",
         "formula": "Non-HDL = TC - HDL"
@@ -182,21 +185,21 @@ class Settings:
     "category": "measurement",
     "data_type": "continuous_variable",
     "formula": "Eos[#/vol] = Eos_fraction × Leukocytes[#/vol] ; Eos_fraction = pct/100 when reported in %"
-},
-{
-    "name": "Age",
-    "omop_id": 3022304,
-    "code": "loinc:30525-0",
-    "label": "Age",
-    "unit": "ucum:a",
-    "required_omops": [
-        4083587,  # Date of birth
-        4231970,  # Date of visit
-    ],
-    "category": "measurement",
-    "data_type": "continuous_variable",
-    "formula": "completed calendar years between date of birth and baseline date",
-}
+    },
+    {
+        "name": "Age",
+        "omop_id": 3022304,
+        "code": "loinc:30525-0",
+        "label": "Age",
+        "unit": "ucum:a",
+        "required_omops": [
+            4083587,  # Date of birth
+            4231970,  # Date of visit
+        ],
+        "category": "measurement",
+        "data_type": "continuous_variable",
+        "formula": "completed calendar years between date of birth and baseline date",
+    }
 
     ])
     admins: str = field(default_factory=lambda: os.getenv("ADMINS", ""))
