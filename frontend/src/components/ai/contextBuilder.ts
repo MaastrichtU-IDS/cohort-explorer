@@ -178,6 +178,9 @@ export const metadataGroups: GroupSpec[] = [
       f('Language', c => c.language),
       f('Dataset format', c => c.dataset_format),
       f('Coding system', c => c.coding_system),
+      f('Data access', c => c.data_access),
+      f('Available data types', c => c.available_data_types),
+      f('Data available in DEC', c => c.data_available_in_dec),
       f('Anonymisation', c => c.anonymisation_technique),
       f('Part of study', c => c.part_of_study)
     ]

@@ -2193,6 +2193,13 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             g.add((cohort_uri, OntologyNamespaces.CMEO.value.dataCollectionFrequency, Literal(row["frequency of data collection"]), metadata_graph))
         if is_valid_value(row.get("interventions", "")):
             g.add((cohort_uri, OntologyNamespaces.CMEO.value.interventions, Literal(row["interventions"]), metadata_graph))
+        # Oct-2025 columns, kept verbatim as cohort-level literals (read back in
+        # cohort_cache.create_cohort_from_metadata_graph).
+        for column, predicate in (("data access", OntologyNamespaces.CMEO.value.dataAccess),
+                                  ("available data types", OntologyNamespaces.CMEO.value.availableDataTypes),
+                                  ("data available in dec", OntologyNamespaces.CMEO.value.dataAvailableInDec)):
+            if is_valid_value(row.get(column, "")):
+                g.add((cohort_uri, predicate, Literal(str(row[column]).strip()), metadata_graph))
         if is_valid_value(row["study type"]):
             # Split study types on '/' and add each as a separate triple
             study_types = [st.strip() for st in row["study type"].split("/")]

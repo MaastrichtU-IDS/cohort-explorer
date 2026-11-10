@@ -106,6 +106,12 @@ class Cohort:
     dataset_format: Optional[str] = None
     coding_system: Optional[str] = None
     comparator: Optional[str] = None
+    # Oct-2025 spreadsheet columns: where the data can be accessed ("DEC" /
+    # "at site"), extra data types held (e.g. "omics", "imaging"), and the
+    # "Data available in DEC" mark (the spreadsheet puts an "x"), all verbatim.
+    data_access: Optional[str] = None
+    available_data_types: Optional[str] = None
+    data_available_in_dec: Optional[str] = None
     race_ethnicity: Optional[str] = None
     enrolled_with_diabetes: Optional[str] = None
     enrolled_with_cvd: Optional[str] = None
