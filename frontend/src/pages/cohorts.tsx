@@ -2087,9 +2087,7 @@ export default function CohortsList() {
                       { label: 'Frequency of Data Collection', value: cohortData.data_collection_frequency },
                       { label: 'Dataset Format', value: (cohortData as any).dataset_format },
                       { label: 'Coding System', value: (cohortData as any).coding_system },
-                      { label: 'Data Access', value: cohortData.data_access },
                       { label: 'Available Data Types', value: cohortData.available_data_types },
-                      { label: 'Data Available in DEC', value: cohortData.data_available_in_dec },
                       { label: 'Anonymisation/Pseudonymization Technique', value: (cohortData as any).anonymisation_technique },
                       // Clinical context
                       { label: 'Interventions', value: cohortData.interventions },

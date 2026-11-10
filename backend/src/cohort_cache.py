@@ -321,9 +321,7 @@ def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
         "dataset_format": cohort.dataset_format,
         "coding_system": cohort.coding_system,
         "comparator": cohort.comparator,
-        "data_access": cohort.data_access,
         "available_data_types": cohort.available_data_types,
-        "data_available_in_dec": cohort.data_available_in_dec,
         "race_ethnicity": cohort.race_ethnicity,
         "enrolled_with_diabetes": cohort.enrolled_with_diabetes,
         "enrolled_with_cvd": cohort.enrolled_with_cvd,
@@ -641,10 +639,8 @@ def create_cohort_from_metadata_graph(cohort_id: str, cohort_uri: URIRef, g: Dat
         cohort.language = get_literal_value(CMEO.language) or get_literal_value(ICARE.language)
         cohort.data_collection_frequency = get_literal_value(CMEO.dataCollectionFrequency) or get_literal_value(ICARE.dataCollectionFrequency)
         cohort.interventions = get_literal_value(CMEO.interventions) or get_literal_value(ICARE.interventions)
-        # Oct-2025 columns, written by upload.cohorts_metadata_file_to_graph
-        cohort.data_access = get_literal_value(CMEO.dataAccess)
+        # Oct-2025 column, written by upload.cohorts_metadata_file_to_graph
         cohort.available_data_types = get_literal_value(CMEO.availableDataTypes)
-        cohort.data_available_in_dec = get_literal_value(CMEO.dataAvailableInDec)
         
         # Inclusion criteria - try CMEO first, then ICARE
         cohort.sex_inclusion = get_literal_value(CMEO.sexInclusion) or get_literal_value(ICARE.sexInclusion)
@@ -1605,10 +1601,8 @@ def initialize_cache_from_excel(excel_filepath: str, user_email: str | None = No
             cohort.dataset_format = str(row.get("dataset format", "")).strip() if pd.notna(row.get("dataset format")) else None
             cohort.coding_system = str(row.get("coding system", "")).strip() if pd.notna(row.get("coding system")) else None
             cohort.comparator = str(row.get("comparator", "")).strip() if pd.notna(row.get("comparator")) else None
-            # Oct-2025 columns
-            cohort.data_access = str(row.get("data access", "")).strip() if pd.notna(row.get("data access")) else None
+            # Oct-2025 column ("data access" and "data available in dec" are not kept)
             cohort.available_data_types = str(row.get("available data types", "")).strip() if pd.notna(row.get("available data types")) else None
-            cohort.data_available_in_dec = str(row.get("data available in dec", "")).strip() if pd.notna(row.get("data available in dec")) else None
             cohort.race_ethnicity = str(row.get("race/ethnicity", "")).strip() if pd.notna(row.get("race/ethnicity")) else None
             cohort.enrolled_with_diabetes = str(row.get("enrolled with diabetes", "")).strip() if pd.notna(row.get("enrolled with diabetes")) else None
             cohort.enrolled_with_cvd = str(row.get("enrolled with cvd (%)", "")).strip() if pd.notna(row.get("enrolled with cvd (%)")) else None

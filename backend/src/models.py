@@ -106,12 +106,11 @@ class Cohort:
     dataset_format: Optional[str] = None
     coding_system: Optional[str] = None
     comparator: Optional[str] = None
-    # Oct-2025 spreadsheet columns: where the data can be accessed ("DEC" /
-    # "at site"), extra data types held (e.g. "omics", "imaging"), and the
-    # "Data available in DEC" mark (the spreadsheet puts an "x"), all verbatim.
-    data_access: Optional[str] = None
+    # Oct-2025 spreadsheet column: extra data types held (e.g. "omics",
+    # "imaging"), verbatim. Its "Data access" and "Data available in DEC"
+    # columns are deliberately not stored: the explorer tracks DCR profiling
+    # itself, in more detail.
     available_data_types: Optional[str] = None
-    data_available_in_dec: Optional[str] = None
     race_ethnicity: Optional[str] = None
     enrolled_with_diabetes: Optional[str] = None
     enrolled_with_cvd: Optional[str] = None

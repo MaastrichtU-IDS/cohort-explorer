@@ -48,9 +48,7 @@ export interface Cohort {
   anonymisation_technique?: string;
   dataset_format?: string;
   coding_system?: string;
-  data_access?: string;
   available_data_types?: string;
-  data_available_in_dec?: string;
   comparator?: string;
   race_ethnicity?: string;
   enrolled_with_diabetes?: string;

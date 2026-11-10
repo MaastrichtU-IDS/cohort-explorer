@@ -2193,13 +2193,12 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             g.add((cohort_uri, OntologyNamespaces.CMEO.value.dataCollectionFrequency, Literal(row["frequency of data collection"]), metadata_graph))
         if is_valid_value(row.get("interventions", "")):
             g.add((cohort_uri, OntologyNamespaces.CMEO.value.interventions, Literal(row["interventions"]), metadata_graph))
-        # Oct-2025 columns, kept verbatim as cohort-level literals (read back in
-        # cohort_cache.create_cohort_from_metadata_graph).
-        for column, predicate in (("data access", OntologyNamespaces.CMEO.value.dataAccess),
-                                  ("available data types", OntologyNamespaces.CMEO.value.availableDataTypes),
-                                  ("data available in dec", OntologyNamespaces.CMEO.value.dataAvailableInDec)):
-            if is_valid_value(row.get(column, "")):
-                g.add((cohort_uri, predicate, Literal(str(row[column]).strip()), metadata_graph))
+        # Oct-2025 column, kept verbatim as a cohort-level literal (read back in
+        # cohort_cache.create_cohort_from_metadata_graph). The sheet's "data access"
+        # and "data available in dec" columns are not stored: DCR profiling is
+        # tracked by the explorer itself.
+        if is_valid_value(row.get("available data types", "")):
+            g.add((cohort_uri, OntologyNamespaces.CMEO.value.availableDataTypes, Literal(str(row["available data types"]).strip()), metadata_graph))
         if is_valid_value(row["study type"]):
             # Split study types on '/' and add each as a separate triple
             study_types = [st.strip() for st in row["study type"].split("/")]
