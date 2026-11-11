@@ -798,7 +798,7 @@ COHORT_NAME = "{cohort_id}"
 # ---------------------------------------------------------------------------
 # What leaves the enclave from the merge node's output
 #
-# The node "run-the-merge-and-create-airlock" (every participant can run it)
+# The overview node (merge_overview_node_name; every participant can run it)
 # copies files from the merge node's output into harmonization_reports/. It
 # copies ONLY the .pdf files (cohortpool's data_quality_report.pdf and any
 # other PDF report it produces), wherever they sit. Nothing else leaves the
@@ -824,6 +824,13 @@ def _export_rule_comment(indent: str = "# ") -> str:
     """The export rule as a comment line, for the headers of the embedded scripts."""
     exts = ", ".join(MERGE_EXPORT_EXTENSIONS)
     return f"{indent}Exported file types: {exts} (matched on the file extension, in any sub-folder)."
+
+
+def merge_overview_node_name(n_cohorts: int) -> str:
+    """Name of the runnable node at the end of the merged-data chain: it runs the
+    merge (as a dependency), draws the per-column figures of the merged dataset
+    and populates the airlock. Names the number of cohorts merged."""
+    return f"run-merge-on-{n_cohorts}-cohort{'s' if n_cohorts != 1 else ''}-visualize-and-create-airlock"
 
 
 def merge_datasets_script(
@@ -861,6 +868,7 @@ def merge_datasets_script(
         The Python script as a string.
     """
     mappings_info = mappings_info or []
+    overview_node_name = merge_overview_node_name(len(studies_info))
 
     # Build the `studies` dict literal.
     # Each study points to its data file, dictionary file (mounted under /input) and
@@ -897,7 +905,7 @@ def merge_datasets_script(
 # MERGE (POOL) THE COHORTS
 #
 # This node's output is never shown to participants directly. The node
-# "run-the-merge-and-create-airlock" copies from it ONLY the .pdf report(s);
+# "{overview_node_name}" copies from it ONLY the .pdf report(s);
 # everything else - the pooled dataset and the patient-level files above all,
 # but also every CSV, Parquet, JSON, log and PNG - stays in the enclave.
 {_export_rule_comment()}
@@ -1656,158 +1664,38 @@ wlog("example-analysis: done - {{}} columns plotted over {{}} overview page(s) a
 """
 
 
-MERGED_DIAGNOSTICS_NODE_NAME = "diagnostics-of-merged-dataset"
-
-
-def merged_data_diagnostics_script(merge_node_name: str, n_cohorts: int) -> str:
-    """Generate the diagnostics script for the merged (pooled) dataset.
-
-    The node right after the merge node: it reads the merge node's
-    pooled_dataset.csv (the stable file name the merge script writes, which the
-    fragment, overview and example nodes read too) and applies to EVERY column
-    of it the same figures and summary statistics the per-cohort visualization
-    nodes apply to each cohort's dataset: one PNG panel per column (histogram,
-    cumulative distribution and two box plots for a numeric column; counts and
-    shares for a categorical or binary one), the per-column statistics in
-    visualization_log.txt and figures_guide.txt. The code is the shared
-    _ID_COLUMN_FILTER_BLOCK / _PER_COLUMN_FIGURES_BLOCK, not a second version.
-    Patient identifier columns are counted but never charted; study_id is kept
-    (it names the cohort). Aggregates only, so every participant may run it.
-
-    The merged dataset has no metadata dictionary of its own (cohortpool
-    harmonizes the column names), so the categorical detection relies on the
-    data alone (binary or non-numeric columns) and the titles carry no variable
-    labels or domains.
-
-    Args:
-        merge_node_name: Name of the merge compute node (its output is mounted
-            at /input/<merge_node_name>/ inside this node).
-        n_cohorts: Number of cohorts the merge node pools (shown on every chart).
-
-    Returns:
-        The Python script as a string.
-    """
-    return f"""###############################################################################
-# DIAGNOSTICS OF THE MERGED DATASET
-#
-# Reads the merged (pooled) dataset written by the "{merge_node_name}" node
-# ({n_cohorts} cohorts) and produces, for EVERY column of it, the same figures
-# and summary statistics the per-cohort visualization nodes produce for each
-# cohort's dataset:
-#   - <column>_merged.png - one panel per column: histogram (log axis when
-#     strongly skewed), cumulative distribution and two box plots for a
-#     numeric column; counts and shares (the most frequent categories) for a
-#     categorical or binary one
-#   - visualization_log.txt - rows and columns, patients per study, and per
-#     column its non-null count, type, mean / median / std or unique values
-#   - figures_guide.txt - what was produced and what each view is suited for
-#
-# Patient identifier columns are never charted (study_id is kept: it names the
-# cohort). Everything written here is an aggregate.
-#
-# Because this node depends on the "{merge_node_name}" node, running it also
-# triggers the merge itself when its output is not computed yet (that step can
-# take a while - progress appears in the worker log).
-###############################################################################
-
-import os
-
-import numpy as np
-import pandas as pd
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
-
-def wlog(message):
-    # Live progress to Decentriq's worker log ("/worker/logs"), visible in the
-    # platform while the computation is still running. Best-effort: outside an
-    # enclave the path does not exist and the message is simply dropped.
-    try:
-        with open("/worker/logs", "a") as f:
-            f.write(str(message) + "\\n")
-    except Exception:
-        pass
-
-
-# The full merged (pooled) dataset produced by the "{merge_node_name}" node:
-DATA_FILE = "/input/{merge_node_name}/pooled_dataset.csv"
-DATA_SOURCE_NAME = "merged dataset ({n_cohorts} cohorts)"
-
-# Chart settings, the same as in the per-cohort visualization nodes
-CHART_WIDTH_CM = 15
-HISTOGRAM_BINS = 30
-MAX_CATEGORIES = 20
-
-output_dir = "/output"
-log_file = os.path.join(output_dir, "visualization_log.txt")
-
-wlog("merged-diagnostics: reading the merged dataset")
-df = pd.read_csv(DATA_FILE)
-wlog("merged-diagnostics: loaded {{}} rows x {{}} columns".format(len(df), len(df.columns)))
-
-with open(log_file, "w") as log:
-    log.write("Data source name: {{}}\\n".format(DATA_SOURCE_NAME))
-    log.write("Data source file: {{}}\\n".format(DATA_FILE))
-    log.write("Loaded data: {{}} rows, {{}} columns\\n".format(len(df), len(df.columns)))
-    log.write("Columns: {{}}\\n".format(list(df.columns)))
-    for _c in df.columns:
-        if _c.lower().strip() == "study_id":
-            log.write("Rows per study ({{}}):\\n".format(_c))
-            for _study, _count in df[_c].value_counts(dropna=False).items():
-                log.write("  - {{}}: {{}}\\n".format(_study, _count))
-            break
-    log.write("\\n")
-
-# No metadata dictionary for the merged dataset: categorical detection falls back
-# to the data (binary or non-numeric columns), titles carry no label or domain.
-metadata_df = None
-categorical_vars = set()
-
-
-def get_var_label(var_name):
-    return ''
-
-
-def get_var_domain(var_name):
-    return ''
-
-
-# Every column of the merged dataset
-selected_columns = list(df.columns)
-
-{_ID_COLUMN_FILTER_BLOCK}
-
-# Suffix of every PNG file name
-COHORT_NAME = "merged"
-
-wlog("merged-diagnostics: drawing one panel for each of {{}} columns".format(len(selected_columns)))
-{_PER_COLUMN_FIGURES_BLOCK}
-wlog("merged-diagnostics: done - {{}} PNG charts written".format(len(saved_charts)))
-"""
-
-
 def merged_data_overview_script(
     merge_node_name: str,
     preview_node_name: str,
+    n_cohorts: int,
 ) -> str:
-    """Generate the example script that summarizes the FULL merged dataset.
+    """Generate the script of the runnable node at the end of the merged-data
+    chain (merge_overview_node_name): it summarizes and visualizes the FULL
+    merged dataset.
 
     This node is the runnable end of the merged-data chain (airlock nodes cannot
     be accessed in production mode, so this node depends on the merge node
     directly and, by also depending on the fragment node, triggers the airlock
     content for Development-mode use). Every participant can run it.
 
-    It reads the full pooled dataset but writes ONLY aggregate information to
-    its output — dataset shape, patients per study, per-column completeness —
-    plus the merge node's PDF report(s), the only files of the merge node's
-    output that leave the enclave (MERGE_EXPORT_EXTENSIONS). Nothing else is copied.
+    It reads the full pooled dataset (pooled_dataset.csv, the file the merge
+    script writes) but writes ONLY aggregate information to its output —
+    dataset shape, patients per study, per-column completeness — plus, for
+    EVERY non-identifier column, the same figures and summary statistics the
+    per-cohort visualization nodes produce for each cohort's dataset (the
+    shared _ID_COLUMN_FILTER_BLOCK / _PER_COLUMN_FIGURES_BLOCK: one PNG panel
+    per column, visualization_log.txt, figures_guide.txt), plus the merge
+    node's PDF report(s), the only files of the merge node's output that leave
+    the enclave (MERGE_EXPORT_EXTENSIONS). Nothing else is copied. The merged
+    dataset has no metadata dictionary of its own, so the categorical detection
+    relies on the data alone and the chart titles carry no variable labels.
 
     Args:
         merge_node_name: Name of the merge compute node (its output, including
             cohortpool's tables/, is mounted at /input/<merge_node_name>/).
         preview_node_name: Name of the airlock node, referenced in the header
             comments so users know how to explore the fragment in Development mode.
+        n_cohorts: Number of cohorts the merge node pools (shown on every chart).
 
     Returns:
         The Python script as a string.
@@ -1825,7 +1713,7 @@ def merged_data_overview_script(
 # Development-mode use."""
 
     return f"""###############################################################################
-# RUN THE MERGE AND CREATE THE AIRLOCK
+# RUN THE MERGE ON {n_cohorts} COHORTS, VISUALIZE THE MERGED DATASET AND CREATE THE AIRLOCK
 #
 {name_note}
 #
@@ -1833,6 +1721,13 @@ def merged_data_overview_script(
 # produced by the "{merge_node_name}" node and writes AGGREGATE information only:
 #   - dataset shape (rows, columns) and patients per study
 #   - per-column completeness (non-empty / empty counts)
+#   - for EVERY column (patient identifiers excepted; study_id is kept, it
+#     names the cohort) the same figures and statistics the per-cohort
+#     visualization nodes produce: <column>_merged.png, one panel per column
+#     (histogram, log axis when strongly skewed, cumulative distribution and
+#     two box plots for a numeric column; counts and shares of the most
+#     frequent categories for a categorical or binary one), the per-column
+#     statistics in visualization_log.txt, and figures_guide.txt
 #   - the PDF report(s) of the pooling package, copied to harmonization_reports/
 #
 # EXPORT RULE - of the merge node's output, only PDF files leave the enclave.
@@ -1849,7 +1744,12 @@ def merged_data_overview_script(
 
 import os
 import shutil
+
+import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 # Output directory (always exists in Decentriq environment)
 output_dir = "/output"
@@ -1918,6 +1818,53 @@ with open(report_file, "w") as report:
                 row["column"], row["non_empty_values"], row["empty_values"], row["pct_missing"]))
         report.write("\\n")
 
+# ---- Per-column figures and statistics of the merged dataset -----------------
+# The same code as the per-cohort visualization nodes, applied to every
+# column of the merged dataset (nothing is drawn when the dataset is missing).
+DATA_FILE = pooled_path
+DATA_SOURCE_NAME = "merged dataset ({n_cohorts} cohorts)"
+CHART_WIDTH_CM = 15
+HISTOGRAM_BINS = 30
+MAX_CATEGORIES = 20
+log_file = os.path.join(output_dir, "visualization_log.txt")
+with open(log_file, "w") as log:
+    log.write("Data source name: {{}}\\n".format(DATA_SOURCE_NAME))
+    log.write("Data source file: {{}}\\n".format(DATA_FILE))
+    if df is None:
+        log.write("The merged dataset was not found: no figures drawn.\\n\\n")
+    else:
+        log.write("Loaded data: {{}} rows, {{}} columns\\n".format(len(df), len(df.columns)))
+        log.write("Columns: {{}}\\n\\n".format(list(df.columns)))
+
+# No metadata dictionary for the merged dataset: categorical detection falls back
+# to the data (binary or non-numeric columns), titles carry no label or domain.
+metadata_df = None
+categorical_vars = set()
+
+
+def get_var_label(var_name):
+    return ''
+
+
+def get_var_domain(var_name):
+    return ''
+
+
+# Every column of the merged dataset (none when it is missing)
+selected_columns = list(df.columns) if df is not None else []
+
+{_ID_COLUMN_FILTER_BLOCK}
+
+# Suffix of every PNG file name
+COHORT_NAME = "merged"
+
+wlog("merged-data-overview: drawing one panel for each of {{}} columns of the merged dataset".format(len(selected_columns)))
+{_PER_COLUMN_FIGURES_BLOCK}
+
+with open(report_file, "a") as report:
+    report.write("Per-column figures: {{}} PNG file(s) (<column>_merged.png), the same views as the per-cohort\\n"
+                 "visualization nodes; see figures_guide.txt and visualization_log.txt.\\n\\n".format(len(saved_charts)))
+
 # Copy the merge-process files that are safe to publish: ONLY the PDF
 # report(s) (see the header). Everything else - the merged dataset, the
 # patient-level files, every CSV / Parquet / JSON / log / PNG, anything a newer
@@ -1956,7 +1903,7 @@ with open(report_file, "a") as report:
     report.write("\\n" + "=" * 60 + "\\n")
     report.write("OVERVIEW COMPLETE\\n")
 
-wlog("merged-data-overview: done - {{}} PDF report(s) copied, {{}} other files kept inside the enclave".format(len(copied), len(skipped)))
+wlog("merged-data-overview: done - {{}} PNG chart(s) drawn, {{}} PDF report(s) copied, {{}} other files kept inside the enclave".format(len(saved_charts), len(copied), len(skipped)))
 """
 
 

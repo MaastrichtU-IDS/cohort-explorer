@@ -31,7 +31,7 @@ from src.auth import get_current_user
 from src.config import settings
 from src.analysis_dcr_logging import log_dcr_event, read_events
 from src.eda_scripts import c1_data_dict_check, c2_save_to_json, c3_eda_data_profiling, longitudinal_analysis, shuffle_data
-from src.analysisDCR_scripts import data_fragment_script, visualization_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script, merged_data_diagnostics_script, MERGED_DIAGNOSTICS_NODE_NAME, r_packages_script, r_ca_bundle_content, R_PACKAGES_NODE_NAME, R_CRAN_DOMAINS, R_CA_BUNDLE_FILE
+from src.analysisDCR_scripts import data_fragment_script, visualization_script, merge_datasets_script, merged_data_fragment_script, merged_data_overview_script, merged_airlock_example_script, merge_overview_node_name, r_packages_script, r_ca_bundle_content, R_PACKAGES_NODE_NAME, R_CRAN_DOMAINS, R_CA_BUNDLE_FILE
 from src.mapping import resolve_selected_mapping_files
 from src.models import Cohort
 from src.utils import retrieve_cohorts_metadata, split_emails
@@ -1264,7 +1264,7 @@ async def get_compute_dcr_definition(
         # whether it pools the full cohort data or the shuffled samples: its
         # output holds the pooled dataset and cohortpool's patient-level files,
         # so it runs only as a dependency and the platform hides it. Its files
-        # reach participants only through "run-the-merge-and-create-airlock",
+        # reach participants only through the overview node (merge_overview_node_name),
         # which copies its .pdf report(s) alone (MERGE_EXPORT_EXTENSIONS). The
         # two cases differ only in their inputs and in the node's name, which
         # says when it pools the shuffled samples.
@@ -1329,8 +1329,9 @@ async def get_compute_dcr_definition(
         # accessed in production mode (only in Development mode), so this node
         # depends on the merge node DIRECTLY and reads the full pooled output —
         # but writes only aggregate characteristics (shape, patients per study,
-        # per-column completeness) plus cohortpool's harmonization/mapping
-        # reports. It also depends on the fragment node so that running it
+        # per-column completeness, and for every column the same figures and
+        # statistics as the per-cohort visualization nodes) plus cohortpool's
+        # harmonization/mapping reports. It also depends on the fragment node so that running it
         # computes the fragment and thereby populates the airlock for
         # Development-mode use. Every participant can run it.
         # Of the merge node's files it exports only the .pdf report(s)
@@ -1338,11 +1339,12 @@ async def get_compute_dcr_definition(
         # whether the merge pools the full cohort data or the shuffled samples;
         # the pooled dataset, the patient-level files and every other file type
         # stay inside the enclave.
-        merge_check_node_name = "run-the-merge-and-create-airlock"
+        merge_check_node_name = merge_overview_node_name(len(studies_info))
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_check_node_name,
-                script=merged_data_overview_script(merge_node, merge_preview_node_name),
+                script=merged_data_overview_script(merge_node, merge_preview_node_name, len(studies_info)),
+                enable_logs_on_error=True,
                 dependencies=[merge_node, merge_fragment_node_name]
             )
         )
@@ -1365,27 +1367,10 @@ async def get_compute_dcr_definition(
         for p_email in participants:
             participants[p_email]["analyst_of"].add(merge_example_node_name)
 
-        # Diagnostics of the merged dataset: the node right after the merge
-        # node applies to every column of pooled_dataset.csv the same figures
-        # and summary statistics the per-cohort visualization nodes apply to
-        # each cohort's dataset (shared script blocks). Aggregates only, so
-        # every participant can run it; running it triggers the merge first.
-        builder.add_node_definition(
-            PythonComputeNodeDefinition(
-                name=MERGED_DIAGNOSTICS_NODE_NAME,
-                script=merged_data_diagnostics_script(merge_node, len(studies_info)),
-                dependencies=[merge_node],
-                enable_logs_on_error=True,
-            )
-        )
-        for p_email in participants:
-            participants[p_email]["analyst_of"].add(MERGED_DIAGNOSTICS_NODE_NAME)
-
         logging.info(
             f"Added merged-dataset airlock chain: {merge_fragment_node_name} "
             f"({merge_airlock_percentage}% fragment) -> {merge_preview_node_name} "
-            f"-> {merge_check_node_name}; example node: {merge_example_node_name}; "
-            f"diagnostics node: {MERGED_DIAGNOSTICS_NODE_NAME}"
+            f"-> {merge_check_node_name}; example node: {merge_example_node_name}"
         )
     elif nocode_room:
         logging.info("No-code room: merge/pooling chain intentionally not added")

@@ -52,9 +52,9 @@ export function Nav() {
   const [selectedMappingFiles, setSelectedMappingFiles] = useState<Record<string, boolean>>({});
   const [loadingMappingFiles, setLoadingMappingFiles] = useState(false);
   // Wizard question: should the DCR include the merge/pool compute nodes?
-  // Default yes. Only asked when 2+ cohorts are selected; with fewer than 2
+  // Default no. Only asked when 2+ cohorts are selected; with fewer than 2
   // cohorts the question is hidden and treated as "no" (nothing to pool).
-  const [includeMergeChain, setIncludeMergeChain] = useState(true);
+  const [includeMergeChain, setIncludeMergeChain] = useState(false);
   // Cohorts the user UNTICKED in the checkbox list under the "yes" answer: by
   // default every cohort of the DCR feeds the merge, and a cohort added later
   // is included too. Sent to the backend as merge_cohorts (the ticked ones).
@@ -654,7 +654,7 @@ export function Nav() {
     setManuallyIncludedOwners([]);
     setAvailableMappingFiles([]);
     setSelectedMappingFiles({});
-    setIncludeMergeChain(true);
+    setIncludeMergeChain(false);
     setMergeExcludedCohorts([]);
     setMergeUseShuffled(false);
     setWizardStep(0);
@@ -1290,9 +1290,9 @@ export function Nav() {
                                 <p className="text-xs text-base-content/60 mb-3">
                                   Untick a cohort to leave it out of the merge. Its data nodes stay in the DCR; only the merge node ignores it.
                                 </p>
-                                <div className="space-y-2">
+                                <div className="grid grid-cols-3 gap-x-4 gap-y-1">
                                   {Object.keys(dataCleanRoom?.cohorts || {}).map((cohortId) => (
-                                    <div key={cohortId} className="form-control">
+                                    <div key={cohortId} className="form-control min-w-0">
                                       <label className="label cursor-pointer justify-start gap-3">
                                         <input
                                           type="checkbox"
@@ -1300,7 +1300,7 @@ export function Nav() {
                                           onChange={(e) => toggleMergeCohort(cohortId, e.target.checked)}
                                           className="checkbox checkbox-primary"
                                         />
-                                        <span className="label-text text-base">{cohortId}</span>
+                                        <span className="label-text text-base truncate" title={cohortId}>{cohortId}</span>
                                       </label>
                                     </div>
                                   ))}
