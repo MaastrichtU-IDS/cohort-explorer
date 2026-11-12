@@ -62,6 +62,13 @@ export function Nav() {
   // Whether the merge/pool node should combine the shuffled samples (true) instead
   // of the full cohort data (false, default).
   const [mergeUseShuffled, setMergeUseShuffled] = useState(false);
+  // True once the user clicked one of the two data-source buttons: until then
+  // the source follows the default rule below (shuffled samples when a merged
+  // cohort has no data owner among the participants, full data otherwise).
+  const [mergeSourceChosenByUser, setMergeSourceChosenByUser] = useState(false);
+  // The set of owner-less cohorts the user acknowledged with "I understand";
+  // the warning comes back if the set changes.
+  const [ownerWarningDismissedFor, setOwnerWarningDismissedFor] = useState('');
   // Wizard question: add the "load-R-packages" R compute node? Default no. It
   // installs a fixed list of R packages from CRAN at run time (the node's only
   // internet access) and runs basic statistics and plots on the pooled data,
@@ -300,6 +307,8 @@ export function Nav() {
     setIncludeMergeChain(false);
     setMergeExcludedCohorts([]);
     setMergeUseShuffled(false);
+    setMergeSourceChosenByUser(false);
+    setOwnerWarningDismissedFor('');
     setPublishedDCR(null);
     setDcrCreated(false);
     setConfigDownloaded(false);
@@ -658,6 +667,8 @@ export function Nav() {
     setIncludeMergeChain(false);
     setMergeExcludedCohorts([]);
     setMergeUseShuffled(false);
+    setMergeSourceChosenByUser(false);
+    setOwnerWarningDismissedFor('');
     setWizardStep(0);
   };
 
@@ -845,6 +856,34 @@ export function Nav() {
     () => dataOwners.map(o => o.email.toLowerCase()).filter(e => !manuallyIncludedOwners.map(m => m.toLowerCase()).includes(e)),
     [dataOwners, manuallyIncludedOwners]
   );
+  // Cohorts selected for the merge none of whose data owners is a participant
+  // of this DCR (Manage Participants step; the creator always is one). Their
+  // full data will never be provisioned, so a merge of the full cohort data
+  // cannot include them. Empty until the participants preview has loaded.
+  // Owners are matched by the base name of their data nodes (the node id is
+  // the cohort id with spaces as hyphens).
+  const mergeCohortsWithoutOwner: string[] = (() => {
+    if (!participantsPreview) return [];
+    const included = new Set([...manuallyIncludedOwners, userEmail || ''].map(e => e.toLowerCase()));
+    const key = (name: string) => name.replace(/\s+/g, '-').toLowerCase();
+    return mergeCohorts.filter(cohortId => {
+      const owners = Object.entries(participantsPreview)
+        .filter(([, roles]: [string, any]) => (roles?.data_owner_of || []).some((nodeId: string) =>
+          key(nodeId.replace(/_metadata_dictionary$/, '').replace(/_shuffled_sample$/, '')) === key(cohortId)))
+        .map(([email]) => email.toLowerCase());
+      return !owners.some(e => included.has(e));
+    });
+  })();
+  const mergeCohortsWithoutOwnerKey = mergeCohortsWithoutOwner.join('|');
+  // Default data source: shuffled samples while an owner-less cohort is in the
+  // merge (and shuffled samples exist), full cohort data otherwise. Follows
+  // the cohort checkboxes and the participants until the user picks a source.
+  useEffect(() => {
+    if (mergeSourceChosenByUser) return;
+    const wanted = mergeCohortsWithoutOwner.length > 0 && anyShuffledEnabled;
+    if (wanted !== mergeUseShuffled) setMergeUseShuffled(wanted);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mergeCohortsWithoutOwnerKey, anyShuffledEnabled, mergeSourceChosenByUser]);
 
   return (
     <div className="navbar bg-base-300 min-h-16 py-2 px-0">
@@ -1360,7 +1399,7 @@ export function Nav() {
                                         ? 'bg-primary text-primary-content'
                                         : 'bg-base-200 text-base-content/70 hover:bg-base-300'
                                     }`}
-                                    onClick={() => setMergeUseShuffled(false)}
+                                    onClick={() => { setMergeUseShuffled(false); setMergeSourceChosenByUser(true); }}
                                   >
                                     Full cohort data
                                   </button>
@@ -1373,7 +1412,7 @@ export function Nav() {
                                         ? 'bg-primary text-primary-content'
                                         : 'bg-base-200 text-base-content/70 hover:bg-base-300'
                                     } disabled:opacity-40 disabled:cursor-not-allowed`}
-                                    onClick={() => setMergeUseShuffled(true)}
+                                    onClick={() => { setMergeUseShuffled(true); setMergeSourceChosenByUser(true); }}
                                   >
                                     Shuffled samples
                                   </button>
@@ -1387,6 +1426,30 @@ export function Nav() {
                                   <p className="text-xs text-warning mt-2">
                                     Make sure shuffled samples are enabled (Data Samples step) for the cohorts you want to pool; cohorts without a shuffled sample will be excluded from the merge.
                                   </p>
+                                )}
+                                {mergeUseShuffled && !mergeSourceChosenByUser && mergeCohortsWithoutOwner.length > 0 && (
+                                  <p className="text-xs text-base-content/60 mt-2">
+                                    Shuffled samples are preselected because {mergeCohortsWithoutOwner.join(', ')} {mergeCohortsWithoutOwner.length === 1 ? 'has' : 'have'} no data owner among the participants of this DCR.
+                                  </p>
+                                )}
+                                {!mergeUseShuffled && mergeCohortsWithoutOwner.length > 0 && ownerWarningDismissedFor !== mergeCohortsWithoutOwnerKey && (
+                                  <div role="alert" className="alert alert-warning mt-3 flex items-start gap-3 text-sm">
+                                    <div className="flex-1">
+                                      <p className="font-semibold">
+                                        {mergeCohortsWithoutOwner.join(', ')} cannot be merged
+                                      </p>
+                                      <p className="text-xs mt-1">
+                                        None of {mergeCohortsWithoutOwner.length === 1 ? 'its' : 'their'} data owners {mergeCohortsWithoutOwner.length === 1 ? 'is' : 'are'} among the participants of this DCR (Manage Participants step), so {mergeCohortsWithoutOwner.length === 1 ? 'its' : 'their'} full data will never be provisioned and the merge of the full cohort data will not include {mergeCohortsWithoutOwner.length === 1 ? 'it' : 'them'}. Untick {mergeCohortsWithoutOwner.length === 1 ? 'it' : 'them'} above, include a data owner, or pool the shuffled samples instead. You can still proceed.
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="btn btn-sm btn-neutral"
+                                      onClick={() => setOwnerWarningDismissedFor(mergeCohortsWithoutOwnerKey)}
+                                    >
+                                      I understand
+                                    </button>
+                                  </div>
                                 )}
                               </div>
                             </>
