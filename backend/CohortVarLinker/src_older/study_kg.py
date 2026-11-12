@@ -11,7 +11,10 @@ from .utils import (
     extract_age_range, 
     day_month_year,
     create_code_uri,
-    insert_graph_into_named_graph
+    insert_graph_into_named_graph,
+    study_design_class,
+    term_iri,
+    DUO_TERMS,
 )
 from .config import settings
 import requests
@@ -23,6 +26,23 @@ def generate_studies_kg(filepath: str) -> Graph:
     Reads cohort information from a CSV file and adds it to the RDF graph.
     :param filepath: Path to the cohort.csv file
     :return: An rdflib.Graph object with the cohort data
+
+    NOTE for cohort-explorer: this is the reference shape of the studies_metadata
+    graph that CohortVarLinker queries (get_member_studies, the study-context query,
+    update_metadata_graph). cohort-explorer builds that graph itself, in
+    backend/src/upload.py (cohorts_metadata_file_to_graph), still with the old
+    namespace IRIs (obi.owl/, ro.owl/, cmeo:has_value, ...). Until upload.py writes
+    what this function writes, those queries find nothing. upload.py needs:
+      - ontology IRIs from term_iri() / OntologyNamespaces in this module's utils.py
+        (e.g. study_design_execution = obo:OBI_0000471, has_value = obo:STATO_0000129);
+      - dc:identifier on the study design execution, not only on the study design;
+      - "part of study" as has_member / member_of between study designs;
+      - study design classes from study_design_class(), morbidities as per-study
+        nodes (<output_population>/morbidity/<name>), criteria types from term_iri().
+    Either port these into upload.py or have it call this function and add its own
+    cohort-level triples (cmeo:email, icare:cohort, ...) on top. The SPARQL in
+    backend/src/utils.py and backend/src/cohort_cache.py that reads studies_metadata
+    must then use the same IRIs, and the graph must be regenerated.
     """
     try:
         df = pd.read_excel(filepath,sheet_name='Descriptions')
@@ -63,9 +83,7 @@ def generate_studies_kg(filepath: str) -> Graph:
             g.add((study_design_uri , OntologyNamespaces.CMEO.value.has_value, Literal(study_design_value, datatype=XSD.string), metadata_graph))
 
             g.add((study_design_uri, DC.identifier, Literal(study_name, datatype=XSD.string), metadata_graph))
-            dynamic_class_uri = URIRef(OntologyNamespaces.CMEO.value + study_design_value)
-            
-            g.add((study_design_uri, RDF.type, dynamic_class_uri, metadata_graph))
+            g.add((study_design_uri, RDF.type, study_design_class(study_design_value), metadata_graph))
             protocol_uri = URIRef(study_uri + "/" + study_design_value + "/protocol")
             g.add((protocol_uri, RDF.type, OntologyNamespaces.OBI.value.protocol, metadata_graph))
             g.add((study_design_uri,OntologyNamespaces.RO.value.has_part, protocol_uri, metadata_graph))
@@ -323,7 +341,7 @@ def add_eligibility_criterion(g: Graph, row: pd.Series, study_uri: URIRef, proto
     for morbidity in morbidities:
         morbidity = morbidity.strip()
         if morbidity:
-            dynamic_morbidity_uri = URIRef(OntologyNamespaces.OBI.value + normalize_text(morbidity))
+            dynamic_morbidity_uri = URIRef(output_population_uri + "/morbidity/" + normalize_text(morbidity))
             g.add((output_population_uri, OntologyNamespaces.RO.value.has_characteristic, dynamic_morbidity_uri, metadata_graph))
             g.add((dynamic_morbidity_uri, OntologyNamespaces.RO.value.is_characteristic_of, output_population_uri, metadata_graph))
             g.add((dynamic_morbidity_uri, RDF.type, OntologyNamespaces.OBI.value.morbidity, metadata_graph))
@@ -381,7 +399,7 @@ def add_inclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibi
         if "age" in inclusion_criterion_name:
             add_age_group_inclusion_criterion(g, study_uri, inclusion_criterion_uri, metadata_graph, row[col])
         else:
-            dynamic_inclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + inclusion_criterion_name)
+            dynamic_inclusion_criterion_type = term_iri(inclusion_criterion_name, warn=False)
             inclusion_criteria_value = row[col].lower().strip() if pd.notna(row[col]) else ""
             inc_all_values = inclusion_criteria_value.split(";") if pd.notna(row[col]) else ""
             for inclusion_criteria_value in inc_all_values:
@@ -446,7 +464,7 @@ def add_exclusion_criterion(g: Graph, row: pd.Series, study_uri: URIRef, eligibi
     exclusion_criteria_columns = [ col for col in row.keys() if "exclusion criterion" in str(col).lower() ]
     for col in exclusion_criteria_columns:
         exclusion_criterion_name = normalize_text(col)
-        dynamic_exclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + "/" + exclusion_criterion_name)
+        dynamic_exclusion_criterion_type = term_iri(exclusion_criterion_name, warn=False)
         ec_all_values = row[col].lower().split(";") if pd.notna(row[col]) else ""
         for exclusion_criteria_value in ec_all_values:
             exclusion_criteria_value = exclusion_criteria_value.strip()
@@ -495,7 +513,8 @@ def add_outcome_specification(g: Graph, row: pd.Series, study_uri: URIRef, proto
 def update_metadata_graph(endpoint_url, cohort_uri, variable_uris, metadata_graph_path):
     """Insert metadata graph data into the Oxigraph triplestore using SPARQL Update."""
     
-    # Define the named graph URI
+    # Define the named graph URI. cohort-explorer builds this graph in
+    # backend/src/upload.py with the old IRIs; see the note on generate_studies_kg.
     graph_uri = "https://w3id.org/CMEO/graph/studies_metadata"
     # print(f"📌 Graph URI: {graph_uri}")
 
@@ -506,7 +525,8 @@ def update_metadata_graph(endpoint_url, cohort_uri, variable_uris, metadata_grap
         return None
     
     # Construct SPARQL `INSERT DATA` query
-    inserts = "\n".join([f"<{study_variable_design_specification_uri}> <http://purl.obolibrary.org/obo/ro.owl/has_part> <{var}> ." for var in variable_uris])
+    has_part = OntologyNamespaces.RO.value.has_part
+    inserts = "\n".join([f"<{study_variable_design_specification_uri}> <{has_part}> <{var}> ." for var in variable_uris])
     # inserts = "\n".join([f"<{var}> <http://purl.obolibrary.org/obo/ro.owl/part_of> <{study_variable_design_specification_uri}> ." for var in variable_uris])
     query = f"""
         INSERT DATA {{
@@ -647,8 +667,10 @@ def create_policy_assignment(cohort_uri:URIRef,study_design_execution_uri: URIRe
         g.add((policy_assignment_uri, RDF.type, OntologyNamespaces.CMEO.value.data_use_permission_assignment, cohort_uri))
         for policy in data_policy:
             policy = policy.strip().lower()
-            policy_uri = URIRef(OntologyNamespaces.DUO.value + normalize_text(policy))
+            policy_uri = URIRef(f"{cohort_uri}/data_use_permission/{normalize_text(policy)}")
             g.add((policy_uri, RDF.type, OntologyNamespaces.DUO.value.data_use_permission, cohort_uri))
+            if policy in DUO_TERMS:
+                g.add((policy_uri, RDF.type, URIRef(DUO_TERMS[policy]), cohort_uri))
             g.add((policy_uri, RDFS.label, Literal(policy, datatype=XSD.string), cohort_uri))
             g.add((policy_assignment_uri, OntologyNamespaces.OBI.value.has_specified_output, policy_uri, cohort_uri))
             g.add((policy_uri, OntologyNamespaces.OBI.value.is_specified_output_of, policy_assignment_uri, cohort_uri))
@@ -664,9 +686,12 @@ def create_policy_assignment(cohort_uri:URIRef,study_design_execution_uri: URIRe
                     g.add((disease_concept_uri, OntologyNamespaces.IAO.value.denotes, Literal(disease_concept_omop_id, datatype=XSD.string), cohort_uri))
                 g.add((policy_uri, OntologyNamespaces.RO.value.has_specified_output, disease_concept_uri, cohort_uri))
         for modifier in data_modifier:
-            modifier_uri = URIRef(OntologyNamespaces.DUO.value + normalize_text(modifier))
+            modifier = modifier.strip().lower()
+            modifier_uri = URIRef(f"{cohort_uri}/data_use_modifier/{normalize_text(modifier)}")
             # print(modifier_uri)
             g.add((modifier_uri, RDF.type, OntologyNamespaces.DUO.value.data_use_modifier, cohort_uri))
+            if modifier in DUO_TERMS:
+                g.add((modifier_uri, RDF.type, URIRef(DUO_TERMS[modifier]), cohort_uri))
             g.add((modifier_uri, RDFS.label, Literal(modifier, datatype=XSD.string), cohort_uri))
             g.add((policy_assignment_uri, OntologyNamespaces.OBI.value.has_specified_output, modifier_uri, cohort_uri))
             g.add((modifier_uri, OntologyNamespaces.OBI.value.is_specified_output_of, policy_assignment_uri, cohort_uri))
