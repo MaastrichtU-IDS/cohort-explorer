@@ -5,15 +5,27 @@ from typing import Any
 import curies
 from rdflib import Dataset, Namespace, URIRef
 from rdflib.namespace import RDF, RDFS, DC
-from enum import Enum
 import urllib.parse
 from SPARQLWrapper import JSON, POST, SPARQLWrapper
 
+# The vocabulary of the knowledge graph belongs to CohortVarLinker (its graph
+# writers and mapping queries use it): OntologyNamespaces.<NS>.value.<name>
+# resolves a friendly term name to the ontology IRI through term_iri, whichever
+# namespace it is called on; names without an ontology class resolve to the
+# KG-local base CMEO_KG (https://w3id.org/CMEO/). The explorer writes and reads
+# the same IRIs by importing them from there instead of keeping its own copy.
+from CohortVarLinker.src.utils import CMEO_KG, OBO, SIO_NS, OntologyNamespaces, study_design_class, term_iri  # noqa: F401
 from src.config import settings
+from src.kg_queries import cohorts_metadata_query, parse_category_records, variables_metadata_query
 from src.models import Cohort, CohortVariable, VariableCategory
 
 # Define the namespaces
 ICARE = Namespace("https://w3id.org/icare4cvd/")
+# KG-local predicates the explorer itself puts on the cohort node (email,
+# institution, studyType, availableDataTypes, ...): plain names under the KG
+# base, with no ontology class behind them. Written and read through this
+# namespace so the intent is explicit and term_iri does not warn about them.
+CMEO_LOCAL = Namespace(CMEO_KG)
 
 
 def split_emails(*values: Any) -> list[str]:
@@ -42,26 +54,6 @@ def split_emails(*values: Any) -> list[str]:
     for v in values:
         _one(v)
     return out
-
-class OntologyNamespaces(Enum):
-    CMEO = Namespace("https://w3id.org/CMEO/")
-    OMOP = Namespace("http://omop.org/OMOP/")
-    ATC = Namespace("http://purl.bioontology.org/ontology/ATC/")
-    RXNORM = Namespace("http://purl.bioontology.org/ontology/RXNORM/")
-    UCUM = Namespace("http://unitsofmeasure.org/")
-    OMOP_EXT = Namespace("http://omop.org/omopextension/")
-    OWL = Namespace("http://www.w3.org/2002/07/owl#")
-    OBI = Namespace("http://purl.obolibrary.org/obo/obi.owl/")
-    BFO = Namespace("http://purl.obolibrary.org/obo/bfo.owl/")
-    STATO = Namespace("http://purl.obolibrary.org/obo/stato.owl/")
-    DEFAULT_VALUE = 'Unmapped'
-    SNOMEDCT = Namespace("http://purl.bioontology.org/ontology/SNOMEDCT/")
-    LOINC = Namespace("http://purl.bioontology.org/ontology/LNC/") 
-    RO = Namespace("http://purl.obolibrary.org/obo/ro.owl/")
-    IAO = Namespace("http://purl.obolibrary.org/obo/iao.owl/")
-    TIME = Namespace("http://www.w3.org/2006/time#")
-    SIO = Namespace("http://semanticscience.org/ontology/sio.owl/")
-    NCBI = Namespace("http://purl.bioontology.org/ontology/NCBITAXON/")
 
 query_endpoint = SPARQLWrapper(settings.query_endpoint)
 query_endpoint.setReturnFormat(JSON)
@@ -205,10 +197,10 @@ def extract_age_range(text):
 def init_graph(default_graph_identifier: str | None = "https://w3id.org/CMEO/graph/studies_metadata") -> Dataset:
     """Initialize a new RDF graph for nquads with the voc namespace bindings."""
     g = Dataset(store="Oxigraph")
-    g.bind("cmeo", OntologyNamespaces.CMEO.value)
-    g.bind("bfo", OntologyNamespaces.BFO.value)
-    g.bind("obi", OntologyNamespaces.OBI.value)
-    g.bind("stato", OntologyNamespaces.STATO.value)
+    g.bind("cmeo", CMEO_LOCAL)
+    g.bind("obo", Namespace(OBO))
+    g.bind("sio", Namespace(SIO_NS))
+    g.bind("skos", OntologyNamespaces.SKOS.value)
     g.bind("rdf", RDF)
     g.bind("rdfs", RDFS)
     # g.bind("omop", OMOP)
@@ -242,216 +234,6 @@ def run_query(query: str) -> dict[str, Any]:
     return result
 
 
-def get_cohorts_metadata_query() -> str:
-    """DEPRECATED: This old combined query has been replaced by two separate queries.
-    Use get_studies_metadata_query() and get_variables_metadata_query() instead.
-    This function is kept for backwards compatibility but may be removed in future versions."""
-    query = """
-PREFIX cmeo: <http://purl.obolibrary.org/obo/CMEO_>
-PREFIX obi: <http://purl.obolibrary.org/obo/obi.owl/>
-PREFIX bfo: <http://purl.obolibrary.org/obo/bfo.owl/>
-PREFIX ro: <http://purl.obolibrary.org/obo/ro.owl/>
-PREFIX iao: <http://purl.obolibrary.org/obo/iao.owl/>
-PREFIX sio: <http://semanticscience.org/ontology/sio/v1.59/sio-release.owl#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX dc: <http://purl.org/dc/elements/1.1/>
-PREFIX icare: <{ICARE}>
-
-SELECT DISTINCT ?cohortId ?cohortInstitution ?cohortEmail ?study_type ?study_participants ?study_duration ?study_ongoing ?study_population ?study_objective ?primary_outcome_spec ?secondary_outcome_spec ?morbidity ?study_start ?study_end ?male_percentage ?female_percentage ?administrator ?administrator_email ?study_contact_person ?study_contact_person_email ?references ?population_location ?language ?data_collection_frequency ?interventions ?sex_inclusion ?health_status_inclusion ?clinically_relevant_exposure_inclusion ?age_group_inclusion ?bmi_range_inclusion ?ethnicity_inclusion ?family_status_inclusion ?hospital_patient_inclusion ?use_of_medication_inclusion ?health_status_exclusion ?bmi_range_exclusion ?limited_life_expectancy_exclusion ?need_for_surgery_exclusion ?surgical_procedure_history_exclusion ?clinically_relevant_exposure_exclusion
-    ?variable ?varName ?varLabel ?varType ?index ?count ?na ?max ?min ?units ?formula ?definition
-    ?omopDomain ?conceptId ?conceptCode ?conceptName ?omopId ?mappedId ?mappedLabel ?visits ?visitConceptName ?categoryValue ?categoryLabel ?categoryConceptId ?categoryMappedId ?categoryMappedLabel
-WHERE {
-    GRAPH ?cohortMetadatXaGraph {
-        ?cohort a icare:Cohort ;
-            dc:identifier ?cohortId ;
-            icare:institution ?cohortInstitution .
-        OPTIONAL { ?cohort icare:cohortType ?cohortType . }
-        OPTIONAL { ?cohort icare:email ?cohortEmail . }
-        OPTIONAL { ?cohort icare:studyType ?study_type . }
-        OPTIONAL { ?cohort icare:studyParticipants ?study_participants . }
-        OPTIONAL { ?cohort icare:studyDuration ?study_duration . }
-        OPTIONAL { ?cohort icare:studyOngoing ?study_ongoing . }
-        OPTIONAL { ?cohort icare:studyPopulation ?study_population . }
-        OPTIONAL { ?cohort icare:studyObjective ?study_objective . }
-        OPTIONAL { ?cohort icare:primaryOutcomeSpec ?primary_outcome_spec . }
-        OPTIONAL { ?cohort icare:secondaryOutcomeSpec ?secondary_outcome_spec . }
-        OPTIONAL { ?cohort icare:morbidity ?morbidity . }
-        OPTIONAL { ?cohort icare:studyStart ?study_start . }
-        OPTIONAL { ?cohort icare:studyEnd ?study_end . }
-        OPTIONAL { ?cohort icare:malePercentage ?male_percentage . }
-        OPTIONAL { ?cohort icare:femalePercentage ?female_percentage . }
-        
-        # Get institute/organization information  
-        OPTIONAL {
-            ?study_design_execution ro:has_participant ?institute_entity .
-            ?institute_entity a obi:organization ;
-                cmeo:has_value ?cohortInstitution .
-        }
-        
-        # Get study type from descriptor
-        OPTIONAL {
-            ?study_design_execution ro:concretizes ?study_design .
-            ?study_design sio:is_described_by ?study_type_entity .
-            ?study_type_entity a sio:study_descriptor ;
-                cmeo:has_value ?study_type .
-        }
-        
-        # Get study objective
-        OPTIONAL {
-            ?study_design_execution ro:concretizes ?study_design .
-            ?study_design ro:has_part ?protocol .
-            ?protocol ro:has_part ?study_objective_entity .
-            ?study_objective_entity a obi:objective_specification ;
-                cmeo:has_value ?study_objective .
-        }
-        
-        # Get number of participants
-        OPTIONAL {
-            ?protocol ro:has_part ?number_of_participants_entity .
-            ?number_of_participants_entity a cmeo:number_of_participants ;
-                cmeo:has_value ?study_participants .
-        }
-        
-        # Get timing information
-        OPTIONAL {
-            ?study_design_execution iao:has_time_stamp ?start_date_entity .
-            ?start_date_entity a cmeo:start_time ;
-                cmeo:has_value ?study_start .
-        }
-        
-        OPTIONAL {
-            ?study_design_execution iao:has_time_stamp ?end_date_entity .
-            ?end_date_entity a cmeo:end_time ;
-                cmeo:has_value ?study_end .
-        }
-        
-        OPTIONAL {
-            ?study_design_execution ro:has_characteristic ?ongoing_entity .
-            ?ongoing_entity a cmeo:ongoing ;
-                cmeo:has_value ?study_ongoing .
-        }
-        
-        # Get outcome specifications (direct from protocol, not nested)
-        OPTIONAL {
-            ?protocol ro:has_part ?primary_outcome_spec_entity .
-            ?primary_outcome_spec_entity a cmeo:primary_outcome_specification ;
-                cmeo:has_value ?primary_outcome_spec .
-        }
-        
-        OPTIONAL {
-            ?protocol ro:has_part ?secondary_outcome_spec_entity .
-            ?secondary_outcome_spec_entity a cmeo:secondary_outcome_specification ;
-                cmeo:has_value ?secondary_outcome_spec .
-        }
-        
-        # Get morbidity information
-        OPTIONAL {
-            ?protocol ro:has_part ?morbidity_entity .
-            ?morbidity_entity a obi:morbidity ;
-                cmeo:has_value ?morbidity .
-        }
-        
-        # Get eligibility criteria and demographics
-        OPTIONAL {
-            ?protocol ro:has_part ?eligibility .
-            ?eligibility a obi:eligibility_criterion .
-            
-            # Male/female percentages
-            OPTIONAL {
-                ?eligibility ro:has_part ?male_percentage_entity .
-                ?male_percentage_entity a cmeo:male_percentage ;
-                    cmeo:has_value ?male_percentage .
-            }
-            
-            OPTIONAL {
-                ?eligibility ro:has_part ?female_percentage_entity .
-                ?female_percentage_entity a cmeo:female_percentage ;
-                    cmeo:has_value ?female_percentage .
-            }
-        }
-        
-        # Get age distribution
-        OPTIONAL {
-            ?study_design_execution ro:has_characteristic ?age_distribution_entity .
-            ?age_distribution_entity a obi:age_distribution ;
-                cmeo:has_value ?age_distribution .
-        }
-        
-        # Get population location
-        OPTIONAL {
-            ?study_design_execution ro:has_characteristic ?population_location_entity .
-            ?population_location_entity a bfo:site ;
-                cmeo:has_value ?population_location .
-        }
-        
-        # Get language (direct property)
-        OPTIONAL {
-            ?study_design_execution dc:language ?language .
-        }
-        
-        # Get contact information (simplified - direct participants)
-        OPTIONAL {
-            ?study_design_execution ro:has_participant ?study_contact_person_entity .
-            ?study_contact_person_entity a cmeo:homo_sapiens ;
-                cmeo:has_value ?study_contact_person .
-        }
-        
-        OPTIONAL {
-            ?study_design_execution ro:has_participant ?administrator_entity .
-            ?administrator_entity a cmeo:homo_sapiens ;
-                cmeo:has_value ?administrator .
-        }
-    }
-    
-    OPTIONAL {
-        GRAPH ?cohortGraph {
-            ?cohort icare:hasVariable ?variable .
-            ?variable dc:identifier ?varName ;
-                rdfs:label ?varLabel ;
-                icare:varType ?varType ;
-                icare:index ?index .
-            OPTIONAL { ?variable icare:count ?count }
-            OPTIONAL { ?variable icare:na ?na }
-            OPTIONAL { ?variable icare:max ?max }
-            OPTIONAL { ?variable icare:min ?min }
-            OPTIONAL { ?variable icare:units ?units }
-            OPTIONAL { ?variable icare:formula ?formula }
-            OPTIONAL { ?variable icare:definition ?definition }
-            OPTIONAL { ?variable icare:conceptId ?conceptId }
-            OPTIONAL { ?variable icare:conceptCode ?conceptCode }
-            OPTIONAL { ?variable icare:conceptName ?conceptName }
-            OPTIONAL { ?variable icare:omopId ?omopId }
-            OPTIONAL { ?variable icare:domain ?omopDomain }
-            OPTIONAL { ?variable icare:visits ?visits }
-            OPTIONAL { ?variable icare:visitConceptName ?visitConceptName }
-            OPTIONAL {
-                ?variable icare:categories ?category.
-                ?category rdfs:label ?categoryLabel ;
-                    rdf:value ?categoryValue .
-                OPTIONAL { ?category icare:conceptId ?categoryConceptId }
-            }
-        }
-    }
-
-    OPTIONAL {
-        GRAPH ?cohortMappingsGraph {
-            OPTIONAL {
-                ?variable icare:mappedId ?mappedId .
-                OPTIONAL { ?mappedId rdfs:label ?mappedLabel }
-            }
-            OPTIONAL {
-                ?category icare:mappedId ?categoryMappedId .
-                OPTIONAL { ?categoryMappedId rdfs:label ?categoryMappedLabel }
-            }
-        }
-    }
-} ORDER BY ?cohort ?index
-""".format(ICARE=str(ICARE))
-    return query
-
-
-# TODO: Utility to get value or None if key is missing or value is empty string
 def get_value(key: str, row: dict[str, Any]) -> str:
     """Safely get a value from a SPARQL result row.
     
@@ -525,60 +307,14 @@ def get_curie_value(key: str, row: dict[str, Any]) -> str | None:
         return None
 
 
-def get_studies_metadata_query() -> str:
-    """Get SPARQL query for retrieving studies/cohorts metadata (from sparql_queries.txt)."""
-    # Load the first query from CohortVarLinker/queries/sparql_queries.txt (lines 3-290)
-    import os
-    query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
-    with open(query_file, 'r') as f:
-        lines = f.readlines()
-        # Extract lines 3-290 (study metadata query including final GROUP BY)
-        # Lines 1-2 are comments, so we skip them
-        query = ''.join(lines[2:291])  # 0-indexed, so lines[2:291] = lines 3-290 (inclusive)
-    return query
-
-
 def get_cohorts_metadata_query() -> str:
-    """Get SPARQL query for retrieving cohort metadata from studies_metadata graph (Query 1).
-    
-    The query is extracted from the first query in the file (lines 1-293).
-    Note: Line numbers are 1-indexed in the file, but 0-indexed in the list.
-    """
-    import os
-    query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
-    
-    with open(query_file, 'r') as f:
-        lines = f.readlines()
-    
-    # Extract Query 1 (cohort metadata from studies_metadata graph)
-    # Line 1 (index 0): comment "# Query to Retrieve Studies Metadata"
-    # Line 2 (index 1): first PREFIX
-    # Line 293 (index 292): GROUP BY ?study ?cohortId ?study_type (last line of Query 1)
-    # Skip the comment line, start from first PREFIX
-    query = ''.join(lines[1:293]).strip()
-    return query
+    """SPARQL for one row per cohort from the studies_metadata graph (src.kg_queries)."""
+    return cohorts_metadata_query()
 
 
 def get_variables_metadata_query() -> str:
-    """Get SPARQL query for retrieving variables metadata (from sparql_queries.txt).
-    
-    The query is extracted from the second query in the file (lines 297-421).
-    Note: Line numbers are 1-indexed in the file, but 0-indexed in the list.
-    """
-    import os
-    query_file = os.path.join(os.path.dirname(__file__), '..', 'CohortVarLinker', 'queries', 'sparql_queries.txt')
-    
-    with open(query_file, 'r') as f:
-        lines = f.readlines()
-    
-    # Extract only the SPARQL lines for Query 2 (prefixes + SELECT + WHERE)
-    # Line 296 (index 295): comment "Query 2: All variables from each study graph"
-    # Line 297 (index 296): first PREFIX (stato)
-    # Line 544 (index 543): closing brace of Query 2
-    # Line 546 (index 545): comment "# Query 3: Cross Mapping"
-    # Skip the comment line, start from first PREFIX, stop before Query 3
-    query = ''.join(lines[296:544]).strip()
-    return query
+    """SPARQL for one row per variable from every cohort graph (src.kg_queries)."""
+    return variables_metadata_query()
 
 
 def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = False) -> dict[str, Cohort] | dict:
@@ -743,31 +479,19 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
 
             # Process variables
             if "var_name" in row and var_id and var_id not in target_dict[cohort_id].variables:
-                # Parse categories from CMEO query format
-                categories = []
-                categorical_values_str = get_value("categorical_values", row)
-                if categorical_values_str:
-                    # CMEO query returns "value=label|value=label" format
-                    cat_pairs = categorical_values_str.split("|")
-                    category_codes_str = get_value("category_concept_codes", row) or ""
-                    category_labels_str = get_value("category_concept_label", row) or ""
-                    category_omop_str = get_value("category_omop_id", row) or ""
-                    
-                    cat_codes = category_codes_str.split("|") if category_codes_str else []
-                    cat_labels = category_labels_str.split("|") if category_labels_str else []
-                    cat_omops = category_omop_str.split("|") if category_omop_str else []
-                    
-                    for idx, pair in enumerate(cat_pairs):
-                        if "=" in pair:
-                            value, label = pair.split("=", 1)
-                            categories.append(VariableCategory(
-                                value=value.strip(),
-                                label=label.strip(),
-                                concept_id=cat_codes[idx].strip() if idx < len(cat_codes) else "",
-                                mapped_label=cat_labels[idx].strip() if idx < len(cat_labels) else "",
-                                mapped_id=cat_omops[idx].strip() if idx < len(cat_omops) else ""
-                            ))
-                
+                # Categories: one record per category, each carrying its own
+                # concept (kg_queries.parse_category_records), so a category
+                # without a concept no longer shifts the others' codes.
+                categories = [
+                    VariableCategory(
+                        value=rec["value"],
+                        label=rec["label"] or rec["value"],
+                        concept_id=rec["code"],
+                        mapped_label=rec["code_label"],
+                        mapped_id=rec["omop_id"],
+                    )
+                    for rec in parse_category_records(get_value("categorical_values", row))
+                ]
 
                 target_dict[cohort_id].variables[var_id] = CohortVariable(
                     var_name=row["var_name"]["value"],
@@ -778,7 +502,7 @@ def retrieve_cohorts_metadata(user_email: str, include_sparql_metadata: bool = F
                     min=get_value("minimum_value", row),
                     units=get_value("unit_value", row),
                     visits=get_value("visit", row),
-                    visit_concept_name=get_value("visit", row),
+                    visit_concept_name=get_value("visit_concept_name", row) or get_value("visit", row),
                     formula=get_value("formula_value", row),
                     definition=get_value("definition", row),
                     concept_id=get_curie_value("concept_codes", row),

@@ -135,7 +135,7 @@ def publish_cohort_graph(cohort_id: str) -> int:
     from rdflib import Literal
     from rdflib.namespace import DC, RDF, RDFS
     from src.upload import (
-        OntologyNamespaces, build_variables_graph, current_datadictionary, delete_existing_triples,
+        CMEO_LOCAL, build_variables_graph, current_datadictionary, delete_existing_triples,
         get_cohort_graph_uri, get_cohort_uri, init_graph, publish_graph_to_endpoint,
     )
 
@@ -147,7 +147,7 @@ def publish_cohort_graph(cohort_id: str) -> int:
         cohort_uri = get_cohort_uri(folder)
         graph_uri = get_cohort_graph_uri(folder)
         g = init_graph()
-        g.add((cohort_uri, RDF.type, OntologyNamespaces.CMEO.value.study, graph_uri))
+        g.add((cohort_uri, RDF.type, CMEO_LOCAL.study, graph_uri))
         g.add((cohort_uri, DC.identifier, Literal(folder), graph_uri))
         g.add((cohort_uri, RDFS.label, Literal(folder), graph_uri))
         build_variables_graph(g, dictionary, folder, graph_uri)

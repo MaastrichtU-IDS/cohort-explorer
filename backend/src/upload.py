@@ -50,12 +50,16 @@ from src.utils import (
     extract_age_range,
     get_cohorts_metadata_query,
     init_graph,
+    CMEO_KG,
+    CMEO_LOCAL,
     OntologyNamespaces,
+    study_design_class,
+    term_iri,
     normalize_text,
     retrieve_cohorts_metadata,
     run_query
 )
-from src.cohort_cache import add_cohort_to_cache, clear_cache, create_cohort_from_dict_file, create_cohort_from_metadata_graph, normalize_participants
+from src.cohort_cache import add_cohort_to_cache, clear_cache, normalize_participants
 from src.decentriq import create_provision_dcr, metadatadict_cols_schema1
 from src.mapping_generation.retriever import map_csv_to_standard_codes
 from src.mapping_logger import log_main, log_detail, MappingRun, PROCESS_SCM
@@ -168,7 +172,7 @@ def get_cohort_uri(cohort_id: str) -> URIRef:
 
 def get_cohort_graph_uri(cohort_id: str) -> URIRef:
     """Get the graph URI for a cohort in CMEO namespace (matches query expectations)"""
-    return URIRef(OntologyNamespaces.CMEO.value + f"graph/{cohort_id}")
+    return URIRef(CMEO_KG + f"graph/{cohort_id}")
 
 
 def get_cohort_mapping_uri(cohort_id: str) -> URIRef:
@@ -230,10 +234,11 @@ def build_variables_graph(g: Dataset, dict_path: str, cohort_id: str, cohort_gra
     re-homed into the cohort's graph so there is one graph per cohort. Revisit
     this function when CohortVarLinker changes its builder.
 
-    TODO (cohort-explorer developer): when switching to CohortVarLinker/src_1,
-    import process_variables_metadata_file from CohortVarLinker.src_1.variables_kg
-    (new term_iri IRIs) and rebuild every cohort graph; graphs built with src
-    and src_1 cannot be mixed.
+    Since the vocabulary rewrite (merge de89cca) the builder writes ontology
+    IRIs (term_iri); graphs written before it use other IRIs and have to be
+    rebuilt, all of them, with the admin graph rebuild (mapping_maintenance).
+    The explorer's variables query (kg_queries.variables_metadata_query) reads
+    this builder's shape.
     """
     from CohortVarLinker.src.variables_kg import process_variables_metadata_file
 
@@ -1066,7 +1071,7 @@ def load_cohort_dict_file(dict_path: str, cohort_id: str, source: str = "", user
         cohort_uri = get_cohort_uri(cohort_id)
         cohort_graph_uri = get_cohort_graph_uri(cohort_id)
         g = init_graph()
-        g.add((cohort_uri, RDF.type, OntologyNamespaces.CMEO.value.study, cohort_graph_uri))
+        g.add((cohort_uri, RDF.type, CMEO_LOCAL.study, cohort_graph_uri))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), cohort_graph_uri))
         g.add((cohort_uri, RDFS.label, Literal(cohort_id), cohort_graph_uri))
         n_variable_triples = build_variables_graph(g, dict_path, cohort_id, cohort_graph_uri) if build_variables else 0
@@ -2067,22 +2072,17 @@ def is_valid_value(value: Any) -> bool:
         # If any error occurs during conversion, consider it invalid
         return False
 
-# TODO (cohort-explorer developer): this graph still uses the old CMEO/OBI IRIs.
-# CohortVarLinker/src_1 (the new model) reads studies_metadata in the shape built by
-# CohortVarLinker/src_1/study_kg.py generate_studies_kg(); see the NOTE there.
-# Before switching the mapping to src_1, update this function to:
-#   - use the term_iri() / OntologyNamespaces IRIs from src_1/data_model.py instead
-#     of the hard-coded old ones (classes and properties, incl. has_value);
-#   - add dc:identifier on the study_design_execution node (the study-context query
-#     anchors on it; today it is only on the cohort and the study design);
-#   - write "part of study" links as has_member / member_of between study designs
-#     (get_member_studies in src_1/utils.py returns nothing without them);
-#   - type the study design with study_design_class(), create per-study morbidity
-#     nodes, and type eligibility criteria with term_iri();
-#   - keep the cohort-level triples the explorer needs (cmeo:email, icare:cohort, ...).
-# Alternatively call generate_studies_kg() and add only the cohort-level triples here.
-# Then update the SPARQL that reads this graph (src/utils.py, src/cohort_cache.py)
-# and regenerate the studies_metadata graph.
+# The studies_metadata graph. Two layers on the same nodes:
+#   - the study-design structure CohortVarLinker reads (study_kg.generate_studies_kg
+#     is the reference shape; its queries anchor on the execution's dc:identifier,
+#     walk has_member/member_of between study designs, type the design with
+#     study_design_class() and the criteria with term_iri()); every class and
+#     property comes from CohortVarLinker's term table via OntologyNamespaces /
+#     term_iri, so this writer and those queries cannot drift apart;
+#   - cohort-level literals the explorer itself needs (CMEO_LOCAL: email for the
+#     DCR permissions, institution, studyType, availableDataTypes, ...), plain
+#     KG-local predicates with no ontology class.
+# kg_queries.cohorts_metadata_query and cohort_cache's email query read it.
 def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     df = pd.read_excel(filepath, sheet_name="Descriptions")
     df = df.fillna("")
@@ -2090,7 +2090,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     # line break in a header cell must not hide a column).
     df.columns = [" ".join(str(c).split()).lower() for c in df.columns]
     g = init_graph()
-    metadata_graph = URIRef(OntologyNamespaces.CMEO.value + "graph/studies_metadata")
+    metadata_graph = URIRef(CMEO_KG + "graph/studies_metadata")
     study_designs: dict[str, URIRef] = {}   # normalized study name -> study design node
     parent_studies: dict[str, list[str]] = {}  # normalized study name -> normalized "part of study" names
 
@@ -2100,7 +2100,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
         # print(cohort_id)
         cohort_uri = get_cohort_uri(cohort_id)
         # Use CMEO ontology: cmeo:study instead of icare:Cohort
-        g.add((cohort_uri, RDF.type, OntologyNamespaces.CMEO.value.study, metadata_graph))
+        g.add((cohort_uri, RDF.type, CMEO_LOCAL.study, metadata_graph))
         g.add((cohort_uri, DC.identifier, Literal(cohort_id), metadata_graph))
         g.add((cohort_uri, RDFS.label, Literal(cohort_id), metadata_graph))
         # Study design execution - needed for SPARQL query to find organization
@@ -2114,7 +2114,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             g.add((study_design_execution_uri, OntologyNamespaces.RO.value.has_participant, organization_uri, metadata_graph))
             g.add((organization_uri, OntologyNamespaces.CMEO.value.has_value, Literal(row["institute"], datatype=XSD.string), metadata_graph))
             # Also keep the simple predicate for backward compatibility
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.institution, Literal(row["institute"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.institution, Literal(row["institute"]), metadata_graph))
             
             # Contact columns: current names first, previous ones as fallback.
             def _col(*names: str) -> str:
@@ -2150,7 +2150,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
                     g.add((email_uri, OntologyNamespaces.CMEO.value.has_value, Literal(contact_email, datatype=XSD.string), metadata_graph))
                     # Also add to cmeo:email for permissions
                     for email in contact_email.split(";"):
-                        g.add((cohort_uri, OntologyNamespaces.CMEO.value.email, Literal(email.strip().lower()), metadata_graph))
+                        g.add((cohort_uri, CMEO_LOCAL.email, Literal(email.strip().lower()), metadata_graph))
             
             # PI (previously "administrator") - OBI structure matching study_kg.py
             if _col("pi", "administrator"):
@@ -2178,64 +2178,63 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
                     g.add((email_uri, OntologyNamespaces.CMEO.value.has_value, Literal(admin_email, datatype=XSD.string), metadata_graph))
                     # Also add to cmeo:email for permissions
                     for email in admin_email.split(";"):
-                        g.add((cohort_uri, OntologyNamespaces.CMEO.value.email, Literal(email.strip().lower()), metadata_graph))
+                        g.add((cohort_uri, CMEO_LOCAL.email, Literal(email.strip().lower()), metadata_graph))
         # References
         if is_valid_value(row.get("references", "")):
             for reference in row["references"].split(";"):
-                g.add((cohort_uri, OntologyNamespaces.CMEO.value.references, Literal(reference.strip()), metadata_graph))
+                g.add((cohort_uri, CMEO_LOCAL.references, Literal(reference.strip()), metadata_graph))
                 
         # Additional metadata fields
         if is_valid_value(row.get("population location", "")):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.populationLocation, Literal(row["population location"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.populationLocation, Literal(row["population location"]), metadata_graph))
         if is_valid_value(row.get("language", "")):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.language, Literal(row["language"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.language, Literal(row["language"]), metadata_graph))
         if is_valid_value(row.get("frequency of data collection", "")):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.dataCollectionFrequency, Literal(row["frequency of data collection"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.dataCollectionFrequency, Literal(row["frequency of data collection"]), metadata_graph))
         if is_valid_value(row.get("interventions", "")):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.interventions, Literal(row["interventions"]), metadata_graph))
-        # Oct-2025 column, kept verbatim as a cohort-level literal (read back in
-        # cohort_cache.create_cohort_from_metadata_graph). The sheet's "data access"
+            g.add((cohort_uri, CMEO_LOCAL.interventions, Literal(row["interventions"]), metadata_graph))
+        # Oct-2025 column, kept verbatim as a cohort-level literal. The sheet's "data access"
         # and "data available in dec" columns are not stored: DCR profiling is
         # tracked by the explorer itself.
         if is_valid_value(row.get("available data types", "")):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.availableDataTypes, Literal(str(row["available data types"]).strip()), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.availableDataTypes, Literal(str(row["available data types"]).strip()), metadata_graph))
         if is_valid_value(row["study type"]):
             # Split study types on '/' and add each as a separate triple
             study_types = [st.strip() for st in row["study type"].split("/")]
             for study_type in study_types:
-                g.add((cohort_uri, OntologyNamespaces.CMEO.value.cohortType, Literal(study_type), metadata_graph))
+                g.add((cohort_uri, CMEO_LOCAL.cohortType, Literal(study_type), metadata_graph))
         if is_valid_value(row["study design"]):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyType, Literal(row["study design"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.studyType, Literal(row["study design"]), metadata_graph))
         #if is_valid_value(row["Study duration"]):
         #    g.add((cohort_uri, ICARE.studyDuration, Literal(row["Study duration"]), cohorts_graph))
         if is_valid_value(row["start date"]) and is_valid_value(row["end date"]):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyStart, Literal(row["start date"]), metadata_graph))
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyEnd, Literal(row["end date"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.studyStart, Literal(row["start date"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.studyEnd, Literal(row["end date"]), metadata_graph))
         if is_valid_value(row["number of participants"]):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyParticipants, Literal(normalize_participants(row["number of participants"])), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.studyParticipants, Literal(normalize_participants(row["number of participants"])), metadata_graph))
         if is_valid_value(row["ongoing"]):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyOngoing, Literal(row["ongoing"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.studyOngoing, Literal(row["ongoing"]), metadata_graph))
         #if is_valid_value(row["Patient population"]):
-        #    g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyPopulation, Literal(row["Patient population"]), metadata_graph))
+        #    g.add((cohort_uri, CMEO_LOCAL.studyPopulation, Literal(row["Patient population"]), metadata_graph))
         if is_valid_value(row["study objective"]):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.studyObjective, Literal(row["study objective"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.studyObjective, Literal(row["study objective"]), metadata_graph))
             
         # Handle primary outcome specification
         if "primary outcome specification" in row and is_valid_value(row["primary outcome specification"]):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.primaryOutcomeSpec, Literal(row["primary outcome specification"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.primaryOutcomeSpec, Literal(row["primary outcome specification"]), metadata_graph))
             
         # Handle secondary outcome specification
         if "secondary outcome specification" in row and is_valid_value(row["secondary outcome specification"]):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.secondaryOutcomeSpec, Literal(row["secondary outcome specification"]), metadata_graph))
             
         # Handle morbidity
         if "morbidity" in row and is_valid_value(row["morbidity"]):
-            g.add((cohort_uri, OntologyNamespaces.CMEO.value.morbidity, Literal(row["morbidity"]), metadata_graph))
+            g.add((cohort_uri, CMEO_LOCAL.morbidity, Literal(row["morbidity"]), metadata_graph))
             
         # Keep original study name for identifier, normalized for URI
         original_study_name = str(row["study name"]).strip()
         study_name = normalize_text(original_study_name)
-        study_uri = URIRef(OntologyNamespaces.CMEO.value + study_name)
+        study_uri = URIRef(CMEO_KG + study_name)
         study_design_execution_uri = URIRef(study_uri + "/study_design_execution")
         
         # Study design execution. The explorer's queries anchor on the study design's
@@ -2252,8 +2251,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
             study_design_uri = URIRef(study_uri + "/" + study_design_value)
             g.add((study_design_uri, OntologyNamespaces.CMEO.value.has_value, Literal(study_design_value, datatype=XSD.string), metadata_graph))
             g.add((study_design_uri, DC.identifier, Literal(original_study_name, datatype=XSD.string), metadata_graph))
-            dynamic_class_uri = URIRef(OntologyNamespaces.OBI.value + study_design_value)
-            g.add((study_design_uri, RDF.type, dynamic_class_uri, metadata_graph))
+            g.add((study_design_uri, RDF.type, study_design_class(study_design_value), metadata_graph))
             protocol_uri = URIRef(study_uri + "/" + study_design_value + "/protocol")
             g.add((protocol_uri, RDF.type, OntologyNamespaces.OBI.value.protocol, metadata_graph))
             g.add((study_design_uri, OntologyNamespaces.RO.value.has_part, protocol_uri, metadata_graph))
@@ -2342,12 +2340,6 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
     }
     
     # Smart defaults and derivation logic
-    def get_namespace(ns_key):
-        ns_map = {"DC": DC, "SIO": OntologyNamespaces.SIO.value, "OBI": OntologyNamespaces.OBI.value, 
-                  "CMEO": OntologyNamespaces.CMEO.value, "BFO": OntologyNamespaces.BFO.value, 
-                  "IAO": OntologyNamespaces.IAO.value, "NCBI": OntologyNamespaces.NCBI.value}
-        return ns_map[ns_key]
-    
     def get_subject_uri(target):
         targets = {"execution": study_design_execution_uri, "protocol": protocol_uri, "study_design": study_design_uri}
         return targets[target]
@@ -2392,21 +2384,19 @@ def process_all_metadata_fields(g: Graph, row: pd.Series, study_design_execution
             datatype = XSD.string
             
         # Create entity with derived properties
-        namespace = get_namespace(config["ns"])
         rdf_type = config["type"]
         subject_uri = get_subject_uri(config["target"])
         uri_suffix = get_uri_suffix(excel_field)
         relationship = config.get("rel", get_default_relationship(rdf_type))
-        rel_namespace = get_namespace(config.get("rel_ns", "RO")) if config.get("rel_ns") else OntologyNamespaces.RO.value
-            
-        # Add RDF triples
+
+        # Add RDF triples. The class and the relation come from CohortVarLinker's
+        # term table (the "ns" / "rel_ns" of the config only document which
+        # ontology the name belongs to; term_iri knows the IRI).
         entity_uri = URIRef(study_uri + uri_suffix)
-        rdf_type_uri = URIRef(namespace + rdf_type)
-        g.add((entity_uri, RDF.type, rdf_type_uri, metadata_graph))
-            
+        g.add((entity_uri, RDF.type, term_iri(rdf_type), metadata_graph))
+
         # Add relationship
-        relationship_uri = URIRef(rel_namespace + relationship)
-        g.add((subject_uri, relationship_uri, entity_uri, metadata_graph))
+        g.add((subject_uri, term_iri(relationship), entity_uri, metadata_graph))
             
         # Add label if specified
         if config.get("label"):
@@ -2487,13 +2477,13 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
         # Add parsed percentages to graph (for frontend display)
         if male_percentage is not None:
             male_percentage_uri = URIRef(study_uri + "/male_percentage")
-            g.add((male_percentage_uri, RDF.type, OntologyNamespaces.CMEO.value.male_percentage, metadata_graph))
+            g.add((male_percentage_uri, RDF.type, CMEO_LOCAL.male_percentage, metadata_graph))
             g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.has_part, male_percentage_uri, metadata_graph))
             g.add((male_percentage_uri, OntologyNamespaces.CMEO.value.has_value, Literal(male_percentage, datatype=XSD.float), metadata_graph))
             
         if female_percentage is not None:
             female_percentage_uri = URIRef(study_uri + "/female_percentage")
-            g.add((female_percentage_uri, RDF.type, OntologyNamespaces.CMEO.value.female_percentage, metadata_graph))
+            g.add((female_percentage_uri, RDF.type, CMEO_LOCAL.female_percentage, metadata_graph))
             g.add((eligibility_criterion_uri, OntologyNamespaces.RO.value.has_part, female_percentage_uri, metadata_graph))
             g.add((female_percentage_uri, OntologyNamespaces.CMEO.value.has_value, Literal(female_percentage, datatype=XSD.float), metadata_graph))
         
@@ -2505,7 +2495,7 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
         for morbidity in morbidities:
             morbidity = morbidity.strip()
             if morbidity:
-                dynamic_morbidity_uri = URIRef(OntologyNamespaces.OBI.value + normalize_text(morbidity))
+                dynamic_morbidity_uri = URIRef(output_population_uri + "/morbidity/" + normalize_text(morbidity))
                 g.add((output_population_uri, OntologyNamespaces.RO.value.has_characteristic, dynamic_morbidity_uri, metadata_graph))
                 g.add((dynamic_morbidity_uri, OntologyNamespaces.RO.value.is_characteristic_of, output_population_uri, metadata_graph))
                 g.add((dynamic_morbidity_uri, RDF.type, OntologyNamespaces.OBI.value.morbidity, metadata_graph))
@@ -2535,7 +2525,7 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
                 
                 # Add each age group to the graph
                 age_group_uri = URIRef(study_uri + f"/age_group_{age_range.replace('+', 'plus').replace('-', '_')}")
-                g.add((age_group_uri, RDF.type, OntologyNamespaces.CMEO.value.age_group, metadata_graph))
+                g.add((age_group_uri, RDF.type, CMEO_LOCAL.age_group, metadata_graph))
                 g.add((age_quality, OntologyNamespaces.RO.value.has_part, age_group_uri, metadata_graph))
                 g.add((age_group_uri, RDFS.label, Literal(age_range, datatype=XSD.string), metadata_graph))
                 g.add((age_group_uri, OntologyNamespaces.CMEO.value.has_value, Literal(percentage, datatype=XSD.float), metadata_graph))
@@ -2609,7 +2599,7 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
                 g = add_age_group_inclusion_criterion(g, study_uri, inclusion_criterion_uri, metadata_graph, row[col])
             else:
                 # Create dynamic type for this specific inclusion criterion
-                dynamic_inclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + inclusion_criterion_name)
+                dynamic_inclusion_criterion_type = term_iri(inclusion_criterion_name, warn=False)
                 
                 # Split by semicolon for multiple values
                 inc_all_values = row_value.split(";") if row_value else []
@@ -2639,7 +2629,7 @@ def handle_special_fields(g: Graph, row: pd.Series, study_design_execution_uri: 
                 continue
             
             # Create dynamic type for this specific exclusion criterion
-            dynamic_exclusion_criterion_type = URIRef(OntologyNamespaces.CMEO.value + exclusion_criterion_name)
+            dynamic_exclusion_criterion_type = term_iri(exclusion_criterion_name, warn=False)
             
             # Split by semicolon for multiple values
             exc_all_values = row_value.split(";") if row_value else []
