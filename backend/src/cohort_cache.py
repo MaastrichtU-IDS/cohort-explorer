@@ -941,16 +941,21 @@ def initialize_cache_from_triplestore(admin_email: str | None = None, force_refr
         # This is needed because the main SPARQL query uses a complex OBI structure
         # but upload.py stores emails directly on the study entity
         try:
+            # email, administratorEmail and administrator are KG-local terms: they
+            # have no class in cmeo.owl, so in CohortVarLinker's vocabulary (term_iri)
+            # they stay under the KG base https://w3id.org/CMEO/, which is also where
+            # upload.cohorts_metadata_file_to_graph writes them. The OBO prefix
+            # http://purl.obolibrary.org/obo/CMEO_ is only for ontology classes.
             email_query = """
-            PREFIX cmeo: <http://purl.obolibrary.org/obo/CMEO_>
+            PREFIX cmeokg: <https://w3id.org/CMEO/>
             PREFIX dc: <http://purl.org/dc/elements/1.1/>
             SELECT ?cohortId ?email ?administratorEmail ?administrator ?studyContactPerson
             WHERE {
                 GRAPH <https://w3id.org/CMEO/graph/studies_metadata> {
                     ?study dc:identifier ?cohortId .
-                    OPTIONAL { ?study cmeo:email ?email . }
-                    OPTIONAL { ?study cmeo:administratorEmail ?administratorEmail . }
-                    OPTIONAL { ?study cmeo:administrator ?administrator . }
+                    OPTIONAL { ?study cmeokg:email ?email . }
+                    OPTIONAL { ?study cmeokg:administratorEmail ?administratorEmail . }
+                    OPTIONAL { ?study cmeokg:administrator ?administrator . }
                     OPTIONAL { ?study dc:creator ?studyContactPerson . }
                 }
             }
