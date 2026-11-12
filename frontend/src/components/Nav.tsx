@@ -297,7 +297,8 @@ export function Nav() {
     setCohortsWithoutShuffledSamples([]);
     setAvailableMappingFiles([]);
     setSelectedMappingFiles({});
-    setIncludeMergeChain(true);
+    setIncludeMergeChain(false);
+    setMergeExcludedCohorts([]);
     setMergeUseShuffled(false);
     setPublishedDCR(null);
     setDcrCreated(false);
