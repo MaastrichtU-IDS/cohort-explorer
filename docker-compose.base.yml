@@ -2,7 +2,15 @@
 services:
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      # The RUN steps of the build (apt-get, uv sync, npm i) run in the host's
+      # network namespace and so use the host's resolver. Containers on Docker's
+      # default bridge network cannot reach any nameserver on the deploy host
+      # (nslookup in a plain container times out while the host resolves), which
+      # made every image build fail on "Temporary failure resolving". Affects
+      # the build only, not how the containers run.
+      network: host
     environment:
       FRONTEND_URL: http://localhost:3001
       SPARQL_ENDPOINT: "http://db:7878"
@@ -21,6 +29,7 @@ services:
   frontend:
     build:
       context: ./frontend
+      network: host
       args:
         - NEXT_PUBLIC_API_URL=http://localhost:3000
     env_file:
