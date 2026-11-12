@@ -1339,7 +1339,7 @@ async def get_compute_dcr_definition(
         # whether the merge pools the full cohort data or the shuffled samples;
         # the pooled dataset, the patient-level files and every other file type
         # stay inside the enclave.
-        merge_check_node_name = merge_overview_node_name(len(studies_info))
+        merge_check_node_name = merge_overview_node_name(len(studies_info), merge_use_shuffled)
         builder.add_node_definition(
             PythonComputeNodeDefinition(
                 name=merge_check_node_name,

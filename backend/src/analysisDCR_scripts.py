@@ -826,11 +826,13 @@ def _export_rule_comment(indent: str = "# ") -> str:
     return f"{indent}Exported file types: {exts} (matched on the file extension, in any sub-folder)."
 
 
-def merge_overview_node_name(n_cohorts: int) -> str:
+def merge_overview_node_name(n_cohorts: int, use_shuffled: bool = False) -> str:
     """Name of the runnable node at the end of the merged-data chain: it runs the
     merge (as a dependency), draws the per-column figures of the merged dataset
-    and populates the airlock. Names the number of cohorts merged."""
-    return f"run-merge-on-{n_cohorts}-cohort{'s' if n_cohorts != 1 else ''}-visualize-and-create-airlock"
+    and populates the airlock. Names the number of cohorts merged and, when the
+    merge pools the cohorts' shuffled samples instead of their full data, says so."""
+    what = f"{n_cohorts}-shuffled-sample{'s' if n_cohorts != 1 else ''}" if use_shuffled else f"{n_cohorts}-cohort{'s' if n_cohorts != 1 else ''}"
+    return f"run-merge-on-{what}-visualize-and-create-airlock"
 
 
 def merge_datasets_script(
@@ -868,7 +870,7 @@ def merge_datasets_script(
         The Python script as a string.
     """
     mappings_info = mappings_info or []
-    overview_node_name = merge_overview_node_name(len(studies_info))
+    overview_node_name = merge_overview_node_name(len(studies_info), is_shuffled_data)
 
     # Build the `studies` dict literal.
     # Each study points to its data file, dictionary file (mounted under /input) and
