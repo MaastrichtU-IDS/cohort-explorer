@@ -1,5 +1,4 @@
 """units.py — Deterministic unit comparison for continuous variables.
-
 Decides how two study units relate, using pint for the arithmetic so no
 conversion factor is hand-maintained:
 
@@ -11,7 +10,7 @@ conversion factor is hand-maintained:
   unparseable           not sure: not a unit, not understood, or not safe to read
                         (DD-MM-YYYY, {score}, degC, MG — megagauss or milligram?)
 
-The rule throughout: give a factor only when the reading is unambiguous, and
+Rule: give a factor only when the reading is unambiguous, and
 otherwise say "not sure" so the pair is left to the semantic check. A
 confident wrong factor is worse than none.
 
@@ -79,6 +78,8 @@ _BRACKET_ALIASES = {
 _SYMBOL_ALIASES = {
     "u": "U",                # pint's "u" is the dalton; in a clinical unit it is the enzyme unit
     "mo": "month",           # UCUM mean Julian month; pint has no 'mo'
+    "h":"hour",
+    "d":"day",
     "wk": "week",            # UCUM week; pint has no 'wk'
     "deg": "angle_degree",   # pint angles are dimensionless and would scale to %
     "degree": "angle_degree",
