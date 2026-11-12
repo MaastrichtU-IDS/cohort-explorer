@@ -832,7 +832,7 @@ def merge_overview_node_name(n_cohorts: int, use_shuffled: bool = False) -> str:
     and populates the airlock. Names the number of cohorts merged and, when the
     merge pools the cohorts' shuffled samples instead of their full data, says so."""
     what = f"{n_cohorts}-shuffled-sample{'s' if n_cohorts != 1 else ''}" if use_shuffled else f"{n_cohorts}-cohort{'s' if n_cohorts != 1 else ''}"
-    return f"run-merge-on-{what}-visualize-and-create-airlock"
+    return f"run-merge-on-{what}-and-create-airlock"
 
 
 def merge_datasets_script(
@@ -1715,7 +1715,7 @@ def merged_data_overview_script(
 # Development-mode use."""
 
     return f"""###############################################################################
-# RUN THE MERGE ON {n_cohorts} COHORTS, VISUALIZE THE MERGED DATASET AND CREATE THE AIRLOCK
+# RUN THE MERGE ON {n_cohorts} COHORTS AND CREATE THE AIRLOCK (WITH THE MERGED DATASET'S FIGURES)
 #
 {name_note}
 #
