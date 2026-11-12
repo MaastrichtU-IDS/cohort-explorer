@@ -170,6 +170,11 @@ def get_cohort_uri(cohort_id: str) -> URIRef:
     return ICARE[f"cohort/{cohort_id.replace(' ', '_')}"]
 
 
+# The named graph holding every study's metadata (cohorts_metadata_file_to_graph
+# writes it; kg_queries, cohort_cache and CohortVarLinker read it).
+STUDIES_METADATA_GRAPH = URIRef(CMEO_KG + "graph/studies_metadata")
+
+
 def get_cohort_graph_uri(cohort_id: str) -> URIRef:
     """Get the graph URI for a cohort in CMEO namespace (matches query expectations)"""
     return URIRef(CMEO_KG + f"graph/{cohort_id}")
@@ -2033,6 +2038,12 @@ async def upload_cohorts_metadata(
         shutil.copyfileobj(cohorts_metadata.file, buffer)
     g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
     if len(g) > 0:
+        # The graph is REPLACED, not appended to: the store call below adds
+        # triples, so the current studies graph is emptied first (the legacy
+        # icare graph too, for stores that still carry one). Before this the
+        # delete hit only the legacy graph and every upload piled a new copy of
+        # the studies metadata onto the old one.
+        delete_existing_triples(STUDIES_METADATA_GRAPH)
         delete_existing_triples(ICARE["graph/metadata"])
         publish_graph_to_endpoint(g)
 
@@ -2090,7 +2101,7 @@ def cohorts_metadata_file_to_graph(filepath: str) -> Dataset:
     # line break in a header cell must not hide a column).
     df.columns = [" ".join(str(c).split()).lower() for c in df.columns]
     g = init_graph()
-    metadata_graph = URIRef(CMEO_KG + "graph/studies_metadata")
+    metadata_graph = STUDIES_METADATA_GRAPH
     study_designs: dict[str, URIRef] = {}   # normalized study name -> study design node
     parent_studies: dict[str, list[str]] = {}  # normalized study name -> normalized "part of study" names
 
@@ -2792,8 +2803,9 @@ def _perform_triplestore_initialization():
     g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
     
     # Delete existing triples for cohorts metadata before publishing new ones
-    cohorts_graph = URIRef("https://w3id.org/icare4cvd/cohorts")
-    delete_existing_triples(cohorts_graph)
+    # (the studies graph itself; the legacy icare graph for stores that still carry one)
+    delete_existing_triples(STUDIES_METADATA_GRAPH)
+    delete_existing_triples(URIRef("https://w3id.org/icare4cvd/cohorts"))
 
     if publish_graph_to_endpoint(g):
         print(f"🪪 Triplestore initialization: added {len(g)} triples for the cohorts metadata.")
