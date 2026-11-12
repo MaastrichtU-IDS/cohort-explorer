@@ -25,6 +25,11 @@ Endpoints (admin)
   POST /api/mapping-maintenance/vector-index            rebuild the Qdrant collection
   GET  /api/mapping-maintenance/vector-index/status     build time, points, errors
   POST /api/mapping-maintenance/archive-old-dictionaries[?dry_run=true]
+  POST /api/mapping-maintenance/rebuild-everything-from-source-files[?vector_index=false]
+                                                        the whole reset, in order: studies graph
+                                                        from the spreadsheet, every cohort graph,
+                                                        the vector index, the cohort cache
+  GET  /api/mapping-maintenance/rebuild-everything-from-source-files/status
 
 State lives in files under <data>/mapping_maintenance/ because the API runs
 several uvicorn workers; nothing here is kept in process memory.
@@ -364,3 +369,137 @@ async def archive_old_dictionaries(dry_run: bool = False, user: Any = Depends(ge
             result[folder] = r
     return {"dry_run": dry_run, "cohorts": result,
             "files": sum(len(r["moved"]) for r in result.values())}
+
+
+# ---------------------------------------------------------------------------
+# The whole reset in one call
+# ---------------------------------------------------------------------------
+#
+# Everything the explorer and the mapping read is derived from files on the
+# server: the cohorts spreadsheet (<data>/iCARE4CVD_Cohorts.xlsx) and each
+# cohort's current dictionary (plus its EDA output). This job rebuilds every
+# derived store from them, in the order the dependencies demand:
+#
+#   1. studies graph   emptied and republished from the spreadsheet
+#                      (upload.cohorts_metadata_file_to_graph)
+#   2. cohort graphs   each emptied and rebuilt from its dictionary by
+#                      CohortVarLinker's builder, which also re-links the
+#                      variables into the studies graph (so 1 comes first)
+#   3. vector index    the Qdrant collection, from the dictionaries (optional:
+#                      it does not read the graph, so skip it when only the
+#                      vocabulary of the graphs changed)
+#   4. cohort cache    reloaded from the spreadsheet and the dictionaries
+#
+# Use after a CohortVarLinker change to the graph vocabulary or shape, after
+# restoring or emptying the triplestore, or when the store and the files have
+# drifted. One run at a time; progress per step in the state file.
+
+FULL_REBUILD_STATE = "full_rebuild"
+FULL_REBUILD_STEPS = ("studies_graph", "cohort_graphs", "vector_index", "cohort_cache")
+
+
+def _full_rebuild_step(name: str, **fields: Any) -> None:
+    with _write_lock:
+        state = _read_state(FULL_REBUILD_STATE)
+        steps = state.setdefault("steps", {})
+        steps[name] = {**(steps.get(name) or {}), **fields}
+        _write_state(FULL_REBUILD_STATE, state)
+
+
+def rebuild_everything_from_source_files(include_vector_index: bool = True) -> dict[str, Any]:
+    from src.cohort_cache import initialize_cache_from_excel
+    from src.upload import (
+        COHORTS_METADATA_FILEPATH, ICARE, STUDIES_METADATA_GRAPH, cohorts_metadata_file_to_graph,
+        delete_existing_triples, publish_graph_to_endpoint,
+    )
+
+    t0 = time.time()
+    steps = {name: {"status": "skipped" if (name == "vector_index" and not include_vector_index) else "pending"}
+             for name in FULL_REBUILD_STEPS}
+    _update_state(FULL_REBUILD_STATE, running=True, started=datetime.now().isoformat(), finished=None,
+                  error=None, steps=steps)
+
+    def run(name: str, fn):
+        _full_rebuild_step(name, status="running", started=datetime.now().isoformat(), error=None)
+        t = time.time()
+        try:
+            detail = fn()
+            _full_rebuild_step(name, status="done", finished=datetime.now().isoformat(),
+                               duration_seconds=round(time.time() - t), detail=detail)
+            return True
+        except Exception as e:
+            logger.exception("[mapping_maintenance] full rebuild: step %s failed", name)
+            _full_rebuild_step(name, status="failed", finished=datetime.now().isoformat(),
+                               duration_seconds=round(time.time() - t), error=str(e))
+            return False
+
+    def studies_graph():
+        if not os.path.exists(COHORTS_METADATA_FILEPATH):
+            raise FileNotFoundError(f"cohorts spreadsheet not found: {COHORTS_METADATA_FILEPATH}")
+        g = cohorts_metadata_file_to_graph(COHORTS_METADATA_FILEPATH)
+        if len(g) == 0:
+            raise RuntimeError("the spreadsheet produced an empty studies graph; store left untouched")
+        delete_existing_triples(STUDIES_METADATA_GRAPH)
+        delete_existing_triples(ICARE["graph/metadata"])
+        if not publish_graph_to_endpoint(g):
+            raise RuntimeError("publishing the studies graph failed (see the log)")
+        return {"triples": len(g)}
+
+    def cohort_graphs():
+        state = rebuild_all_graphs()
+        failed = state.get("failed") or {}
+        detail = {"done": state.get("done") or [], "failed": failed}
+        if failed:
+            raise RuntimeError(f"{len(failed)} cohort graph(s) failed: {failed}")
+        return detail
+
+    def vector_index():
+        state = rebuild_vector_index()
+        if state.get("error"):
+            raise RuntimeError(state["error"])
+        return {"collection": state.get("collection"), "points": state.get("points"),
+                "skipped": state.get("skipped")}
+
+    def cohort_cache():
+        admin_email = settings.admins_list[0] if settings.admins_list else None
+        initialize_cache_from_excel(COHORTS_METADATA_FILEPATH, admin_email)
+        return {"source": COHORTS_METADATA_FILEPATH}
+
+    # Each later step reads what the earlier ones wrote, so the chain stops at
+    # the first failure (a failed cohort graph still lets the index and the
+    # cache run: they come from the files, and the other graphs are fine).
+    ok = run("studies_graph", studies_graph)
+    graphs_ok = run("cohort_graphs", cohort_graphs) if ok else False
+    if ok and include_vector_index:
+        run("vector_index", vector_index)
+    if ok:
+        run("cohort_cache", cohort_cache)
+    final = _read_state(FULL_REBUILD_STATE)
+    failed = [n for n, st in (final.get("steps") or {}).items() if st.get("status") == "failed"]
+    return _update_state(FULL_REBUILD_STATE, running=False, finished=datetime.now().isoformat(),
+                         duration_seconds=round(time.time() - t0),
+                         error=(f"failed step(s): {', '.join(failed)}" if failed else None),
+                         completed=(ok and graphs_ok and not failed))
+
+
+@router.post("/mapping-maintenance/rebuild-everything-from-source-files")
+async def start_full_rebuild(background: BackgroundTasks, vector_index: bool = True,
+                             user: Any = Depends(get_current_user)):
+    """Rebuild every derived store from the files on the server (see the
+    section comment above). Runs in the background; poll the status endpoint."""
+    _require_admin(user)
+    if _read_state(FULL_REBUILD_STATE).get("running"):
+        raise HTTPException(status_code=409, detail="A full rebuild is already running.")
+    if _read_state("graphs_job").get("running") or _read_state("vector_index").get("running"):
+        raise HTTPException(status_code=409, detail="A graph or vector index rebuild is running; wait for it to finish.")
+    _update_state(FULL_REBUILD_STATE, running=True, started=datetime.now().isoformat(), finished=None,
+                  error=None, completed=None,
+                  steps={n: {"status": "pending"} for n in FULL_REBUILD_STEPS})
+    background.add_task(rebuild_everything_from_source_files, vector_index)
+    return {"started": True, "steps": list(FULL_REBUILD_STEPS), "vector_index": vector_index,
+            "cohorts": _cohort_folders()}
+
+
+@router.get("/mapping-maintenance/rebuild-everything-from-source-files/status")
+async def full_rebuild_status(user: Any = Depends(get_current_user)):
+    return _read_state(FULL_REBUILD_STATE)
