@@ -1291,19 +1291,18 @@ export function Nav() {
                                 <p className="text-xs text-base-content/60 mb-3">
                                   Untick a cohort to leave it out of the merge. Its data nodes stay in the DCR; only the merge node ignores it.
                                 </p>
-                                <div className="grid grid-cols-3 gap-x-4 gap-y-1">
+                                {/* One wrapping row: each cohort takes only the width of its name */}
+                                <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
                                   {Object.keys(dataCleanRoom?.cohorts || {}).map((cohortId) => (
-                                    <div key={cohortId} className="form-control min-w-0">
-                                      <label className="label cursor-pointer justify-start gap-3">
-                                        <input
-                                          type="checkbox"
-                                          checked={!mergeExcludedCohorts.includes(cohortId)}
-                                          onChange={(e) => toggleMergeCohort(cohortId, e.target.checked)}
-                                          className="checkbox checkbox-primary"
-                                        />
-                                        <span className="label-text text-base truncate" title={cohortId}>{cohortId}</span>
-                                      </label>
-                                    </div>
+                                    <label key={cohortId} className="label cursor-pointer gap-2 px-0 whitespace-nowrap">
+                                      <input
+                                        type="checkbox"
+                                        checked={!mergeExcludedCohorts.includes(cohortId)}
+                                        onChange={(e) => toggleMergeCohort(cohortId, e.target.checked)}
+                                        className="checkbox checkbox-primary checkbox-sm"
+                                      />
+                                      <span className="label-text text-base">{cohortId}</span>
+                                    </label>
                                   ))}
                                 </div>
                                 <p className={`text-xs mt-2 ${mergeCohorts.length < 2 ? 'text-warning' : 'text-base-content/60'}`}>
