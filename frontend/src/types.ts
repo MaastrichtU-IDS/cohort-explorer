@@ -36,6 +36,12 @@ export interface Cohort {
   // when only the legacy EDA JSON exists, else null/undefined. has_longitudinal
   // is true when the longitudinal analysis JSON exists.
   eda_version?: 'v1' | 'v2' | null;
+  // Dates (ISO, "2026-11-13") of the files behind the cohort, read from the
+  // server's file system when the cache is built or refreshed; null when the
+  // file does not exist.
+  dictionary_updated_at?: string | null;
+  eda_updated_at?: string | null;
+  shuffled_sample_generated_at?: string | null;
   has_longitudinal?: boolean;
   can_edit?: boolean;
 

@@ -2328,7 +2328,15 @@ def run_shuffle_get_output(dcr_id: str, user: Any = Depends(get_current_user)):
     os.makedirs(storage_dir, mode=0o777, exist_ok=True)
     result.extractall(str(storage_dir))
     os.sync()
-    
+
+    # The cohort card shows when the shuffled sample was generated (read from
+    # the file's date into the cache): refresh it now that the file is written.
+    try:
+        from src.cohort_cache import refresh_cohort_eda_status
+        refresh_cohort_eda_status(cohort_id)
+    except Exception as e:
+        logging.warning(f"Could not refresh the file dates for cohort {cohort_id}: {e}")
+
     return {
         "status": "success",
         "saved_path": str(storage_dir),

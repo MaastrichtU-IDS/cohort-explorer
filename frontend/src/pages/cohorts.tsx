@@ -24,6 +24,14 @@ import {InfoIcon} from '@/components/Icons';
 import {fetchEdaOutput} from '@/utils/variableStats';
 import LoginPrompt from '@/components/LoginPrompt';
 
+// "2026-11-13" (ISO date from the cache) -> "11.13.2026"; a missing file shows as "not available".
+const formatFileDate = (iso?: string | null): string => {
+  if (!iso) return 'not available';
+  const [y, m, d] = iso.split('-');
+  return y && m && d ? `${m}.${d}.${y}` : iso;
+};
+
+
 // Helper component to render highlighted text
 const HighlightedText = ({text, searchTerms, searchMode, noHighlight}: {text: string, searchTerms: string[], searchMode?: 'or' | 'and' | 'exact', noHighlight?: boolean}) => {
   if (noHighlight) {
@@ -2244,6 +2252,13 @@ export default function CohortsList() {
                     }
                     return null;
                   })()}
+
+                  {/* Dates of the files behind the cohort (from the server's file system, via the cache) */}
+                  <div className="mt-4 pt-4 border-t text-sm space-y-1">
+                    <p><strong>Data dictionary last updated:</strong> {formatFileDate(cohortData.dictionary_updated_at)}</p>
+                    <p><strong>Most recent EDA (variable profiling):</strong> {formatFileDate(cohortData.eda_updated_at)}</p>
+                    <p><strong>Shuffled sample generated:</strong> {formatFileDate(cohortData.shuffled_sample_generated_at)}</p>
+                  </div>
                 </div>
                   </>
                 )}

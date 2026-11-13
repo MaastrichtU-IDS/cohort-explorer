@@ -4,7 +4,9 @@ This provides a parallel structure to the RDF graph for faster data access.
 """
 import json
 import logging
+import glob
 import os
+from datetime import datetime
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Any
@@ -345,6 +347,9 @@ def cohort_to_dict(cohort: Cohort) -> Dict[str, Any]:
         "physical_dictionary_exists": cohort.physical_dictionary_exists,
         "eda_version": cohort.eda_version,
         "has_longitudinal": cohort.has_longitudinal,
+        "dictionary_updated_at": cohort.dictionary_updated_at,
+        "eda_updated_at": cohort.eda_updated_at,
+        "shuffled_sample_generated_at": cohort.shuffled_sample_generated_at,
         "variables": {}
     }
     
@@ -441,9 +446,38 @@ def detect_eda_status(cohort_id: str) -> tuple[Optional[str], bool]:
     return eda_version, has_longitudinal
 
 
+def _file_date(path: Optional[str]) -> Optional[str]:
+    """ISO date of a file's last modification, None when it does not exist."""
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(path)).date().isoformat() if path else None
+    except OSError:
+        return None
+
+
+def detect_file_dates(cohort_id: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Dates (ISO) of the files behind a cohort, from the file system:
+    the current data dictionary, the newest EDA output JSON, the shuffled sample."""
+    from src.upload import current_datadictionary  # lazy: upload imports this module
+
+    cohort_dir = os.path.join(settings.data_folder, "cohorts", cohort_id)
+    dictionary = current_datadictionary(cohort_dir) if os.path.isdir(cohort_dir) else None
+    dcr_dir = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+    eda_files = glob.glob(os.path.join(dcr_dir, "eda_*.json"))
+    newest_eda = max(eda_files, key=os.path.getmtime) if eda_files else None
+    shuffled = os.path.join(dcr_dir, "shuffled_sample.csv")
+    return (
+        _file_date(dictionary),
+        _file_date(newest_eda),
+        _file_date(shuffled) if os.path.exists(shuffled) else None,
+    )
+
+
 def apply_eda_status(cohort: Cohort) -> None:
-    """Set ``eda_version`` and ``has_longitudinal`` on a Cohort from its output folder."""
+    """Set the EDA markers (``eda_version``, ``has_longitudinal``) and the file
+    dates (dictionary, EDA output, shuffled sample) on a Cohort from the file system."""
     cohort.eda_version, cohort.has_longitudinal = detect_eda_status(cohort.cohort_id)
+    (cohort.dictionary_updated_at, cohort.eda_updated_at,
+     cohort.shuffled_sample_generated_at) = detect_file_dates(cohort.cohort_id)
 
 
 def refresh_cohort_eda_status(cohort_id: str) -> bool:
@@ -466,7 +500,9 @@ def refresh_cohort_eda_status(cohort_id: str) -> bool:
     logging.info(
         f"Refreshed EDA markers for cohort '{cohort_id}': "
         f"eda_version={_cohorts_cache[cohort_id].eda_version}, "
-        f"has_longitudinal={_cohorts_cache[cohort_id].has_longitudinal}"
+        f"has_longitudinal={_cohorts_cache[cohort_id].has_longitudinal}, "
+        f"eda_updated_at={_cohorts_cache[cohort_id].eda_updated_at}, "
+        f"shuffled_sample_generated_at={_cohorts_cache[cohort_id].shuffled_sample_generated_at}"
     )
     return True
 

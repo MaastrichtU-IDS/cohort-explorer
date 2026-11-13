@@ -144,6 +144,15 @@ class Cohort:
     #   has_longitudinal: True if eda_longitudinal_v1_{id}.json exists.
     eda_version: Optional[str] = None
     has_longitudinal: bool = False
+    # Dates of the files behind the cohort, read from the file system together
+    # with the EDA markers (cohort_cache.apply_eda_status). ISO dates
+    # ("2026-11-13"), None when the file does not exist.
+    #   dictionary_updated_at:        the current *_datadictionary.csv in data/cohorts/<id>
+    #   eda_updated_at:               the newest eda_*.json in data/dcr_output_<id>
+    #   shuffled_sample_generated_at: shuffled_sample.csv in data/dcr_output_<id>
+    dictionary_updated_at: Optional[str] = None
+    eda_updated_at: Optional[str] = None
+    shuffled_sample_generated_at: Optional[str] = None
 
     def dict(self):
         return {k: str(v) for k, v in asdict(self).items()}
