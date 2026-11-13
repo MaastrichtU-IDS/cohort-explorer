@@ -24,11 +24,12 @@ import {InfoIcon} from '@/components/Icons';
 import {fetchEdaOutput} from '@/utils/variableStats';
 import LoginPrompt from '@/components/LoginPrompt';
 
-// "2026-11-13" (ISO date from the cache) -> "11.13.2026"; a missing file shows as "not available".
-const formatFileDate = (iso?: string | null): string => {
-  if (!iso) return 'not available';
+// "2026-11-13" (ISO date from the cache) -> "13.11.2026" (dd.mm.yyyy); when the
+// file does not exist the caller's wording for "missing" is shown instead.
+const formatFileDate = (iso?: string | null, missing = 'not available'): string => {
+  if (!iso) return missing;
   const [y, m, d] = iso.split('-');
-  return y && m && d ? `${m}.${d}.${y}` : iso;
+  return y && m && d ? `${d}.${m}.${y}` : iso;
 };
 
 
@@ -2257,7 +2258,7 @@ export default function CohortsList() {
                   <div className="mt-4 pt-4 border-t text-sm space-y-1">
                     <p><strong>Data dictionary last updated:</strong> {formatFileDate(cohortData.dictionary_updated_at)}</p>
                     <p><strong>Most recent EDA (variable profiling):</strong> {formatFileDate(cohortData.eda_updated_at)}</p>
-                    <p><strong>Shuffled sample generated:</strong> {formatFileDate(cohortData.shuffled_sample_generated_at)}</p>
+                    <p><strong>Shuffled sample generated:</strong> {formatFileDate(cohortData.shuffled_sample_generated_at, 'no shuffled sample available for this cohort')}</p>
                   </div>
                 </div>
                   </>
