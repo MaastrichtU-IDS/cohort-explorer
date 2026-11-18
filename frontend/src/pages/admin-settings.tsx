@@ -375,14 +375,14 @@ ORDER BY DESC(?triples)`;
           </Link>
 
           <Link
-            href="/suspect-values"
+            href="/data-quality"
             className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-base-300 bg-base-100 px-4 py-3 hover:border-primary transition-colors"
           >
             <div>
-              <div className="font-medium">Suspect values</div>
+              <div className="font-medium">Data quality</div>
               <p className="text-xs text-base-content/60 mt-0.5">
-                Numeric variables whose profiling looks distorted by values that are probably not real
-                measurements, most often a stand-in for missing the data owner never declared.
+                One entry point for the checks on values, visits, concept mappings and metadata,
+                including suspect values and the dictionary reports.
               </p>
             </div>
             <ArrowRight size={18} className="shrink-0 text-primary" />
