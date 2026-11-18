@@ -373,6 +373,20 @@ ORDER BY DESC(?triples)`;
             </div>
             <ArrowRight size={18} className="shrink-0 text-primary" />
           </Link>
+
+          <Link
+            href="/suspect-values"
+            className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-base-300 bg-base-100 px-4 py-3 hover:border-primary transition-colors"
+          >
+            <div>
+              <div className="font-medium">Suspect values</div>
+              <p className="text-xs text-base-content/60 mt-0.5">
+                Numeric variables whose profiling looks distorted by values that are probably not real
+                measurements, most often a stand-in for missing the data owner never declared.
+              </p>
+            </div>
+            <ArrowRight size={18} className="shrink-0 text-primary" />
+          </Link>
         </div>
       </div>
 

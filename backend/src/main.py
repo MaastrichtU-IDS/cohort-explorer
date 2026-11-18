@@ -20,6 +20,7 @@ from src.decentriq import router as decentriq_router
 from src.dcr_results import router as dcr_results_router
 from src.decentriq import refresh_dcr_history
 from src.eda_counts import router as eda_counts_router
+from src.suspect_values import router as suspect_values_router
 from src.explore import router as explore_router
 from src.mapping import router as mapping_router
 from src.mapping_maintenance import router as mapping_maintenance_router
@@ -85,6 +86,7 @@ app = FastAPI(
 
 app.include_router(explore_router, tags=["explore"])
 app.include_router(eda_counts_router, tags=["explore"])
+app.include_router(suspect_values_router, prefix="/api", tags=["admin"])
 app.include_router(mapping_router, prefix="/api", tags=["mapping"])
 app.include_router(data_analysis_router, prefix="/api", tags=["data-analysis"])
 app.include_router(data_analysis_bare_router, tags=["data-analysis"])
