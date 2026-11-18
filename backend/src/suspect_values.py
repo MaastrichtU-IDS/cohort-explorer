@@ -153,7 +153,11 @@ def _from_v2(name: str, entry: dict[str, Any]) -> Optional[dict[str, Any]]:
         "concept_name": meta.get("concept_name"),
         "domain": meta.get("domain"),
         "var_type": meta.get("var_type"),
-        "graph_url": entry.get("graph_url"),
+        # Passed to the chart modal, which uses them to recognise a patient-id
+        # variable. The stored graph_url is not: it carries a hardcoded
+        # production host, so the page builds the chart path itself.
+        "omop_id": meta.get("omop_id"),
+        "concept_code": meta.get("concept_code"),
         "n": _num(entry.get("n")),
         "n_unique": _num(entry.get("n_unique")),
         "zero_fraction": _num(entry.get("zero_fraction")),
@@ -184,7 +188,8 @@ def _from_v1(name: str, entry: dict[str, Any]) -> Optional[dict[str, Any]]:
         "concept_name": entry.get("variable concept name (metadata dictionary)"),
         "domain": entry.get("domain (metadata dictionary)"),
         "var_type": entry.get("vartype (metadata dictionary)"),
-        "graph_url": entry.get("url"),
+        "omop_id": entry.get("variable omop id (metadata dictionary)"),
+        "concept_code": entry.get("variable concept code (metadata dictionary)"),
         "n": _num(entry.get("count of observations (ex. missing/empty)")),
         "n_unique": _num(entry.get("number of unique values/categories")),
         "zero_fraction": None,  # v1 does not record it; the median rule stands in

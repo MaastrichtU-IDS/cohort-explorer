@@ -1,9 +1,10 @@
 'use client';
 
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {AlertTriangle, Download, RefreshCw, Search} from 'react-feather';
+import {AlertTriangle, BarChart2, Download, RefreshCw, Search} from 'react-feather';
 import {apiUrl} from '@/utils';
 import LoginPrompt from '@/components/LoginPrompt';
+import VariableGraphModal from '@/components/VariableGraphModal';
 
 interface SuspectRow {
   cohort: string;
@@ -25,11 +26,12 @@ interface SuspectRow {
   std?: number | null;
   trimmed_mean?: number | null;
   declared_missing: string[];
+  omop_id?: string | number | null;
+  concept_code?: string | null;
   suspect_value?: number | null;
   likely_cause: string;
   score: number;
   reasons: string[];
-  graph_url?: string | null;
 }
 
 interface Payload {
@@ -56,6 +58,10 @@ export default function SuspectValuesPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // The variable whose distribution chart is open, if any. Same modal the
+  // variable cards on the explore page use, so the chart is the familiar one.
+  const [chartOf, setChartOf] = useState<SuspectRow | null>(null);
 
   const [minScore, setMinScore] = useState(4);
   const [cohort, setCohort] = useState('');
@@ -244,10 +250,15 @@ export default function SuspectValuesPage() {
                   </td>
                   <td className="whitespace-nowrap">{r.cohort}</td>
                   <td className="max-w-72">
-                    <div className="font-mono text-xs">
-                      {r.graph_url
-                        ? <a href={r.graph_url} target="_blank" rel="noreferrer" className="link link-hover">{r.variable}</a>
-                        : r.variable}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        className="btn btn-ghost btn-xs px-1"
+                        onClick={() => setChartOf(r)}
+                        title="Show the distribution chart"
+                      >
+                        <BarChart2 size={14} />
+                      </button>
+                      <span className="font-mono text-xs">{r.variable}</span>
                     </div>
                     {r.label && <div className="text-xs text-base-content/60 truncate" title={r.label}>{r.label}</div>}
                     {r.units && <div className="text-xs text-base-content/40">{r.units}</div>}
@@ -270,6 +281,18 @@ export default function SuspectValuesPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {chartOf && (
+        <VariableGraphModal
+          isOpen={true}
+          cohortId={chartOf.cohort}
+          variableName={chartOf.variable}
+          variableLabel={chartOf.label || undefined}
+          omopId={chartOf.omop_id !== null && chartOf.omop_id !== undefined ? String(chartOf.omop_id) : undefined}
+          conceptCode={chartOf.concept_code || undefined}
+          onClose={() => setChartOf(null)}
+        />
       )}
     </div>
   );
