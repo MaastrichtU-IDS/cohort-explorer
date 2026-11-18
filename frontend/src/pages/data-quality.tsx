@@ -1,14 +1,16 @@
 'use client';
 
-// Data quality (/data-quality): one entry point for the checks and views that
-// say something about how sound the catalogue's data is, rather than what it
-// contains. Most of them already existed and were reachable only by URL.
+// Data quality (/data-quality): one entry point for the checks that say how
+// sound the catalogue's data is, rather than what it contains. Most of the
+// linked pages already existed and were reachable only by URL. The two
+// dictionary reports run here and render their findings; the text file each
+// has always produced is still a download next to them.
 // Pages marked "admins only" render their own refusal for everyone else, so
 // this hub stays visible to any signed-in user.
 
 import React, {useState} from 'react';
 import Link from 'next/link';
-import {Activity, AlertTriangle, BarChart2, Calendar, CheckSquare, Download, FileText, GitMerge, Grid, Layers, Share2, Shield} from 'react-feather';
+import {Activity, AlertTriangle, Calendar, CheckSquare, Download, GitMerge, Grid, Layers, Play, Shield} from 'react-feather';
 import {apiUrl} from '@/utils';
 
 interface Entry {
@@ -99,103 +101,162 @@ const SECTIONS: Section[] = [
         description:
           'Every concept threaded through every cohort, with the observation counts of the cohorts that went through variable profiling.',
       },
-      {
-        title: 'Concept clusters heatmap',
-        href: '/concept-clusters-heatmap',
-        icon: <BarChart2 size={18} />,
-        description:
-          'The same coverage as a shaded grid of clusters against cohorts, which is the view linked from the navigation bar.',
-      },
-    ],
-  },
-  {
-    heading: 'Metadata themes',
-    blurb: 'How the free-text study metadata clusters, and which studies resemble each other.',
-    entries: [
-      {
-        title: 'Metadata clustering',
-        href: '/metadata-clustering',
-        icon: <Layers size={18} />,
-        description:
-          'Studies grouped by the themes found in their metadata fields, with the admin review of the theme vocabulary.',
-      },
-      {
-        title: 'Metadata heatmap',
-        href: '/metadata-heatmap',
-        admin: true,
-        icon: <Grid size={18} />,
-        description: 'Studies against themes as a shaded grid, from the metadata clustering theme view.',
-      },
-      {
-        title: 'Metadata constellation',
-        href: '/metadata-constellation',
-        admin: true,
-        icon: <Share2 size={18} />,
-        description: 'Studies as nodes, linked and drawn closer when they share more themes.',
-      },
     ],
   },
 ];
 
-interface Report {
-  title: string;
-  path: string;
-  filename: string;
-  description: string;
-  summary: (h: Headers) => string;
+// ---------------------------------------------------------------------------
+// Dictionary reports
+// ---------------------------------------------------------------------------
+
+interface CohortIssues {
+  cohort_id: string;
+  status: string;
+  file?: string;
+  folder?: string;
+  dictionary_date?: string;
+  errors?: string[];
+  error?: string;
 }
 
-const REPORTS: Report[] = [
-  {
-    title: 'Metadata syntax issues',
-    path: '/metadata-syntax-issues-report',
-    filename: 'metadata_syntax_issues',
-    description:
-      'Every validation and syntax problem found in the data dictionaries of all cohorts, in one text report. Also regenerated on each backend start.',
-    summary: h => {
-      const total = h.get('X-Total-Cohorts');
-      const errors = h.get('X-Cohorts-With-Errors');
-      const without = h.get('X-Cohorts-Without-Dict');
-      return `${errors ?? '?'} of ${total ?? '?'} cohorts have issues, ${without ?? '?'} have no dictionary`;
-    },
-  },
-  {
-    title: 'Athena concept code validation',
-    path: '/validate-athena-codes-all-summary',
-    filename: 'athena_code_validation',
-    description:
-      'Checks the concept code, concept name and OMOP id of every dictionary against the OMOP graph and the Athena API, and reports the triples that disagree.',
-    summary: h => `${h.get('X-Total-Errors') ?? '?'} problems found`,
-  },
-];
+interface AthenaCohort {
+  cohort_id: string;
+  status: string;
+  file?: string;
+  n_pass?: number;
+  n_fail?: number;
+  n_na?: number;
+  fail_variables?: string[];
+  na_variables?: string[];
+  error?: string;
+}
+
+interface ReportData<T> {
+  generated_at: string;
+  summary: Record<string, number>;
+  cohorts: T[];
+}
+
+const SUMMARY_LABELS: Record<string, string> = {
+  total_cohorts: 'cohorts',
+  cohorts_with_errors: 'with issues',
+  cohorts_without_dict: 'without a dictionary',
+  total_errors: 'issues in total',
+  cohorts_passed: 'passed',
+  cohorts_failed: 'with failures',
+  cohorts_errored: 'could not be checked',
+};
+
+const STATUS_BADGE: Record<string, string> = {
+  ok: 'badge-success',
+  passed: 'badge-success',
+  errors: 'badge-warning',
+  failed: 'badge-warning',
+  structure_failed: 'badge-error',
+  error: 'badge-error',
+  no_dictionary: 'badge-ghost',
+  no_folder: 'badge-ghost',
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  ok: 'OK',
+  passed: 'passed',
+  errors: 'issues',
+  failed: 'failures',
+  structure_failed: 'structure check failed',
+  error: 'could not be checked',
+  no_dictionary: 'no dictionary',
+  no_folder: 'no folder',
+};
+
+const Summary = ({summary}: {summary: Record<string, number>}) => (
+  <div className="flex flex-wrap gap-2 mb-3">
+    {Object.entries(summary).map(([key, value]) => (
+      <span key={key} className="badge badge-outline badge-sm">
+        {value} {SUMMARY_LABELS[key] || key.replace(/_/g, ' ')}
+      </span>
+    ))}
+  </div>
+);
+
+const VariableList = ({label, names}: {label: string; names: string[]}) => {
+  const [open, setOpen] = useState(false);
+  if (!names.length) return null;
+  const shown = open ? names : names.slice(0, 12);
+  return (
+    <div className="mt-1">
+      <span className="text-base-content/60">{label}: </span>
+      <span className="font-mono">{shown.join(', ')}</span>
+      {names.length > shown.length && (
+        <button className="link link-primary ml-1" onClick={() => setOpen(true)}>
+          and {names.length - shown.length} more
+        </button>
+      )}
+    </div>
+  );
+};
 
 export default function DataQualityPage() {
   const [running, setRunning] = useState<string | null>(null);
-  const [result, setResult] = useState<Record<string, string>>({});
+  const [error, setError] = useState<Record<string, string>>({});
+  const [issues, setIssues] = useState<ReportData<CohortIssues> | null>(null);
+  const [athena, setAthena] = useState<ReportData<AthenaCohort> | null>(null);
 
-  const runReport = async (report: Report) => {
-    setRunning(report.path);
-    setResult(r => ({...r, [report.path]: ''}));
+  const post = async (path: string) => {
+    const response = await fetch(`${apiUrl}${path}`, {method: 'POST', credentials: 'include'});
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${response.status}`);
+    }
+    return response;
+  };
+
+  const run = async (key: string, path: string, apply: (data: any) => void) => {
+    setRunning(key);
+    setError(e => ({...e, [key]: ''}));
     try {
-      const response = await fetch(`${apiUrl}${report.path}`, {method: 'POST', credentials: 'include'});
-      if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        throw new Error(detail.detail || `HTTP ${response.status}`);
-      }
-      const summary = report.summary(response.headers);
-      const blob = await response.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${report.filename}_${new Date().toISOString().slice(0, 10)}.txt`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      setResult(r => ({...r, [report.path]: `Downloaded. ${summary}.`}));
+      apply(await (await post(path)).json());
     } catch (e: any) {
-      setResult(r => ({...r, [report.path]: e?.message || 'The report could not be generated'}));
+      setError(err => ({...err, [key]: e?.message || 'The check could not be run'}));
     } finally {
       setRunning(null);
     }
   };
+
+  const download = async (key: string, path: string, filename: string) => {
+    setRunning(key);
+    setError(e => ({...e, [key]: ''}));
+    try {
+      const response = await post(path);
+      const blob = await response.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${filename}_${new Date().toISOString().slice(0, 10)}.txt`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e: any) {
+      setError(err => ({...err, [key]: e?.message || 'The report could not be generated'}));
+    } finally {
+      setRunning(null);
+    }
+  };
+
+  const Buttons = ({k, jsonPath, filePath, filename}: {k: string; jsonPath: string; filePath: string; filename: string}) => (
+    <div className="flex flex-wrap gap-2 mt-3">
+      <button className="btn btn-sm btn-primary" disabled={running !== null}
+              onClick={() => run(k, jsonPath, k === 'issues' ? setIssues : setAthena)}>
+        {running === k
+          ? <><span className="loading loading-spinner loading-xs" /> Running…</>
+          : <><Play size={14} /> Run the check</>}
+      </button>
+      <button className="btn btn-sm btn-outline" disabled={running !== null}
+              onClick={() => download(`${k}-file`, filePath, filename)}>
+        {running === `${k}-file`
+          ? <><span className="loading loading-spinner loading-xs" /> Generating…</>
+          : <><Download size={14} /> Download the text report</>}
+      </button>
+    </div>
+  );
 
   return (
     <div className="container mx-auto p-6 max-w-6xl">
@@ -234,38 +295,110 @@ export default function DataQualityPage() {
       ))}
 
       <section className="mb-8">
-        <h2 className="text-xl font-semibold">Dictionary reports</h2>
+        <h2 className="text-xl font-semibold">Dictionary checks</h2>
         <p className="text-sm text-base-content/60 mb-3">
-          Generated on demand and downloaded as a text file. Administrators only, and they take a
-          while on a full catalogue.
+          Run over the current data dictionary of every cohort, on demand. Administrators only, and
+          they take a while on a full catalogue. The text report each one has always produced is
+          still available next to it.
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {REPORTS.map(report => (
-            <div key={report.path} className="rounded-lg border border-base-300 bg-base-100 p-4">
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 shrink-0 text-primary"><FileText size={18} /></span>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{report.title}</span>
-                    <span className="badge badge-ghost badge-sm">admins only</span>
-                  </div>
-                  <p className="text-xs text-base-content/60 mt-1">{report.description}</p>
-                  <button
-                    className="btn btn-sm btn-outline mt-3"
-                    onClick={() => runReport(report)}
-                    disabled={running !== null}
-                  >
-                    {running === report.path
-                      ? <><span className="loading loading-spinner loading-xs" /> Generating…</>
-                      : <><Download size={14} /> Generate and download</>}
-                  </button>
-                  {result[report.path] && (
-                    <p className="text-xs mt-2 text-base-content/70">{result[report.path]}</p>
-                  )}
-                </div>
+
+        <div className="rounded-lg border border-base-300 bg-base-100 p-4 mb-3">
+          <div className="font-medium">Metadata syntax issues</div>
+          <p className="text-xs text-base-content/60 mt-1">
+            Every validation and syntax problem in the dictionaries: missing required columns,
+            malformed categorical definitions, missing-value codes that cannot be read, and the rest
+            of the upload validation, applied to what is on the server now.
+          </p>
+          <Buttons k="issues" jsonPath="/metadata-syntax-issues-report-json"
+                   filePath="/metadata-syntax-issues-report" filename="metadata_syntax_issues" />
+          {error['issues'] && <div className="alert alert-error mt-3 text-sm">{error['issues']}</div>}
+          {error['issues-file'] && <div className="alert alert-error mt-3 text-sm">{error['issues-file']}</div>}
+
+          {issues && (
+            <div className="mt-4">
+              <Summary summary={issues.summary} />
+              <p className="text-xs text-base-content/50 mb-2">Run at {issues.generated_at}.</p>
+              <div className="space-y-2">
+                {issues.cohorts.filter(c => c.status !== 'ok' && c.status !== 'no_folder').map(c => (
+                  <details key={c.cohort_id} className="rounded border border-base-300 p-2">
+                    <summary className="cursor-pointer text-sm flex items-center gap-2">
+                      <span className={`badge badge-sm ${STATUS_BADGE[c.status] || 'badge-ghost'}`}>
+                        {STATUS_LABEL[c.status] || c.status}
+                      </span>
+                      <span className="font-medium">{c.cohort_id}</span>
+                      {!!c.errors?.length && <span className="text-base-content/60">{c.errors.length} issues</span>}
+                    </summary>
+                    <div className="text-xs mt-2 space-y-1">
+                      {c.file && <div className="text-base-content/60">{c.file} of {c.dictionary_date}</div>}
+                      {c.folder && <div className="text-base-content/60 font-mono">{c.folder}</div>}
+                      {c.error && <div className="text-error">{c.error}</div>}
+                      {!!c.errors?.length && (
+                        <ol className="list-decimal list-inside space-y-1">
+                          {c.errors.map((e, i) => <li key={i}>{e}</li>)}
+                        </ol>
+                      )}
+                    </div>
+                  </details>
+                ))}
+                {issues.cohorts.every(c => c.status === 'ok' || c.status === 'no_folder') && (
+                  <div className="alert alert-success text-sm">Every dictionary on the server passes validation.</div>
+                )}
               </div>
             </div>
-          ))}
+          )}
+        </div>
+
+        <div className="rounded-lg border border-base-300 bg-base-100 p-4">
+          <div className="font-medium">Athena concept code validation</div>
+          <p className="text-xs text-base-content/60 mt-1">
+            Checks the concept name, concept code and OMOP id of every variable, additional context,
+            categorical value, unit and visit against the OMOP graph and the Athena API, and reports
+            the triples that disagree.
+          </p>
+          <Buttons k="athena" jsonPath="/validate-athena-codes-all-summary-json"
+                   filePath="/validate-athena-codes-all-summary" filename="athena_code_validation" />
+          {error['athena'] && <div className="alert alert-error mt-3 text-sm">{error['athena']}</div>}
+          {error['athena-file'] && <div className="alert alert-error mt-3 text-sm">{error['athena-file']}</div>}
+
+          {athena && (
+            <div className="mt-4">
+              <Summary summary={athena.summary} />
+              <p className="text-xs text-base-content/50 mb-2">Run at {athena.generated_at}.</p>
+              <div className="overflow-x-auto">
+                <table className="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>Cohort</th><th>Status</th>
+                      <th className="text-right">Pass</th>
+                      <th className="text-right">Fail</th>
+                      <th className="text-right">N/A</th>
+                      <th>Variables that did not validate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {athena.cohorts.filter(c => c.status !== 'no_folder' && c.status !== 'no_dictionary').map(c => (
+                      <tr key={c.cohort_id}>
+                        <td className="whitespace-nowrap font-medium">{c.cohort_id}</td>
+                        <td>
+                          <span className={`badge badge-sm ${STATUS_BADGE[c.status] || 'badge-ghost'}`}>
+                            {STATUS_LABEL[c.status] || c.status}
+                          </span>
+                        </td>
+                        <td className="text-right">{c.n_pass ?? ''}</td>
+                        <td className="text-right">{c.n_fail ?? ''}</td>
+                        <td className="text-right">{c.n_na ?? ''}</td>
+                        <td className="text-xs max-w-xl">
+                          {c.error && <div className="text-error">{c.error}</div>}
+                          <VariableList label="failed" names={c.fail_variables || []} />
+                          <VariableList label="not applicable" names={c.na_variables || []} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </div>

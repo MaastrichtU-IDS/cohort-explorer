@@ -1314,159 +1314,290 @@ async def normalize_all_dictionary_headers(
     )
 
 
+# ---------------------------------------------------------------------------
+# Dictionary reports
+#
+# Two checks over every cohort's current data dictionary, each available twice:
+# the original endpoint writes a text file and returns it as a download, and
+# the "-json" twin returns the same findings as data for the data quality page
+# to render. Both read one collector, so the file and the page can never
+# disagree about what was found.
+# ---------------------------------------------------------------------------
+
+_REPORT_RULE = "-" * 80
+_REPORT_BANNER = "=" * 80
+
+
+def _require_report_admin(user: Any) -> None:
+    if user["email"] not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+
+
+def collect_metadata_syntax_issues() -> dict[str, Any]:
+    """Validation and syntax problems in the current dictionary of every cohort.
+
+    One record per cohort with a status: ok, errors, no_dictionary when the
+    folder holds no dictionary file, no_folder when the cohort has no folder at
+    all, or failed when the file could not be parsed.
+    """
+    from src.cohort_cache import get_cohorts_from_cache
+
+    admin_email = settings.admins_list[0]
+    all_cohorts = get_cohorts_from_cache(admin_email)
+    cohorts: list[dict[str, Any]] = []
+    total_errors = 0
+
+    for cohort_id in sorted(all_cohorts.keys()):
+        cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
+        if not os.path.exists(cohort_folder_path):
+            cohorts.append({"cohort_id": cohort_id, "status": "no_folder", "folder": cohort_folder_path})
+            continue
+
+        latest_dict_file = get_latest_datadictionary(cohort_folder_path)
+        if not latest_dict_file:
+            cohorts.append({"cohort_id": cohort_id, "status": "no_dictionary", "folder": cohort_folder_path})
+            continue
+
+        dict_date = datetime.fromtimestamp(os.path.getmtime(latest_dict_file)).strftime("%Y-%m-%d %H:%M:%S")
+        record: dict[str, Any] = {
+            "cohort_id": cohort_id,
+            "file": os.path.basename(latest_dict_file),
+            "dictionary_date": dict_date,
+        }
+        try:
+            df = pd.read_csv(latest_dict_file, na_values=[""], keep_default_na=False)
+            df = df.dropna(how="all")
+            df = df.fillna("")
+            df.columns = [normalize_column_name(c) for c in df.columns]
+
+            critical_column_names = [c.name for c in metadatadict_cols_schema1]
+            df_cols_lower = {c.lower() for c in df.columns}
+            missing_columns = [col for col in critical_column_names if col.lower() not in df_cols_lower]
+
+            errors: list[str] = []
+            if missing_columns:
+                errors.append(f"Missing required columns: {', '.join(missing_columns)}")
+            try:
+                df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
+            except Exception:
+                pass  # a malformed categorical column is reported by the validation below
+            df["VARTYPE"] = df.apply(lambda row: str(row.get("VARTYPE", "")).upper(), axis=1)
+            errors.extend(validate_metadata_dataframe(df, cohort_id))
+
+            record["errors"] = errors
+            record["status"] = "errors" if errors else "ok"
+            total_errors += len(errors)
+        except Exception as e:
+            record["status"] = "failed"
+            record["error"] = str(e)
+            record["errors"] = []
+            total_errors += 1
+        cohorts.append(record)
+
+    without_dict = sum(1 for c in cohorts if c["status"] in ("no_folder", "no_dictionary"))
+    with_errors = sum(1 for c in cohorts if c["status"] in ("errors", "failed"))
+    return {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "summary": {
+            "total_cohorts": len(cohorts),
+            "cohorts_with_errors": with_errors,
+            "cohorts_without_dict": without_dict,
+            "total_errors": total_errors,
+        },
+        "cohorts": cohorts,
+    }
+
+
+def _format_metadata_syntax_issues(data: dict[str, Any]) -> str:
+    """The collected findings as the text report this check has always produced."""
+    lines = [f"Metadata Syntax Issues Report - Generated: {data['generated_at']}", _REPORT_BANNER, ""]
+    for c in data["cohorts"]:
+        status = c["status"]
+        if status == "no_folder":
+            continue  # a cohort with no folder is only counted, never listed
+        lines.append(f"COHORT: {c['cohort_id']}")
+        if status == "no_dictionary":
+            lines.append("Status: No metadata dictionary file found")
+            lines.append(f"Folder: {c['folder']}")
+        else:
+            lines.append(f"File: {c['file']}")
+            lines.append(f"Dictionary date: {c['dictionary_date']}")
+            if status == "failed":
+                lines.append(f"Error: Failed to process file - {c['error']}")
+            elif status == "errors":
+                lines.append(f"Errors found: {len(c['errors'])}")
+                lines.append("")
+                lines.extend(f"  {i}. {err}" for i, err in enumerate(c["errors"], 1))
+            else:
+                lines.append("Status: OK")
+        lines.extend([_REPORT_RULE, ""])
+    s = data["summary"]
+    lines += [
+        _REPORT_BANNER, "SUMMARY", _REPORT_BANNER,
+        f"Total cohorts: {s['total_cohorts']}",
+        f"Cohorts with errors: {s['cohorts_with_errors']}",
+        f"Cohorts without dictionary: {s['cohorts_without_dict']}",
+        f"Total errors: {s['total_errors']}",
+        f"Report generated: {data['generated_at']}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def collect_athena_validation() -> dict[str, Any]:
+    """Concept triples of every cohort dictionary checked against the OMOP graph
+    and the Athena API: the concept name, concept code and OMOP id of variables,
+    additional context, categorical values, units and visits.
+
+    One record per cohort with a status: passed, failed, structure_failed when
+    the dictionary lacks required columns, no_dictionary or no_folder, or error.
+    """
+    from CohortVarLinker.validate_cde import validate_dictionary
+    from src.cohort_cache import get_cohorts_from_cache
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    reports_folder = os.path.join(settings.data_folder, "ATHENA_VALIDATION_REPORTS")
+    os.makedirs(reports_folder, exist_ok=True)
+
+    admin_email = settings.admins_list[0]
+    all_cohorts = get_cohorts_from_cache(admin_email)
+    cohorts: list[dict[str, Any]] = []
+
+    for cohort_id in sorted(all_cohorts.keys()):
+        cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
+        if not os.path.exists(cohort_folder_path):
+            cohorts.append({"cohort_id": cohort_id, "status": "no_folder"})
+            continue
+        latest_dict_file = get_latest_datadictionary(cohort_folder_path)
+        if not latest_dict_file:
+            cohorts.append({"cohort_id": cohort_id, "status": "no_dictionary"})
+            continue
+
+        # The validator writes its per-variable verdicts to a CSV we read and drop.
+        out_csv = os.path.join(reports_folder, f"{cohort_id}_athena_{timestamp}.csv")
+        try:
+            all_pass = validate_dictionary(latest_dict_file, out_csv)
+            n_pass = n_fail = n_na = 0
+            fail_vars: list[str] = []
+            na_vars: list[str] = []
+            if os.path.exists(out_csv):
+                result_df = pd.read_csv(out_csv)
+                status_col = result_df.get("overall_status", pd.Series(dtype=str))
+                n_pass = int((status_col == "PASS").sum())
+                n_fail = int((status_col == "FAIL").sum())
+                n_na = int((status_col == "N/A").sum())
+                fail_vars = [str(v) for v in result_df.loc[status_col == "FAIL", "variable name"].tolist()]
+                na_vars = [str(v) for v in result_df.loc[status_col == "N/A", "variable name"].tolist()]
+                os.remove(out_csv)
+            cohorts.append({
+                "cohort_id": cohort_id,
+                "status": "structure_failed" if all_pass is None else ("passed" if all_pass else "failed"),
+                "file": os.path.basename(latest_dict_file),
+                "n_pass": n_pass,
+                "n_fail": n_fail,
+                "n_na": n_na,
+                "fail_variables": fail_vars,
+                "na_variables": na_vars,
+            })
+        except Exception as e:
+            if os.path.exists(out_csv):
+                os.remove(out_csv)
+            cohorts.append({"cohort_id": cohort_id, "status": "error", "error": str(e)})
+
+    def _count(*statuses: str) -> int:
+        return sum(1 for c in cohorts if c["status"] in statuses)
+
+    return {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "summary": {
+            "total_cohorts": len(cohorts),
+            "cohorts_passed": _count("passed"),
+            "cohorts_failed": _count("failed", "structure_failed"),
+            "cohorts_without_dict": _count("no_folder", "no_dictionary"),
+            "cohorts_errored": _count("error"),
+        },
+        "cohorts": cohorts,
+    }
+
+
+def _format_athena_validation(data: dict[str, Any]) -> str:
+    """The collected findings as the text report this check has always produced."""
+    lines = [f"Athena Code Validation Report - Generated: {data['generated_at']}", _REPORT_BANNER, ""]
+    for c in data["cohorts"]:
+        status = c["status"]
+        if status in ("no_folder", "no_dictionary"):
+            continue  # counted in the summary, never listed
+        lines.append(f"COHORT: {c['cohort_id']}")
+        if status == "structure_failed":
+            lines.append("Status: STRUCTURE CHECK FAILED (missing required columns)")
+        elif status == "error":
+            lines.append(f"Status: ERROR - {c['error']}")
+        else:
+            lines.append(f"  PASS: {c['n_pass']}  |  FAIL: {c['n_fail']}  |  N/A: {c['n_na']}")
+            if c["fail_variables"]:
+                lines.append(f"  FAIL variables: {', '.join(c['fail_variables'])}")
+            if c["na_variables"]:
+                lines.append(f"  N/A variables:  {', '.join(c['na_variables'])}")
+        lines.extend([_REPORT_RULE, ""])
+    s = data["summary"]
+    lines += [
+        _REPORT_BANNER, "SUMMARY", _REPORT_BANNER,
+        f"Total cohorts: {s['total_cohorts']}",
+        f"Cohorts passed: {s['cohorts_passed']}",
+        f"Cohorts with failures: {s['cohorts_failed']}",
+        f"Cohorts without dictionary: {s['cohorts_without_dict']}",
+        f"Cohorts with errors: {s['cohorts_errored']}",
+        f"Report generated: {data['generated_at']}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 @router.post(
     "/metadata-syntax-issues-report",
     name="Metadata syntax issues report",
     response_description="Metadata syntax issues report file",
 )
-async def metadata_syntax_issues_report(
-    user: Any = Depends(get_current_user),
-):
-    """Generate a report of all metadata dictionary syntax/validation issues across all cohorts. Admins only."""
-    user_email = user["email"]
-    if user_email not in settings.admins_list:
-        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+async def metadata_syntax_issues_report(user: Any = Depends(get_current_user)):
+    """The metadata syntax issues of every cohort as a downloadable text file. Admins only."""
     from fastapi.responses import FileResponse
-    from src.cohort_cache import get_cohorts_from_cache
-    
-    # Generate timestamp for filename
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    _require_report_admin(user)
+    data = collect_metadata_syntax_issues()
     reports_folder = os.path.join(settings.data_folder, "DICTIONARY_ISSUES_REPORTS")
-    errors_file = os.path.join(reports_folder, f"metadata_syntax_issues_{timestamp}.txt")
-    
-    # Ensure directory exists
     os.makedirs(reports_folder, exist_ok=True)
-    
-    # Initialize the report file
+    errors_file = os.path.join(
+        reports_folder, f"metadata_syntax_issues_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
     with open(errors_file, "w") as f:
-        f.write(f"Metadata Syntax Issues Report - Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write("=" * 80 + "\n\n")
-    
-    # Get all cohorts and process their dictionaries
-    admin_email = settings.admins_list[0]
-    all_cohorts = get_cohorts_from_cache(admin_email)
-    
-    total_cohorts = 0
-    cohorts_with_errors = 0
-    cohorts_without_dict = 0
-    total_errors = 0
-    
-    for cohort_id in sorted(all_cohorts.keys()):
-        total_cohorts += 1
-        cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
-        
-        if not os.path.exists(cohort_folder_path):
-            cohorts_without_dict += 1
-            continue
-        
-        # Get the latest metadata dictionary file
-        latest_dict_file = get_latest_datadictionary(cohort_folder_path)
-        
-        if not latest_dict_file:
-            cohorts_without_dict += 1
-            with open(errors_file, "a") as f:
-                f.write(f"COHORT: {cohort_id}\n")
-                f.write(f"Status: No metadata dictionary file found\n")
-                f.write(f"Folder: {cohort_folder_path}\n")
-                f.write("-" * 80 + "\n\n")
-            continue
-        
-        # Try to validate the dictionary file
-        try:
-            # Read and validate the CSV
-            df = pd.read_csv(latest_dict_file, na_values=[""], keep_default_na=False)
-            df = df.dropna(how="all")
-            df = df.fillna("")
-            
-            # Normalize column names using the normalize_column_name function
-            from src.upload import normalize_column_name
-            df.columns = [normalize_column_name(c) for c in df.columns]
-            
-            # Check for required columns (case-insensitive)
-            from src.upload import metadatadict_cols_schema1
-            critical_column_names = [c.name for c in metadatadict_cols_schema1]
-            critical_cols_lower = {c.lower() for c in critical_column_names}
-            df_cols_lower = {c.lower() for c in df.columns}
-            missing_columns = [col for col in critical_column_names if col.lower() not in df_cols_lower]
-            
-            # Collect validation errors
-            errors = []
-            if missing_columns:
-                errors.append(f"Missing required columns: {', '.join(missing_columns)}")
-            
-            # Parse categories for validation
-            try:
-                df["categories"] = df["CATEGORICAL"].apply(parse_categorical_string)
-            except:
-                pass  # If parsing fails, validation will catch it
-            
-            # Uppercase VARTYPE for validation
-            df["VARTYPE"] = df.apply(lambda row: str(row.get("VARTYPE", "")).upper(), axis=1)
-            
-            # Use centralized validation function
-            validation_errors = validate_metadata_dataframe(df, cohort_id)
-            errors.extend(validation_errors)
-            
-            # Get dictionary date
-            dict_date = datetime.fromtimestamp(os.path.getmtime(latest_dict_file)).strftime('%Y-%m-%d %H:%M:%S')
-            
-            # Write results
-            if errors:
-                cohorts_with_errors += 1
-                total_errors += len(errors)
-                with open(errors_file, "a") as f:
-                    f.write(f"COHORT: {cohort_id}\n")
-                    f.write(f"File: {os.path.basename(latest_dict_file)}\n")
-                    f.write(f"Dictionary date: {dict_date}\n")
-                    f.write(f"Errors found: {len(errors)}\n\n")
-                    for idx, error in enumerate(errors, 1):
-                        f.write(f"  {idx}. {error}\n")
-                    f.write("-" * 80 + "\n\n")
-            else:
-                with open(errors_file, "a") as f:
-                    f.write(f"COHORT: {cohort_id}\n")
-                    f.write(f"File: {os.path.basename(latest_dict_file)}\n")
-                    f.write(f"Dictionary date: {dict_date}\n")
-                    f.write(f"Status: OK\n")
-                    f.write("-" * 80 + "\n\n")
-            
-        except Exception as e:
-            cohorts_with_errors += 1
-            total_errors += 1
-            dict_date = datetime.fromtimestamp(os.path.getmtime(latest_dict_file)).strftime('%Y-%m-%d %H:%M:%S')
-            with open(errors_file, "a") as f:
-                f.write(f"COHORT: {cohort_id}\n")
-                f.write(f"File: {os.path.basename(latest_dict_file)}\n")
-                f.write(f"Dictionary date: {dict_date}\n")
-                f.write(f"Error: Failed to process file - {str(e)}\n")
-                f.write("-" * 80 + "\n\n")
-    
-    # Write summary
-    with open(errors_file, "a") as f:
-        f.write("=" * 80 + "\n")
-        f.write("SUMMARY\n")
-        f.write("=" * 80 + "\n")
-        f.write(f"Total cohorts: {total_cohorts}\n")
-        f.write(f"Cohorts with errors: {cohorts_with_errors}\n")
-        f.write(f"Cohorts without dictionary: {cohorts_without_dict}\n")
-        f.write(f"Total errors: {total_errors}\n")
-        f.write(f"Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-    
+        f.write(_format_metadata_syntax_issues(data))
+
+    s = data["summary"]
     logging.info(f"Generated metadata issues report: {errors_file}")
-    logging.info(f"Report summary - Total: {total_cohorts}, Errors: {cohorts_with_errors}, No dict: {cohorts_without_dict}")
-    
-    # Return the file as a download
+    logging.info(
+        f"Report summary - Total: {s['total_cohorts']}, Errors: {s['cohorts_with_errors']}, "
+        f"No dict: {s['cohorts_without_dict']}"
+    )
     return FileResponse(
         path=errors_file,
         media_type="text/plain",
         filename=os.path.basename(errors_file),
         headers={
-            "X-Total-Cohorts": str(total_cohorts),
-            "X-Cohorts-With-Errors": str(cohorts_with_errors),
-            "X-Cohorts-Without-Dict": str(cohorts_without_dict),
-            "X-Total-Errors": str(total_errors)
-        }
+            "X-Total-Cohorts": str(s["total_cohorts"]),
+            "X-Cohorts-With-Errors": str(s["cohorts_with_errors"]),
+            "X-Cohorts-Without-Dict": str(s["cohorts_without_dict"]),
+            "X-Total-Errors": str(s["total_errors"]),
+        },
     )
+
+
+@router.post(
+    "/metadata-syntax-issues-report-json",
+    name="Metadata syntax issues report, as data",
+    response_description="Metadata syntax issues per cohort",
+)
+async def metadata_syntax_issues_report_json(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """The same findings as /metadata-syntax-issues-report, as data for the
+    data quality page to render instead of a file to download. Admins only."""
+    _require_report_admin(user)
+    return collect_metadata_syntax_issues()
 
 
 @router.post(
@@ -1474,129 +1605,49 @@ async def metadata_syntax_issues_report(
     name="Validate Athena codes across all cohorts",
     response_description="Athena code validation report",
 )
-async def validate_athena_codes(
-    user: Any = Depends(get_current_user),
-):
-    """Validate OMOP concept codes against the OMOP graph and Athena API for all cohort dictionaries. Admins only.
-
-    For each cohort dictionary, this checks whether the concept triples
-    (concept name, concept code, OMOP ID) for variables, additional context,
-    categorical values, units, and visits are semantically valid.
-    """
-    user_email = user["email"]
-    if user_email not in settings.admins_list:
-        raise HTTPException(status_code=403, detail="You need to be admin to perform this action.")
+async def validate_athena_codes(user: Any = Depends(get_current_user)):
+    """The Athena concept code validation of every cohort as a downloadable text file. Admins only."""
     from fastapi.responses import FileResponse
-    from src.cohort_cache import get_cohorts_from_cache
-    from CohortVarLinker.validate_cde import validate_dictionary
 
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    _require_report_admin(user)
+    data = collect_athena_validation()
     reports_folder = os.path.join(settings.data_folder, "ATHENA_VALIDATION_REPORTS")
     os.makedirs(reports_folder, exist_ok=True)
-
-    summary_file = os.path.join(reports_folder, f"athena_validation_{timestamp}.txt")
-
-    admin_email = settings.admins_list[0]
-    all_cohorts = get_cohorts_from_cache(admin_email)
-
-    total_cohorts = 0
-    cohorts_passed = 0
-    cohorts_failed = 0
-    cohorts_without_dict = 0
-    cohorts_errored = 0
-
+    summary_file = os.path.join(
+        reports_folder, f"athena_validation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
     with open(summary_file, "w") as f:
-        f.write(f"Athena Code Validation Report - Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write("=" * 80 + "\n\n")
+        f.write(_format_athena_validation(data))
 
-    for cohort_id in sorted(all_cohorts.keys()):
-        total_cohorts += 1
-        cohort_folder_path = os.path.join(settings.cohort_folder, cohort_id)
-
-        if not os.path.exists(cohort_folder_path):
-            cohorts_without_dict += 1
-            continue
-
-        latest_dict_file = get_latest_datadictionary(cohort_folder_path)
-
-        if not latest_dict_file:
-            cohorts_without_dict += 1
-            continue
-
-        # Run Athena/graph validation — results go to a temp per-cohort CSV
-        out_csv = os.path.join(reports_folder, f"{cohort_id}_athena_{timestamp}.csv")
-        try:
-            all_pass = validate_dictionary(latest_dict_file, out_csv)
-
-            # Read the per-cohort CSV to extract counts and variable names
-            n_pass = n_fail = n_na = 0
-            fail_vars = []
-            na_vars = []
-            if os.path.exists(out_csv):
-                result_df = pd.read_csv(out_csv)
-                status_col = result_df.get("overall_status", pd.Series(dtype=str))
-                n_pass = int((status_col == "PASS").sum())
-                n_fail = int((status_col == "FAIL").sum())
-                n_na = int((status_col == "N/A").sum())
-                fail_vars = result_df.loc[status_col == "FAIL", "variable name"].tolist()
-                na_vars = result_df.loc[status_col == "N/A", "variable name"].tolist()
-                # Delete the temp CSV
-                os.remove(out_csv)
-
-            with open(summary_file, "a") as f:
-                f.write(f"COHORT: {cohort_id}\n")
-                if all_pass is None:
-                    # validate_dictionary returned None (structure check failed)
-                    f.write(f"Status: STRUCTURE CHECK FAILED (missing required columns)\n")
-                    cohorts_failed += 1
-                else:
-                    f.write(f"  PASS: {n_pass}  |  FAIL: {n_fail}  |  N/A: {n_na}\n")
-                    if all_pass is True:
-                        cohorts_passed += 1
-                    else:
-                        cohorts_failed += 1
-                    if fail_vars:
-                        f.write(f"  FAIL variables: {', '.join(str(v) for v in fail_vars)}\n")
-                    if na_vars:
-                        f.write(f"  N/A variables:  {', '.join(str(v) for v in na_vars)}\n")
-                f.write("-" * 80 + "\n\n")
-
-        except Exception as e:
-            cohorts_errored += 1
-            if os.path.exists(out_csv):
-                os.remove(out_csv)
-            with open(summary_file, "a") as f:
-                f.write(f"COHORT: {cohort_id}\n")
-                f.write(f"Status: ERROR - {str(e)}\n")
-                f.write("-" * 80 + "\n\n")
-
-    # Write summary
-    with open(summary_file, "a") as f:
-        f.write("=" * 80 + "\n")
-        f.write("SUMMARY\n")
-        f.write("=" * 80 + "\n")
-        f.write(f"Total cohorts: {total_cohorts}\n")
-        f.write(f"Cohorts passed: {cohorts_passed}\n")
-        f.write(f"Cohorts with failures: {cohorts_failed}\n")
-        f.write(f"Cohorts without dictionary: {cohorts_without_dict}\n")
-        f.write(f"Cohorts with errors: {cohorts_errored}\n")
-        f.write(f"Report generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-
+    s = data["summary"]
     logging.info(f"Generated Athena validation report: {summary_file}")
-    logging.info(f"Athena validation summary - Total: {total_cohorts}, Passed: {cohorts_passed}, Failed: {cohorts_failed}, No dict: {cohorts_without_dict}, Errors: {cohorts_errored}")
-
+    logging.info(
+        f"Athena validation summary - Total: {s['total_cohorts']}, Passed: {s['cohorts_passed']}, "
+        f"Failed: {s['cohorts_failed']}, No dict: {s['cohorts_without_dict']}, Errors: {s['cohorts_errored']}"
+    )
     return FileResponse(
         path=summary_file,
         media_type="text/plain",
         filename=os.path.basename(summary_file),
         headers={
-            "X-Total-Cohorts": str(total_cohorts),
-            "X-Cohorts-Passed": str(cohorts_passed),
-            "X-Cohorts-Failed": str(cohorts_failed),
-            "X-Cohorts-Without-Dict": str(cohorts_without_dict),
-            "X-Cohorts-Errored": str(cohorts_errored),
-        }
+            "X-Total-Cohorts": str(s["total_cohorts"]),
+            "X-Cohorts-Passed": str(s["cohorts_passed"]),
+            "X-Cohorts-Failed": str(s["cohorts_failed"]),
+            "X-Cohorts-Without-Dict": str(s["cohorts_without_dict"]),
+            "X-Cohorts-Errored": str(s["cohorts_errored"]),
+        },
     )
+
+
+@router.post(
+    "/validate-athena-codes-all-summary-json",
+    name="Validate Athena codes across all cohorts, as data",
+    response_description="Athena code validation per cohort",
+)
+async def validate_athena_codes_json(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """The same findings as /validate-athena-codes-all-summary, as data for the
+    data quality page to render instead of a file to download. Admins only."""
+    _require_report_admin(user)
+    return collect_athena_validation()
 
 
 @router.post(
@@ -2771,7 +2822,7 @@ def _perform_triplestore_initialization():
 
         with httpx.Client() as client:
             response = client.post(
-                "http://localhost:3000/upload/metadata-syntax-issues-report",
+                "http://localhost:3000/metadata-syntax-issues-report",
                 timeout=60.0,
             )
 
