@@ -476,6 +476,86 @@ def _check_misordered_categories(categorical_raw: str, vartype: str) -> list[str
                 issues.append(item)
     return issues
 
+# Tags that prefix the explanation of the two malformed-category classes, so they can be
+# picked out at a glance in the metadata syntax issues report and grepped for in its text form.
+_TAG_REPEATED_CODE = "[repeated category code]"
+_TAG_EMPTY_LABEL = "[empty category label]"
+
+# The tagged classes, as report key → (tag, label for the text report).
+_TAGGED_ERROR_CLASSES: dict[str, tuple[str, str]] = {
+    "repeated_category_codes": (_TAG_REPEATED_CODE, "Repeated category codes"),
+    "empty_category_labels": (_TAG_EMPTY_LABEL, "Empty category labels"),
+}
+
+def _count_tagged_errors(errors: list[str]) -> dict[str, int]:
+    """How many of these error messages belong to each tagged class."""
+    return {
+        key: sum(1 for e in errors if tag in e)
+        for key, (tag, _label) in _TAGGED_ERROR_CLASSES.items()
+    }
+
+def _category_code_key(code: str) -> str:
+    """The identity of a category code, for deciding whether two entries declare the same value.
+
+    Codes that parse as numbers are compared numerically, so '1', '01' and '1.0' are one code.
+    Everything else is compared as the literal string, after quotes and whitespace are removed,
+    so a difference in case is left alone rather than guessed at.
+    """
+    stripped = _cat_strip(code)
+    unsigned = stripped[1:].strip() if stripped.startswith("+") and len(stripped) > 1 else stripped
+    if _CAT_INT.match(unsigned) or _CAT_FLOAT.match(unsigned):
+        try:
+            return repr(float(unsigned))
+        except ValueError:
+            pass
+    return stripped
+
+def _check_repeated_category_codes(categorical_raw: str) -> list[tuple[str, list[str]]]:
+    """Return (code, entries) for every category code declared more than once in one cell.
+
+    A repeated code makes the dictionary ambiguous about what the value in the data means,
+    and the mapping package keeps only one of the labels, silently.
+    """
+    if not isinstance(categorical_raw, str) or not categorical_raw.strip():
+        return []
+    seen: dict[str, list[str]] = {}
+    order: list[str] = []
+    for raw in categorical_raw.split("|"):
+        item = raw.strip()
+        if not item:
+            continue
+        parts = _CAT_PAIR.split(item, maxsplit=1)
+        if len(parts) != 2:
+            continue  # a missing '=' is reported by its own check
+        key = _category_code_key(parts[0])
+        if not key:
+            continue  # an empty code is reported by the vartype check
+        if key not in seen:
+            seen[key] = []
+            order.append(key)
+        seen[key].append(item)
+    return [(_cat_strip(_CAT_PAIR.split(seen[k][0], maxsplit=1)[0]), seen[k]) for k in order if len(seen[k]) > 1]
+
+def _check_empty_category_labels(categorical_raw: str) -> list[str]:
+    """Return categorical entries that have a code but nothing on the right of '='.
+
+    The label is what the explorer and the DCR previews show for the value, so an entry
+    like '2=' leaves that category unnamed everywhere it appears.
+    """
+    if not isinstance(categorical_raw, str) or not categorical_raw.strip():
+        return []
+    issues = []
+    for raw in categorical_raw.split("|"):
+        item = raw.strip()
+        if not item:
+            continue
+        parts = _CAT_PAIR.split(item, maxsplit=1)
+        if len(parts) != 2:
+            continue  # a missing '=' is reported by its own check
+        if _cat_strip(parts[0]) and not _cat_strip(parts[1]):
+            issues.append(item)
+    return issues
+
 def _check_category_codes_against_vartype(categorical_raw: str, vartype: str) -> list[tuple[str, str]]:
     """Return (entry, reason) for categorical entries whose code contradicts the declared vartype.
 
@@ -876,6 +956,24 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                         errors.append(
                             f"Row {i+2} (Variable: '{var_name_for_error}'): Categorical entry '{p}' is missing '=' — all entries must follow the 'value=label' format (e.g. '0=no|1=yes')."
                         )
+
+            # A code declared twice in the same cell leaves the dictionary ambiguous about
+            # what the value means, and the mapping package keeps one of the labels silently.
+            for code, entries in _check_repeated_category_codes(categorical_raw):
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): {_TAG_REPEATED_CODE} The code '{code}' is "
+                    f"declared more than once: {', '.join(repr(e) for e in entries)}. Each code must appear "
+                    f"once, with a single label."
+                )
+
+            # A code with nothing on the right of '=' is left unnamed everywhere the label is shown.
+            unlabelled = _check_empty_category_labels(categorical_raw)
+            if unlabelled:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): {_TAG_EMPTY_LABEL} The following categorical "
+                    f"entries have a code but no label after '=': {', '.join(repr(e) for e in unlabelled)}. "
+                    f"Give each code a human-readable label, as in '0=no|1=yes'."
+                )
 
         # Type-aware categorical checks: the order of the pair, then the type of the code
         vartype_val = str(row.get("VARTYPE", "")).strip().upper()
@@ -1452,12 +1550,14 @@ def collect_metadata_syntax_issues() -> dict[str, Any]:
             errors.extend(validate_metadata_dataframe(df, cohort_id))
 
             record["errors"] = errors
+            record["tagged_counts"] = _count_tagged_errors(errors)
             record["status"] = "errors" if errors else "ok"
             total_errors += len(errors)
         except Exception as e:
             record["status"] = "failed"
             record["error"] = str(e)
             record["errors"] = []
+            record["tagged_counts"] = _count_tagged_errors([])
             total_errors += 1
         cohorts.append(record)
 
@@ -1470,6 +1570,12 @@ def collect_metadata_syntax_issues() -> dict[str, Any]:
             "cohorts_with_errors": with_errors,
             "cohorts_without_dict": without_dict,
             "total_errors": total_errors,
+            # The two malformed-category classes, called out on their own because they are
+            # new and a reader wants to know at a glance whether the catalogue has any.
+            **{
+                key: sum(c.get("tagged_counts", {}).get(key, 0) for c in cohorts)
+                for key in _TAGGED_ERROR_CLASSES
+            },
         },
         "cohorts": cohorts,
     }
@@ -1493,6 +1599,10 @@ def _format_metadata_syntax_issues(data: dict[str, Any]) -> str:
                 lines.append(f"Error: Failed to process file - {c['error']}")
             elif status == "errors":
                 lines.append(f"Errors found: {len(c['errors'])}")
+                tagged = c.get("tagged_counts") or {}
+                for key, (_tag, label) in _TAGGED_ERROR_CLASSES.items():
+                    if tagged.get(key):
+                        lines.append(f"  of which {label.lower()}: {tagged[key]}")
                 lines.append("")
                 lines.extend(f"  {i}. {err}" for i, err in enumerate(c["errors"], 1))
             else:
@@ -1505,8 +1615,9 @@ def _format_metadata_syntax_issues(data: dict[str, Any]) -> str:
         f"Cohorts with errors: {s['cohorts_with_errors']}",
         f"Cohorts without dictionary: {s['cohorts_without_dict']}",
         f"Total errors: {s['total_errors']}",
-        f"Report generated: {data['generated_at']}",
     ]
+    lines += [f"{label}: {s.get(key, 0)}" for key, (_tag, label) in _TAGGED_ERROR_CLASSES.items()]
+    lines.append(f"Report generated: {data['generated_at']}")
     return "\n".join(lines) + "\n"
 
 

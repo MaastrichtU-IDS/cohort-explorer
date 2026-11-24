@@ -142,6 +142,8 @@ const SUMMARY_LABELS: Record<string, string> = {
   cohorts_with_errors: 'with issues',
   cohorts_without_dict: 'without a dictionary',
   total_errors: 'issues in total',
+  repeated_category_codes: 'repeated category codes',
+  empty_category_labels: 'empty category labels',
   cohorts_passed: 'passed',
   cohorts_failed: 'with failures',
   cohorts_errored: 'could not be checked',
