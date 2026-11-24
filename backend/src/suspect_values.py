@@ -52,10 +52,9 @@ logger = logging.getLogger(__name__)
 # anything. Below it the quartiles are meaningless and everything looks extreme.
 MIN_OBSERVATIONS = 8
 
-# Default cut-off for the worklist. Every signal below contributes points; a
-# single weak signal scores 1 or 2, so 4 means "at least one strong signal, or
-# several weak ones agreeing".
-DEFAULT_MIN_SCORE = 4
+# Every signal below contributes points, and the total picks one of the
+# SUSPICION_LEVELS. A single weak signal scores 1 or 2; "moderate" at 4 means
+# at least one strong signal, or several weak ones agreeing.
 
 _LEADING_NUMBER = re.compile(r"^\s*(-?\d+(?:\.\d+)?)")
 
@@ -237,6 +236,25 @@ def _observations_clustered_at(median: Optional[float], low: Optional[float],
     return None
 
 
+# How many log-IQRs out a value must be to count as detached from its column.
+_DETACHED_LOG_IQRS = 5.0
+
+
+def _log_gap(value: Optional[float], q1: Optional[float], q3: Optional[float]) -> Optional[float]:
+    """Distance of `value` beyond the quartiles in units of the log-IQR, or None
+    where a log is not defined (a value or quartile at or below zero) or the
+    quartiles coincide."""
+    import math
+    if value is None or q1 is None or q3 is None or value <= 0 or q1 <= 0 or q3 <= q1:
+        return None
+    width = math.log(q3) - math.log(q1)
+    if value >= q3:
+        return (math.log(value) - math.log(q3)) / width
+    if value <= q1:
+        return (math.log(q1) - math.log(value)) / width
+    return 0.0
+
+
 def _tiered(value: Optional[float], tiers: list[tuple[float, int]]) -> int:
     """Points for a ratio, from the highest tier it clears."""
     if value is None:
@@ -297,8 +315,8 @@ def score_record(rec: dict[str, Any]) -> dict[str, Any]:
     # trimmed mean: a lab value with a naturally long right tail, such as
     # troponin or CRP, has a mean 30% to 150% above its trimmed mean with no
     # bad value in it, but that gap is only about one IQR. A stand-in for
-    # missing puts it tens of IQRs away. The share is still printed, since it
-    # is the easier number to read.
+    # missing puts it tens of IQRs away. The reason line leads with the ratio
+    # of the mean to the trimmed mean, since that is the easier number to read.
     if not degenerate and spread and rec["trimmed_mean"] is not None and rec["mean"] is not None:
         diff = rec["mean"] - rec["trimmed_mean"]
         in_iqrs = abs(diff) / spread
@@ -307,11 +325,14 @@ def score_record(rec: dict[str, Any]) -> dict[str, Any]:
         metrics["mean_vs_trimmed_iqrs"] = in_iqrs
         pts = _tiered(in_iqrs, [(3, 1), (10, 2), (40, 3)])
         if pts:
-            if diff > 0 and share >= 1:
-                phrase = f"mean is {share + 1:.1f}x the trimmed mean"
+            direction = "above" if diff > 0 else "below"
+            if rec["trimmed_mean"] > 0 and rec["mean"] > 0:
+                ratio = rec["mean"] / rec["trimmed_mean"]
+                reasons.append(f"mean is {ratio:.1f}x the trimmed mean, "
+                               f"{in_iqrs:.0f} interquartile ranges {direction} it")
             else:
-                phrase = f"mean is {share:.0%} {'above' if diff > 0 else 'below'} the trimmed mean"
-            reasons.append(f"{phrase}, {in_iqrs:.0f} interquartile ranges away")
+                # A ratio means nothing across zero or between negative values.
+                reasons.append(f"mean sits {in_iqrs:.0f} interquartile ranges {direction} the trimmed mean")
             score += pts
 
     # (3) Mean against the median, the same idea with what v1 also carries.
@@ -374,6 +395,23 @@ def score_record(rec: dict[str, Any]) -> dict[str, Any]:
         if negative_min and suspect == low:
             likely_cause = "negative minimum"
 
+    # Whether the suspect stands apart from the body of the column even on a
+    # log scale. Quantiles carry over exactly under a log, so the distance is
+    # computable from the profiling. Lab values with long natural tails sit a
+    # couple of log-IQRs out; a code or an impossible value sits far further.
+    # The repeated-extreme pass below counts only detached values, so a real
+    # dose cap shared by six visit columns (torasemide 200 mg) does not count.
+    log_gap = _log_gap(suspect, q1, q3)
+    metrics["suspect_log_gap"] = log_gap
+    if degenerate:
+        # The quartiles sit on the cluster, so no distance from them means anything.
+        metrics["suspect_detached"] = False
+    elif log_gap is not None:
+        metrics["suspect_detached"] = log_gap >= _DETACHED_LOG_IQRS
+    else:
+        side_gap = gap_high if suspect is not None and suspect == high else gap_low
+        metrics["suspect_detached"] = bool(side_gap is not None and side_gap >= 10)
+
     if clustered_at is not None and score:
         # Said only on a row that is flagged anyway, so the reader knows why the
         # distance signals are silent on it.
@@ -419,20 +457,54 @@ def _fmt(value: Optional[float]) -> str:
     return str(int(value)) if float(value) == int(value) else f"{value:g}"
 
 
+# Suspicion levels, highest first, as (lowest score, name, what it tells the
+# reader). The score only orders the rows and picks the level; the page shows
+# the level.
+SUSPICION_LEVELS: list[tuple[int, str, str]] = [
+    (10, "very high", "almost certainly not a real measurement: several independent signals agree"),
+    (6, "high", "probably not a real measurement"),
+    (4, "moderate", "worth checking against the source data"),
+    (1, "low", "one weak signal; often a natural extreme"),
+]
+
+
+def suspicion_level(score: int) -> tuple[int, str]:
+    """(rank, name) of the level a score falls in, rank 0 being the highest."""
+    for rank, (lowest, name, _desc) in enumerate(SUSPICION_LEVELS):
+        if score >= lowest:
+            return rank, name
+    return len(SUSPICION_LEVELS), "none"
+
+
+def _counts_as_repeated(row: dict[str, Any]) -> bool:
+    """Whether a row's suspect value takes part in the repeated-extreme count:
+    it looks like a missing code (999, -1), or it stands far apart from its
+    column (sodium 255 against a body of 135 to 142)."""
+    if row["suspect_value"] is None:
+        return False
+    return row["likely_cause"] == "undeclared missing code" or bool(row["metrics"].get("suspect_detached"))
+
+
 def _apply_cohort_convention(rows: list[dict[str, Any]]) -> None:
-    """Second pass over one cohort: a literal that is the suspect value of
-    several unrelated variables is a house convention, not a measurement."""
+    """Second pass over one cohort: the same extreme value in several variables
+    is a house convention or an entry artefact, not a measurement.
+
+    This catches codes of an unusual shape, which the literal check cannot: in
+    TIME-CHF sodium tops out at exactly 255 at baseline and at months 6, 12 and
+    18. Values that are only extreme by the column's own spread do not count,
+    so a real cap repeated across visits stays out.
+    """
     counts: dict[str, int] = {}
     for row in rows:
-        if row["likely_cause"] == "undeclared missing code" and row["suspect_value"] is not None:
+        if _counts_as_repeated(row):
             key = _fmt(row["suspect_value"])
             counts[key] = counts.get(key, 0) + 1
     for row in rows:
-        if row["suspect_value"] is None:
+        if not _counts_as_repeated(row):
             continue
         key = _fmt(row["suspect_value"])
         if counts.get(key, 0) >= 3:
-            row["reasons"].append(f"{key} is the suspect value in {counts[key]} variables of this cohort")
+            row["reasons"].append(f"{key} is the extreme value of {counts[key]} variables in this cohort")
             row["score"] += 2
 
 
@@ -522,6 +594,8 @@ def _scan_cohort(cohort_id: str, path: str, version: str) -> tuple[list[dict[str
         rows.append(score_record(rec))
     _split_shared_visits(rows)
     _apply_cohort_convention(rows)
+    for row in rows:
+        row["level_rank"], row["level"] = suspicion_level(row["score"])
     return rows, len(rows)
 
 
@@ -575,7 +649,7 @@ def _require_admin(user: dict[str, Any]) -> None:
 
 @router.get("/suspect-values")
 def get_suspect_values(
-    min_score: int = DEFAULT_MIN_SCORE,
+    min_score: int = 1,
     cohort: Optional[str] = None,
     limit: int = 1000,
     user: Any = Depends(get_current_user),
@@ -590,22 +664,29 @@ def get_suspect_values(
     data = _all_rows()
     cohorts_scanned, variables_scanned = data["scanned"]
     rows = data["rows"]
+    # Every profiled cohort, whatever the filter, so a cohort picker built from
+    # this list does not shrink to the one cohort already picked.
+    all_cohorts = sorted({r["cohort"] for r in rows})
     if cohort:
         wanted = cohort.strip().lower()
         rows = [r for r in rows if r["cohort"].lower() == wanted]
     flagged = [r for r in rows if r["score"] >= min_score]
-    # Sentinel-shaped cases first: they are the actionable ones, since the fix
-    # is a line in the dictionary. Pure shape outliers follow, ranked by score.
-    flagged.sort(key=lambda r: (r["likely_cause"] != "undeclared missing code", -r["score"],
-                                -(r["metrics"].get("gap_high") or 0), r["cohort"], r["variable"]))
+    # By level, then the sentinel-shaped cases first within a level: they are
+    # the most actionable, since the fix is a line in the dictionary.
+    flagged.sort(key=lambda r: (r["level_rank"], r["likely_cause"] != "undeclared missing code",
+                                -r["score"], -(r["metrics"].get("gap_high") or 0),
+                                r["cohort"], r["variable"]))
     return {
         "generated_at": data["built_at"],
         "min_score": min_score,
         "cohorts_scanned": cohorts_scanned,
         "variables_scanned": variables_scanned,
         "n_flagged": len(flagged),
-        "cohorts": sorted({r["cohort"] for r in rows}),
+        "cohorts": all_cohorts,
         "by_cohort": {c: sum(1 for r in flagged if r["cohort"] == c)
                       for c in sorted({r["cohort"] for r in flagged})},
+        "levels": [{"name": name, "min_score": lowest, "description": desc}
+                   for lowest, name, desc in SUSPICION_LEVELS],
+        "by_level": {name: sum(1 for r in flagged if r["level"] == name) for _l, name, _d in SUSPICION_LEVELS},
         "items": flagged[:max(1, limit)],
     }

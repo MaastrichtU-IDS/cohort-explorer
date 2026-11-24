@@ -34,7 +34,10 @@ interface SuspectRow {
   measure: string;
   suspect_value?: number | null;
   likely_cause: string;
+  // The score only orders rows and picks the level; the page shows the level.
   score: number;
+  level: string;
+  level_rank: number;
   reasons: string[];
 }
 
@@ -46,6 +49,7 @@ interface Payload {
   n_flagged: number;
   cohorts: string[];
   by_cohort: Record<string, number>;
+  levels?: {name: string; min_score: number; description: string}[];
   items: SuspectRow[];
 }
 
@@ -55,6 +59,16 @@ const num = (v?: number | null, digits = 2): string => {
 };
 
 const CAUSES = ['undeclared missing code', 'negative minimum', 'extreme outlier'] as const;
+
+// Highest first, matching SUSPICION_LEVELS in the backend.
+const LEVELS = ['very high', 'high', 'moderate', 'low'] as const;
+const LEVEL_BADGE: Record<string, string> = {
+  'very high': 'badge-error',
+  high: 'badge-warning',
+  moderate: 'badge-info',
+  low: 'badge-ghost',
+};
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 interface MeasureGroup {
   key: string;
@@ -76,8 +90,9 @@ const SuspectTableRow = ({row: r, nested, others, isOpen, onToggle, onChart}: {
 }) => (
   <tr className={nested ? 'bg-base-200/60' : undefined}>
     <td>
-      <span className={`badge badge-sm ${r.score >= 10 ? 'badge-error' : r.score >= 6 ? 'badge-warning' : 'badge-ghost'}`}>
-        {r.score}
+      <span className={`badge badge-sm whitespace-nowrap ${LEVEL_BADGE[r.level] || 'badge-ghost'}`}
+            title={`score ${r.score}`}>
+        {capitalise(r.level)}
       </span>
     </td>
     <td className="whitespace-nowrap">{nested ? '' : r.cohort}</td>
@@ -128,8 +143,9 @@ export default function SuspectValuesPage() {
   // variable cards on the explore page use, so the chart is the familiar one.
   const [chartOf, setChartOf] = useState<SuspectRow | null>(null);
 
-  const [minScore, setMinScore] = useState(4);
   const [cohort, setCohort] = useState('');
+  // Levels shown; every level is on until the reader turns one off.
+  const [shownLevels, setShownLevels] = useState<Set<string>>(new Set(LEVELS));
   const [cause, setCause] = useState('');
   const [query, setQuery] = useState('');
   // One row per measure, its other visits folded under it. On by default:
@@ -154,9 +170,8 @@ export default function SuspectValuesPage() {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({min_score: String(minScore)});
-      if (cohort) params.set('cohort', cohort);
-      const r = await fetch(`${apiUrl}/api/suspect-values?${params.toString()}`, {credentials: 'include'});
+      // Everything with any signal, once; cohort, level and cause are filtered here.
+      const r = await fetch(`${apiUrl}/api/suspect-values?min_score=1&limit=100000`, {credentials: 'include'});
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
       setData(await r.json());
     } catch (e: any) {
@@ -164,14 +179,38 @@ export default function SuspectValuesPage() {
     } finally {
       setLoading(false);
     }
-  }, [minScore, cohort]);
+  }, []);
 
   useEffect(() => {
     if (isAdmin) load();
   }, [isAdmin, load]);
 
+  // The cohort's rows, before the level filter, so the level chips can count them.
+  const cohortRows = useMemo(() => {
+    const items = data?.items || [];
+    return cohort ? items.filter(r => r.cohort === cohort) : items;
+  }, [data, cohort]);
+
+  const byCohort = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const r of data?.items || []) counts[r.cohort] = (counts[r.cohort] || 0) + 1;
+    return counts;
+  }, [data]);
+
+  const byLevel = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const r of cohortRows) counts[r.level] = (counts[r.level] || 0) + 1;
+    return counts;
+  }, [cohortRows]);
+
+  const toggleLevel = (level: string) => setShownLevels(prev => {
+    const next = new Set(prev);
+    if (next.has(level)) next.delete(level); else next.add(level);
+    return next;
+  });
+
   const rows = useMemo(() => {
-    let items = data?.items || [];
+    let items = cohortRows.filter(r => shownLevels.has(r.level));
     if (cause) items = items.filter(r => r.likely_cause === cause);
     const q = query.trim().toLowerCase();
     if (q) {
@@ -183,7 +222,7 @@ export default function SuspectValuesPage() {
       );
     }
     return items;
-  }, [data, cause, query]);
+  }, [cohortRows, shownLevels, cause, query]);
 
   const groups = useMemo<MeasureGroup[]>(() => {
     const byKey = new Map<string, MeasureGroup>();
@@ -209,11 +248,11 @@ export default function SuspectValuesPage() {
 
   const downloadCsv = () => {
     const header = ['cohort', 'measure', 'variable', 'visit', 'label', 'units', 'n', 'median', 'mean', 'min', 'max',
-      'suspect_value', 'likely_cause', 'score', 'declared_missing_codes', 'reasons'];
+      'suspect_value', 'likely_cause', 'suspicion', 'score', 'declared_missing_codes', 'reasons'];
     const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [header.join(',')].concat(rows.map(r => [
       r.cohort, r.measure, r.variable, r.visits, r.label, r.units, r.n, r.median, r.mean, r.minimum, r.maximum,
-      r.suspect_value, r.likely_cause, r.score, (r.declared_missing || []).join(' | '),
+      r.suspect_value, r.likely_cause, r.level, r.score, (r.declared_missing || []).join(' | '),
       (r.reasons || []).join('; '),
     ].map(esc).join(',')));
     const blob = new Blob([lines.join('\n')], {type: 'text/csv'});
@@ -249,34 +288,42 @@ export default function SuspectValuesPage() {
         </button>
       </div>
 
-      <p className="text-sm text-base-content/70 mb-4 max-w-4xl">
-        Numeric variables whose profiling statistics look distorted by one or a few values that are
-        probably not real measurements. The common cause is a stand-in for missing that the data
-        owner never declared, such as 999 in a column where 9999 is declared. Everything here is
-        derived from the variable profiling output already on disk, so the list costs no enclave
-        run and nothing patient-level is read. False positives are expected: each row shows the
-        signals that fired, so judge it on those. A confirmed case is fixed by adding the code to
-        the MISSING column of the cohort&apos;s data dictionary, which accepts several codes
-        separated by a pipe.
+      <p className="text-sm text-base-content/70 mb-5 max-w-3xl">
+        Values in the variable profiling that are probably not real measurements, such as a missing
+        code nobody declared or an entry error. Each row says why it was flagged. If a value turns out
+        to be a missing code, add it to the MISSING column of the cohort&apos;s data dictionary.
       </p>
 
+      <div className="card bg-base-200 mb-5">
+        <div className="card-body p-5 gap-4">
+          <label className="form-control w-full max-w-xl mx-auto">
+            <span className="label-text font-semibold mb-1">Cohort</span>
+            <select className="select select-bordered select-lg w-full" value={cohort}
+                    onChange={e => { setCohort(e.target.value); setExpanded(new Set()); }}>
+              <option value="">All cohorts</option>
+              {(data?.cohorts || []).map(c => (
+                <option key={c} value={c}>{c}{byCohort[c] ? ` (${byCohort[c]})` : ''}</option>
+              ))}
+            </select>
+          </label>
+          <div className="flex flex-wrap justify-center items-center gap-2">
+            <span className="text-sm text-base-content/70 mr-1">Suspicion:</span>
+            {LEVELS.map(level => {
+              const on = shownLevels.has(level);
+              const desc = data?.levels?.find(l => l.name === level)?.description;
+              return (
+                <button key={level} onClick={() => toggleLevel(level)} title={desc}
+                        className={`btn btn-sm ${on ? '' : 'btn-ghost opacity-50'}`}>
+                  <span className={`badge badge-sm ${LEVEL_BADGE[level]}`}>{capitalise(level)}</span>
+                  <span className="font-mono text-xs">{byLevel[level] || 0}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-end gap-3 mb-4">
-        <label className="form-control">
-          <span className="label-text text-xs">Minimum score</span>
-          <input type="number" min={1} max={30} value={minScore}
-                 onChange={e => setMinScore(Math.max(1, Number(e.target.value) || 1))}
-                 className="input input-bordered input-sm w-28" />
-        </label>
-        <label className="form-control">
-          <span className="label-text text-xs">Cohort</span>
-          <select className="select select-bordered select-sm w-56" value={cohort}
-                  onChange={e => setCohort(e.target.value)}>
-            <option value="">All cohorts</option>
-            {(data?.cohorts || []).map(c => (
-              <option key={c} value={c}>{c}{data?.by_cohort?.[c] ? ` (${data.by_cohort[c]})` : ''}</option>
-            ))}
-          </select>
-        </label>
         <label className="form-control">
           <span className="label-text text-xs">Likely cause</span>
           <select className="select select-bordered select-sm w-60" value={cause}
@@ -305,9 +352,9 @@ export default function SuspectValuesPage() {
 
       {data && !loading && (
         <p className="text-xs text-base-content/60 mb-2">
-          {data.n_flagged} flagged at score {data.min_score} or above, out of {data.variables_scanned} profiled
-          numeric variables across {data.cohorts_scanned} cohorts. Showing {rows.length}
-          {groupVisits && groups.length !== rows.length && ` as ${groups.length} measures`}.
+          Showing {rows.length} of {data.n_flagged} flagged variables
+          {groupVisits && groups.length !== rows.length && ` as ${groups.length} measures`}, out of{' '}
+          {data.variables_scanned} profiled numeric variables across {data.cohorts_scanned} cohorts.
           {data.generated_at && ` Profiling read at ${new Date(data.generated_at).toLocaleString()}.`}
         </p>
       )}
@@ -317,13 +364,13 @@ export default function SuspectValuesPage() {
           <span className="loading loading-spinner loading-md" /> <span>Reading the profiling output…</span>
         </div>
       ) : rows.length === 0 ? (
-        <div className="alert">Nothing flagged at this score. Lower the minimum score to widen the net.</div>
+        <div className="alert">Nothing flagged with these filters.</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="table table-sm table-zebra">
             <thead>
               <tr>
-                <th>Score</th>
+                <th>Suspicion</th>
                 <th>Cohort</th>
                 <th>Variable</th>
                 <th className="text-right">Suspect</th>
