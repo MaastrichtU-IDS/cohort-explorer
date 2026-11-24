@@ -28,6 +28,10 @@ interface SuspectRow {
   declared_missing: string[];
   omop_id?: string | number | null;
   concept_code?: string | null;
+  visits?: string | null;
+  // Same value for the variables of one cohort that are the same measure at
+  // different visits (shared concept and units); "variable:<name>" otherwise.
+  measure: string;
   suspect_value?: number | null;
   likely_cause: string;
   score: number;
@@ -50,7 +54,68 @@ const num = (v?: number | null, digits = 2): string => {
   return Number.isInteger(v) ? String(v) : v.toFixed(digits);
 };
 
-const CAUSES = ['undeclared missing code', 'extreme outlier'] as const;
+const CAUSES = ['undeclared missing code', 'negative minimum', 'extreme outlier'] as const;
+
+interface MeasureGroup {
+  key: string;
+  // Highest-ranked first: the order the backend sent them in.
+  members: SuspectRow[];
+}
+
+const visitOf = (r: SuspectRow) => (r.visits || '').trim();
+
+// One variable. The first row of a measure carries the fold toggle and names
+// the visits folded under it; the rows it unfolds are drawn indented.
+const SuspectTableRow = ({row: r, nested, others, isOpen, onToggle, onChart}: {
+  row: SuspectRow;
+  nested: boolean;
+  others: SuspectRow[];
+  isOpen: boolean;
+  onToggle: () => void;
+  onChart: () => void;
+}) => (
+  <tr className={nested ? 'bg-base-200/60' : undefined}>
+    <td>
+      <span className={`badge badge-sm ${r.score >= 10 ? 'badge-error' : r.score >= 6 ? 'badge-warning' : 'badge-ghost'}`}>
+        {r.score}
+      </span>
+    </td>
+    <td className="whitespace-nowrap">{nested ? '' : r.cohort}</td>
+    <td className={`max-w-72 ${nested ? 'pl-6' : ''}`}>
+      <div className="flex items-center gap-1.5">
+        <button className="btn btn-ghost btn-xs px-1" onClick={onChart} title="Show the distribution chart">
+          <BarChart2 size={14} />
+        </button>
+        <span className="font-mono text-xs">{r.variable}</span>
+        {visitOf(r) && <span className="badge badge-ghost badge-xs whitespace-nowrap">{visitOf(r)}</span>}
+      </div>
+      {r.label && <div className="text-xs text-base-content/60 truncate" title={r.label}>{r.label}</div>}
+      {r.units && <div className="text-xs text-base-content/40">{r.units}</div>}
+      {others.length > 0 && (
+        <button className="btn btn-link btn-xs px-0 h-auto min-h-0 no-underline text-left" onClick={onToggle}
+                title={others.map(o => `${o.variable}${visitOf(o) ? ` (${visitOf(o)})` : ''}`).join(', ')}>
+          {isOpen
+            ? 'hide the other visits'
+            : `+ ${others.length} more ${others.length === 1 ? 'visit' : 'visits'} flagged`
+              + (others.some(o => visitOf(o)) ? `: ${others.map(visitOf).filter(Boolean).join(', ')}` : '')}
+        </button>
+      )}
+    </td>
+    <td className="text-right font-mono">{num(r.suspect_value)}</td>
+    <td className="whitespace-nowrap text-xs">{r.likely_cause}</td>
+    <td className="text-right">{num(r.n, 0)}</td>
+    <td className="text-right font-mono text-xs">{num(r.median)}</td>
+    <td className="text-right font-mono text-xs">{num(r.mean)}</td>
+    <td className="text-right font-mono text-xs">{num(r.minimum)}</td>
+    <td className="text-right font-mono text-xs">{num(r.maximum)}</td>
+    <td className="font-mono text-xs">{(r.declared_missing || []).join(' | ') || '—'}</td>
+    <td className="max-w-96">
+      <ul className="text-xs list-disc list-inside space-y-0.5">
+        {(r.reasons || []).map((reason, i) => <li key={i}>{reason}</li>)}
+      </ul>
+    </td>
+  </tr>
+);
 
 export default function SuspectValuesPage() {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
@@ -67,6 +132,10 @@ export default function SuspectValuesPage() {
   const [cohort, setCohort] = useState('');
   const [cause, setCause] = useState('');
   const [query, setQuery] = useState('');
+  // One row per measure, its other visits folded under it. On by default:
+  // without it a cohort lists the same lab value five or six times.
+  const [groupVisits, setGroupVisits] = useState(true);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
@@ -116,12 +185,34 @@ export default function SuspectValuesPage() {
     return items;
   }, [data, cause, query]);
 
+  const groups = useMemo<MeasureGroup[]>(() => {
+    const byKey = new Map<string, MeasureGroup>();
+    const order: MeasureGroup[] = [];
+    for (const r of rows) {
+      const key = groupVisits ? `${r.cohort}|${r.measure}` : `${r.cohort}|variable:${r.variable}`;
+      let g = byKey.get(key);
+      if (!g) {
+        g = {key, members: []};
+        byKey.set(key, g);
+        order.push(g);
+      }
+      g.members.push(r);
+    }
+    return order;
+  }, [rows, groupVisits]);
+
+  const toggleExpanded = (key: string) => setExpanded(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
   const downloadCsv = () => {
-    const header = ['cohort', 'variable', 'label', 'units', 'n', 'median', 'mean', 'min', 'max',
+    const header = ['cohort', 'measure', 'variable', 'visit', 'label', 'units', 'n', 'median', 'mean', 'min', 'max',
       'suspect_value', 'likely_cause', 'score', 'declared_missing_codes', 'reasons'];
     const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [header.join(',')].concat(rows.map(r => [
-      r.cohort, r.variable, r.label, r.units, r.n, r.median, r.mean, r.minimum, r.maximum,
+      r.cohort, r.measure, r.variable, r.visits, r.label, r.units, r.n, r.median, r.mean, r.minimum, r.maximum,
       r.suspect_value, r.likely_cause, r.score, (r.declared_missing || []).join(' | '),
       (r.reasons || []).join('; '),
     ].map(esc).join(',')));
@@ -203,6 +294,11 @@ export default function SuspectValuesPage() {
                    className="input input-bordered input-sm w-full pl-8" />
           </div>
         </label>
+        <label className="label cursor-pointer gap-2 pb-1">
+          <input type="checkbox" className="checkbox checkbox-sm" checked={groupVisits}
+                 onChange={e => setGroupVisits(e.target.checked)} />
+          <span className="label-text text-sm">Group visits of one measure</span>
+        </label>
       </div>
 
       {error && <div className="alert alert-error mb-4 text-sm">{error}</div>}
@@ -210,7 +306,8 @@ export default function SuspectValuesPage() {
       {data && !loading && (
         <p className="text-xs text-base-content/60 mb-2">
           {data.n_flagged} flagged at score {data.min_score} or above, out of {data.variables_scanned} profiled
-          numeric variables across {data.cohorts_scanned} cohorts. Showing {rows.length}.
+          numeric variables across {data.cohorts_scanned} cohorts. Showing {rows.length}
+          {groupVisits && groups.length !== rows.length && ` as ${groups.length} measures`}.
           {data.generated_at && ` Profiling read at ${new Date(data.generated_at).toLocaleString()}.`}
         </p>
       )}
@@ -241,43 +338,21 @@ export default function SuspectValuesPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => (
-                <tr key={`${r.cohort}/${r.variable}`}>
-                  <td>
-                    <span className={`badge badge-sm ${r.score >= 10 ? 'badge-error' : r.score >= 6 ? 'badge-warning' : 'badge-ghost'}`}>
-                      {r.score}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap">{r.cohort}</td>
-                  <td className="max-w-72">
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        className="btn btn-ghost btn-xs px-1"
-                        onClick={() => setChartOf(r)}
-                        title="Show the distribution chart"
-                      >
-                        <BarChart2 size={14} />
-                      </button>
-                      <span className="font-mono text-xs">{r.variable}</span>
-                    </div>
-                    {r.label && <div className="text-xs text-base-content/60 truncate" title={r.label}>{r.label}</div>}
-                    {r.units && <div className="text-xs text-base-content/40">{r.units}</div>}
-                  </td>
-                  <td className="text-right font-mono">{num(r.suspect_value)}</td>
-                  <td className="whitespace-nowrap text-xs">{r.likely_cause}</td>
-                  <td className="text-right">{num(r.n, 0)}</td>
-                  <td className="text-right font-mono text-xs">{num(r.median)}</td>
-                  <td className="text-right font-mono text-xs">{num(r.mean)}</td>
-                  <td className="text-right font-mono text-xs">{num(r.minimum)}</td>
-                  <td className="text-right font-mono text-xs">{num(r.maximum)}</td>
-                  <td className="font-mono text-xs">{(r.declared_missing || []).join(' | ') || '—'}</td>
-                  <td className="max-w-96">
-                    <ul className="text-xs list-disc list-inside space-y-0.5">
-                      {(r.reasons || []).map((reason, i) => <li key={i}>{reason}</li>)}
-                    </ul>
-                  </td>
-                </tr>
-              ))}
+              {groups.map(g => {
+                const isOpen = expanded.has(g.key);
+                const shown = isOpen ? g.members : g.members.slice(0, 1);
+                return shown.map((r, i) => (
+                  <SuspectTableRow
+                    key={`${r.cohort}/${r.variable}`}
+                    row={r}
+                    nested={i > 0}
+                    others={i === 0 ? g.members.slice(1) : []}
+                    isOpen={isOpen}
+                    onToggle={() => toggleExpanded(g.key)}
+                    onChart={() => setChartOf(r)}
+                  />
+                ));
+              })}
             </tbody>
           </table>
         </div>

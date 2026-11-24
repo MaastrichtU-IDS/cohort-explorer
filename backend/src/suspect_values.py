@@ -158,6 +158,7 @@ def _from_v2(name: str, entry: dict[str, Any]) -> Optional[dict[str, Any]]:
         # production host, so the page builds the chart path itself.
         "omop_id": meta.get("omop_id"),
         "concept_code": meta.get("concept_code"),
+        "visits": meta.get("visits"),
         "n": _num(entry.get("n")),
         "n_unique": _num(entry.get("n_unique")),
         "zero_fraction": _num(entry.get("zero_fraction")),
@@ -190,6 +191,7 @@ def _from_v1(name: str, entry: dict[str, Any]) -> Optional[dict[str, Any]]:
         "var_type": entry.get("vartype (metadata dictionary)"),
         "omop_id": entry.get("variable omop id (metadata dictionary)"),
         "concept_code": entry.get("variable concept code (metadata dictionary)"),
+        "visits": entry.get("visits (metadata dictionary)"),
         "n": _num(entry.get("count of observations (ex. missing/empty)")),
         "n_unique": _num(entry.get("number of unique values/categories")),
         "zero_fraction": None,  # v1 does not record it; the median rule stands in
@@ -216,6 +218,25 @@ def _from_v1(name: str, entry: dict[str, Any]) -> Optional[dict[str, Any]]:
 # Scoring
 # ---------------------------------------------------------------------------
 
+def _observations_clustered_at(median: Optional[float], low: Optional[float],
+                               high: Optional[float], zero_fraction: Optional[float]) -> Optional[str]:
+    """Where most of a column's observations sit, when they pile up on one value
+    at the edge of its range: "the maximum (730)", "the minimum (0)", "zero".
+    None for a column whose median sits inside its range.
+
+    The median equal to the minimum or maximum means at least half of the
+    observations are that one value. A quarter of zeros is enough on its own,
+    since it already pulls Q1 onto zero.
+    """
+    if median is not None and high is not None and median == high:
+        return f"the maximum ({_fmt(high)})"
+    if median is not None and low is not None and median == low:
+        return f"the minimum ({_fmt(low)})"
+    if median == 0 or (zero_fraction is not None and zero_fraction >= 0.25):
+        return "zero"
+    return None
+
+
 def _tiered(value: Optional[float], tiers: list[tuple[float, int]]) -> int:
     """Points for a ratio, from the highest tier it clears."""
     if value is None:
@@ -239,19 +260,23 @@ def score_record(rec: dict[str, Any]) -> dict[str, Any]:
 
     median, q1, q3 = rec["median"], rec["q1"], rec["q3"]
     low, high = rec["minimum"], rec["maximum"]
-    # Zero-inflated columns defeat every distance-in-IQRs test: when most
-    # patients take no nitrate the median is 0, the quartiles collapse, and the
-    # largest real dose looks hundreds of spreads away. Such a column is only
-    # judged by the shape of its extreme literals.
+    # Cluster of observations at the minimum or maximum. When most values sit
+    # on one bound the quartiles collapse onto it and every distance-in-IQRs
+    # test fires on ordinary values: when most patients take no nitrate the
+    # median is 0 and the largest real dose looks hundreds of spreads away;
+    # when most answer the time trade-off at its 730-day cap, a real answer of
+    # 1 day does. Such a column is only judged by the shape of its extreme
+    # literals and by the sign of its minimum.
     zero_fraction = _num(rec.get("zero_fraction"))
-    degenerate = median == 0 or (zero_fraction is not None and zero_fraction >= 0.25)
+    clustered_at = _observations_clustered_at(median, low, high, zero_fraction)
+    degenerate = clustered_at is not None
     # Robust width of the body of the distribution. The IQR is in both
     # generations; the MAD stands in when the quartiles coincide, which happens
     # in sparse columns where most values are equal.
     spread = rec["iqr"] if (rec["iqr"] or 0) > 0 else (
         (rec["mad"] or 0) * 1.4826 if (rec["mad"] or 0) > 0 else None)
     metrics["spread"] = spread
-    metrics["zero_inflated"] = degenerate
+    metrics["observations_clustered_at"] = clustered_at
 
     # (1) How far the extremes sit beyond the body, in spread units. A genuine
     # extreme is a few units out; a sentinel is hundreds.
@@ -268,13 +293,25 @@ def score_record(rec: dict[str, Any]) -> dict[str, Any]:
 
     # (2) Mean against the trimmed mean, the sharpest signal when it is there:
     # trimming 10% from each tail removes the sentinel and the mean collapses.
-    if not degenerate and rec["trimmed_mean"] is not None and rec["mean"] is not None:
-        base = max(abs(rec["trimmed_mean"]), 1e-9)
-        shift = abs(rec["mean"] - rec["trimmed_mean"]) / base
-        metrics["mean_vs_trimmed"] = shift
-        pts = _tiered(shift, [(0.25, 1), (1.0, 2), (5.0, 3)])
+    # The distance is scored in interquartile ranges, not as a share of the
+    # trimmed mean: a lab value with a naturally long right tail, such as
+    # troponin or CRP, has a mean 30% to 150% above its trimmed mean with no
+    # bad value in it, but that gap is only about one IQR. A stand-in for
+    # missing puts it tens of IQRs away. The share is still printed, since it
+    # is the easier number to read.
+    if not degenerate and spread and rec["trimmed_mean"] is not None and rec["mean"] is not None:
+        diff = rec["mean"] - rec["trimmed_mean"]
+        in_iqrs = abs(diff) / spread
+        share = abs(diff) / max(abs(rec["trimmed_mean"]), 1e-9)
+        metrics["mean_vs_trimmed"] = share
+        metrics["mean_vs_trimmed_iqrs"] = in_iqrs
+        pts = _tiered(in_iqrs, [(3, 1), (10, 2), (40, 3)])
         if pts:
-            reasons.append(f"mean is {shift:.1f}x the trimmed mean away from it")
+            if diff > 0 and share >= 1:
+                phrase = f"mean is {share + 1:.1f}x the trimmed mean"
+            else:
+                phrase = f"mean is {share:.0%} {'above' if diff > 0 else 'below'} the trimmed mean"
+            reasons.append(f"{phrase}, {in_iqrs:.0f} interquartile ranges away")
             score += pts
 
     # (3) Mean against the median, the same idea with what v1 also carries.
@@ -316,10 +353,34 @@ def score_record(rec: dict[str, Any]) -> dict[str, Any]:
                 reasons.append(f"{_fmt(value)} is a sibling of the declared code {sibling}")
                 score += 4
             break
-    if suspect is None and candidates:
-        suspect = candidates[0]
+    # (7) A negative minimum in a column whose maximum is positive. Most
+    # measurements cannot go below zero, so a negative value among positive ones
+    # is either a code (-1 for "not applicable") or an entry error, such as a
+    # visit dated 272 days before inclusion. Some columns go negative for real
+    # (an electrical axis, days to an event recorded before baseline), which is
+    # why this weighs 2 and needs another signal to reach the default cut-off.
+    negative_min = low is not None and high is not None and low < 0 < high
+    if negative_min:
+        reasons.append(f"minimum is negative ({_fmt(low)}) while the maximum is positive")
+        score += 2
 
-    # (7) The dictionary's own declared range, where v1 recorded it. The
+    if suspect is None and candidates:
+        # With no literal to point at, the suspect is the far extreme; when no
+        # distance signal fired and only the sign did, it is the minimum.
+        if negative_min and not gap_points:
+            suspect = low
+        else:
+            suspect = candidates[0]
+        if negative_min and suspect == low:
+            likely_cause = "negative minimum"
+
+    if clustered_at is not None and score:
+        # Said only on a row that is flagged anyway, so the reader knows why the
+        # distance signals are silent on it.
+        reasons.append(
+            f"most observations sit at {clustered_at}, so distances from the quartiles are not scored")
+
+    # (8) The dictionary's own declared range, where v1 recorded it. The
     # comparison needs a margin: those cells are stored at single precision, so
     # a declared maximum of 358.0899963 sits just under an observed 358.09.
     if _exceeds(high, rec["declared_max"]):
@@ -417,6 +478,22 @@ def _signature(files: list[tuple[str, str, str]]) -> str:
     return "|".join(parts)
 
 
+def _measure_key(rec: dict[str, Any]) -> str:
+    """What makes two variables of one cohort the same measure taken at different
+    visits: the variable concept and the units. hscrp_bl and hscrp_v18 share
+    both, so the page shows them as one measure with its visits listed.
+
+    A variable with no concept stays on its own, keyed by its name, rather than
+    being merged with others on a guess from the label.
+    """
+    concept = rec.get("omop_id") or rec.get("concept_code")
+    concept = str(concept).strip().lower() if concept not in (None, "") else ""
+    if concept in _NOT_A_CODE:
+        return f"variable:{rec['variable']}"
+    units = str(rec.get("units") or "").strip().lower()
+    return f"concept:{concept}|units:{units}"
+
+
 def _scan_cohort(cohort_id: str, path: str, version: str) -> tuple[list[dict[str, Any]], int]:
     """Scored rows for one cohort, and how many numeric variables were read."""
     try:
@@ -441,9 +518,33 @@ def _scan_cohort(cohort_id: str, path: str, version: str) -> tuple[list[dict[str
             continue
         rec["cohort"] = cohort_id
         rec["eda_version"] = version
+        rec["measure"] = _measure_key(rec)
         rows.append(score_record(rec))
+    _split_shared_visits(rows)
     _apply_cohort_convention(rows)
     return rows, len(rows)
+
+
+def _split_shared_visits(rows: list[dict[str, Any]]) -> None:
+    """Keep a variable out of its concept's group when another variable of the
+    same concept and units is recorded at the same visit.
+
+    The same measure at different visits has one variable per visit. Two at one
+    visit means the concept is broader than the measure: in TIME-CHF the days to
+    a first heart failure event and the days to a first event of any kind carry
+    the same concept, both at baseline. Those stay as separate rows, and the
+    variables of that concept with a visit of their own still group.
+    """
+    def visit_of(row: dict[str, Any]) -> str:
+        return str(row.get("visits") or "").strip().lower()
+
+    counts: dict[tuple[str, str], int] = {}
+    for row in rows:
+        key = (row["measure"], visit_of(row))
+        counts[key] = counts.get(key, 0) + 1
+    for row in rows:
+        if counts[(row["measure"], visit_of(row))] > 1:
+            row["measure"] = f"variable:{row['variable']}"
 
 
 def _all_rows() -> dict[str, Any]:
