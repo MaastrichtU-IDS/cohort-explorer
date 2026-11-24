@@ -476,6 +476,54 @@ def _check_misordered_categories(categorical_raw: str, vartype: str) -> list[str
                 issues.append(item)
     return issues
 
+def _check_category_codes_against_vartype(categorical_raw: str, vartype: str) -> list[tuple[str, str]]:
+    """Return (entry, reason) for categorical entries whose code contradicts the declared vartype.
+
+    The code is the left side of '='. It is the value that actually appears in the data,
+    so for an INT variable it has to be an integer, for a FLOAT variable a number, and for
+    a DATETIME variable a date. This is the general form of the swapped-pair check: it fires
+    whether or not the label happens to look like the declared type, so 'abc=Yes' on an INT
+    variable is caught even though nothing is swapped.
+
+    An integral float such as '1.0' is accepted for an INT variable, since the intent is
+    unambiguous and rejecting it would block uploads over a spelling difference. A STR
+    variable is not checked here, because every code is a valid string; a numeric code on a
+    STR variable is left to _check_misordered_categories.
+    """
+    if not isinstance(categorical_raw, str) or not categorical_raw.strip():
+        return []
+    dt = (vartype or "").upper()
+    if dt not in ("INT", "FLOAT", "DATETIME"):
+        return []
+    issues: list[tuple[str, str]] = []
+    for raw in categorical_raw.split("|"):
+        item = raw.strip()
+        if not item:
+            continue
+        parts = _CAT_PAIR.split(item, maxsplit=1)
+        if len(parts) != 2:
+            continue  # a missing '=' is reported by its own check
+        code = _cat_strip(parts[0])
+        if not code:
+            issues.append((item, "the code on the left of '=' is empty"))
+            continue
+        # An explicit plus sign is a legal way to write a positive code, as in a
+        # '-2=much worse|+2=much better' scale, so it does not make the code non-numeric.
+        unsigned = code[1:].strip() if code.startswith("+") and len(code) > 1 else code
+        if dt == "INT":
+            if _CAT_INT.match(unsigned):
+                continue
+            if _CAT_FLOAT.match(unsigned) and float(unsigned).is_integer():
+                continue
+            issues.append((item, f"the code '{code}' is not an integer"))
+        elif dt == "FLOAT":
+            if not _cat_is_numeric(unsigned):
+                issues.append((item, f"the code '{code}' is not a number"))
+        elif dt == "DATETIME":
+            if not _cat_is_datetime(code):
+                issues.append((item, f"the code '{code}' is not a date or datetime"))
+    return issues
+
 def normalize_csv_header(file_content: str) -> str:
     """Normalize CSV header column names using the cols_normalized mapping.
     
@@ -829,7 +877,7 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                             f"Row {i+2} (Variable: '{var_name_for_error}'): Categorical entry '{p}' is missing '=' — all entries must follow the 'value=label' format (e.g. '0=no|1=yes')."
                         )
 
-        # Type-aware categorical ordering check
+        # Type-aware categorical checks: the order of the pair, then the type of the code
         vartype_val = str(row.get("VARTYPE", "")).strip().upper()
         if vartype_val and categorical_raw and categorical_raw.lower() != "na":
             misordered = _check_misordered_categories(categorical_raw, vartype_val)
@@ -840,6 +888,25 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                     f"The left side of '=' must be the actual data value (which should be of type {vartype_val}), "
                     f"and the right side must be the human-readable label. "
                     f"Reversed entries: {', '.join(repr(m) for m in misordered)}."
+                )
+
+            # Every other way the code can contradict the declared vartype: an INT variable
+            # whose code is not an integer, a FLOAT variable whose code is not a number, a
+            # DATETIME variable whose code is not a date. Entries already reported above as
+            # swapped are left out so each entry is named once.
+            swapped = set(misordered)
+            bad_codes = [
+                (entry, why)
+                for entry, why in _check_category_codes_against_vartype(categorical_raw, vartype_val)
+                if entry not in swapped
+            ]
+            if bad_codes:
+                errors.append(
+                    f"Row {i+2} (Variable: '{var_name_for_error}'): The following categorical entries have a code "
+                    f"that contradicts the declared vartype '{vartype_val}'. The left side of '=' is the value that "
+                    f"appears in the data, so it must be of type {vartype_val}; the right side is the label. "
+                    + "; ".join(f"{entry!r}: {why}" for entry, why in bad_codes)
+                    + "."
                 )
 
         # MISSING column validation: reject codes containing spaces
