@@ -375,11 +375,11 @@ ORDER BY DESC(?triples)`;
           </Link>
 
           <Link
-            href="/data-quality"
+            href="/data-quality-hub"
             className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-base-300 bg-base-100 px-4 py-3 hover:border-primary transition-colors"
           >
             <div>
-              <div className="font-medium">Data quality</div>
+              <div className="font-medium">Data quality hub</div>
               <p className="text-xs text-base-content/60 mt-0.5">
                 One entry point for the checks on values, visits, concept mappings and metadata,
                 including suspect values and the dictionary reports.

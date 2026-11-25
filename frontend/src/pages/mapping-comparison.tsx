@@ -3,6 +3,7 @@
 import React, {useState, useCallback, useMemo} from 'react';
 import {GitMerge, Upload, X, ChevronDown, ChevronUp, Eye, EyeOff} from 'react-feather';
 import {useCohorts} from '@/components/CohortsContext';
+import AdminOnly from '@/components/AdminOnly';
 
 interface MappingEntry {
   target_study: string;
@@ -753,7 +754,7 @@ function ComparisonView({file1, file2, pair, cohortsData}: {file1: ParsedFile; f
   );
 }
 
-export default function MappingComparison() {
+function MappingComparison() {
   const {cohortsData} = useCohorts();
   const [file1, setFile1] = useState<ParsedFile | null>(null);
   const [file2, setFile2] = useState<ParsedFile | null>(null);
@@ -866,4 +867,9 @@ export default function MappingComparison() {
       )}
     </div>
   );
+}
+
+// Administrators only, as every page of the data quality hub is.
+export default function MappingComparisonAdminOnly() {
+  return <AdminOnly><MappingComparison /></AdminOnly>;
 }

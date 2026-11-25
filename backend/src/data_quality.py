@@ -1,0 +1,475 @@
+"""All data issues of the catalogue in one list, for the /data-quality page.
+
+Three sources, each turned into the same issue record:
+
+- Dictionary syntax: the validation every dictionary upload goes through, run
+  over each cohort's current dictionary (collect_metadata_syntax_issues). It
+  is cheap, so it runs live, cached until a dictionary file changes. Its
+  messages are plain strings; _classify_syntax sorts them into types from the
+  wording, which is all written in upload.py.
+- Concept codes: the OMOP/Athena check of the variable, category, unit, visit
+  and additional-context concepts. It queries the Athena API for every
+  concept, so it is never run by a page load: an admin starts it (for one
+  cohort or all), it runs in the background, and its findings are kept in
+  {data_folder}/data_quality/concept_check.json with the dictionary they were
+  computed from. A cohort whose dictionary changed since is marked stale.
+- Data values: the suspect values worklist, read from the variable profiling.
+
+Endpoints (admin):
+  GET  /api/data-quality/issues
+  POST /api/data-quality/concept-check            ?cohort= for one cohort
+  GET  /api/data-quality/concept-check/status
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import threading
+from datetime import datetime
+from typing import Any, Optional
+
+import pandas as pd
+from fastapi import APIRouter, Depends, HTTPException
+
+from src.auth import get_current_user
+from src.config import settings
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Issue types
+# ---------------------------------------------------------------------------
+
+CATEGORIES: list[dict[str, str]] = [
+    {"key": "syntax", "label": "Dictionary syntax",
+     "description": "Problems in how the data dictionary is written. Each one blocks a dictionary upload."},
+    {"key": "concepts", "label": "Concept codes",
+     "description": "Concept codes that do not match OMOP: wrong code, wrong name for the code, or a code that does not exist."},
+    {"key": "values", "label": "Data values",
+     "description": "Values in the profiled data that are probably not real measurements."},
+]
+
+# key → (category, label, description). The order is the order on the page.
+ISSUE_TYPES: dict[str, tuple[str, str, str]] = {
+    "syntax.no_dictionary": ("syntax", "No dictionary", "The cohort has no data dictionary on file."),
+    "syntax.unreadable": ("syntax", "Dictionary unreadable", "The dictionary file could not be parsed at all."),
+    "syntax.missing_columns": ("syntax", "Missing required columns", "Columns every dictionary must have are absent."),
+    "syntax.duplicate_variable": ("syntax", "Duplicate variable names", "The same VARIABLENAME appears on several rows."),
+    "syntax.missing_required_field": ("syntax", "Missing required field", "A required cell of a row is empty."),
+    "syntax.invalid_vartype": ("syntax", "Invalid VARTYPE", "VARTYPE is not one of STR, INT, FLOAT, DATETIME."),
+    "syntax.concept_code_format": ("syntax", "Malformed concept code", "A concept code lacks its prefix or colon, uses an unknown prefix, or several codes share one cell."),
+    "syntax.omop_id_format": ("syntax", "Malformed OMOP id", "An OMOP id is not an integer, or several share one cell."),
+    "syntax.concept_fields_mismatch": ("syntax", "Concept fields incomplete", "Concept names, codes and OMOP ids do not line up with each other or with the field they describe."),
+    "syntax.category_format": ("syntax", "Malformed categories", "Categories without '=', without the '|' separator, or not parseable."),
+    "syntax.repeated_category_code": ("syntax", "Repeated category code", "One code is declared twice in the same categorical cell."),
+    "syntax.empty_category_label": ("syntax", "Empty category label", "A category has a code but no label."),
+    "syntax.category_order": ("syntax", "Category value and label swapped", "Value and label appear reversed for the declared VARTYPE."),
+    "syntax.category_code_type": ("syntax", "Category code contradicts VARTYPE", "A category code is not of the declared VARTYPE, such as a non-integer code on an INT variable."),
+    "syntax.missing_code_format": ("syntax", "Malformed MISSING code", "A code in the MISSING column contains a space."),
+    "syntax.other": ("syntax", "Other syntax issue", "A dictionary problem of another kind."),
+    "concepts.structure": ("concepts", "Dictionary structure", "The concept check could not read the dictionary's columns or domains."),
+    "concepts.variable": ("concepts", "Variable concept", "The variable's concept code, name or OMOP id does not match OMOP."),
+    "concepts.categorical": ("concepts", "Category concepts", "A category's concept does not match OMOP."),
+    "concepts.unit": ("concepts", "Unit concept", "The unit's concept does not match OMOP."),
+    "concepts.visit": ("concepts", "Visit concept", "The visit's concept does not match OMOP."),
+    "concepts.additional_context": ("concepts", "Additional context concepts", "An additional context concept does not match OMOP."),
+    "concepts.check_failed": ("concepts", "Check could not run", "The concept check stopped with an error for this cohort."),
+    "values.undeclared_missing_code": ("values", "Undeclared missing code", "A value shaped like a missing code (999, -1) that the dictionary does not declare."),
+    "values.negative_minimum": ("values", "Negative minimum", "A negative value in a column that is otherwise positive."),
+    "values.extreme_outlier": ("values", "Extreme outlier", "A value far beyond the rest of its column."),
+}
+
+
+# ---------------------------------------------------------------------------
+# Dictionary syntax
+# ---------------------------------------------------------------------------
+
+def _syntax_rules() -> list[tuple[str, re.Pattern[str]]]:
+    # Imported here: upload.py is large and imports much of the backend.
+    from src.upload import _TAG_EMPTY_LABEL, _TAG_REPEATED_CODE
+    rules = [
+        ("syntax.repeated_category_code", re.escape(_TAG_REPEATED_CODE)),
+        ("syntax.empty_category_label", re.escape(_TAG_EMPTY_LABEL)),
+        ("syntax.missing_columns", r"^Missing required columns"),
+        ("syntax.duplicate_variable", r"^Duplicate VARIABLENAME"),
+        ("syntax.missing_required_field", r"is missing value for the required field"),
+        ("syntax.invalid_vartype", r"has an invalid data type"),
+        ("syntax.category_order", r"in the wrong order for the declared vartype"),
+        ("syntax.category_code_type", r"have a code that contradicts the declared vartype"),
+        ("syntax.missing_code_format", r"in the MISSING column contains a space"),
+        ("syntax.category_format", r"without the '\|' separator|is missing '='|has an invalid category"),
+        ("syntax.concept_fields_mismatch", r"The number of |fields are provided|CONCEPT NAME is provided"),
+        ("syntax.omop_id_format", r"OMOP IDs? |must be an integer"),
+        ("syntax.concept_code_format", r"concept code|CURIE"),
+    ]
+    return [(key, re.compile(pattern)) for key, pattern in rules]
+
+
+_ROW_PREFIX = re.compile(r"^Row (\d+) \(Variable: '([^']*)'(?:, Category: '([^']*)')?\):?\s*")
+
+
+def _classify_syntax(message: str, rules: list[tuple[str, re.Pattern[str]]]) -> dict[str, Any]:
+    """Type, variable, dictionary row and the message without its row prefix."""
+    issue_type = next((key for key, pattern in rules if pattern.search(message)), "syntax.other")
+    variable = row = None
+    text = message
+    m = _ROW_PREFIX.match(message)
+    if m:
+        row = int(m.group(1))
+        variable = m.group(2) or None
+        text = message[m.end():]
+        if m.group(3):
+            text = f"Category '{m.group(3)}': {text}"
+        elif text[:1].islower():
+            text = f"This row {text}"
+    # The tag the syntax report marks these two classes with is the type badge here.
+    text = re.sub(r"^\[(?:repeated category code|empty category label)\]\s*", "", text)
+    return {"type": issue_type, "variable": variable, "row": row, "message": text}
+
+
+_syntax_lock = threading.Lock()
+_syntax_cache: dict[str, Any] = {"signature": None, "data": None}
+
+
+def _dictionary_signature() -> str:
+    """Changes whenever any cohort's current dictionary does."""
+    from src.upload import get_latest_datadictionary
+    parts = []
+    try:
+        names = sorted(os.listdir(settings.cohort_folder))
+    except OSError:
+        return ""
+    for name in names:
+        folder = os.path.join(settings.cohort_folder, name)
+        if not os.path.isdir(folder):
+            continue
+        path = get_latest_datadictionary(folder)
+        if path:
+            st = os.stat(path)
+            parts.append(f"{name}:{os.path.basename(path)}:{st.st_mtime_ns}:{st.st_size}")
+    return "|".join(parts)
+
+
+def _syntax_report() -> dict[str, Any]:
+    from src.upload import collect_metadata_syntax_issues
+    signature = _dictionary_signature()
+    with _syntax_lock:
+        if _syntax_cache["signature"] != signature or _syntax_cache["data"] is None:
+            _syntax_cache["data"] = collect_metadata_syntax_issues()
+            _syntax_cache["signature"] = signature
+        return _syntax_cache["data"]
+
+
+def _syntax_issues(report: dict[str, Any]) -> list[dict[str, Any]]:
+    rules = _syntax_rules()
+    issues: list[dict[str, Any]] = []
+    for c in report.get("cohorts", []):
+        cohort = c["cohort_id"]
+        if c["status"] in ("no_dictionary", "no_folder"):
+            issues.append({"cohort": cohort, "type": "syntax.no_dictionary", "variable": None, "row": None,
+                           "message": "No data dictionary has been uploaded for this cohort."})
+            continue
+        if c["status"] == "failed":
+            issues.append({"cohort": cohort, "type": "syntax.unreadable", "variable": None, "row": None,
+                           "message": f"{c.get('file') or 'The dictionary'} could not be read: {c.get('error')}"})
+            continue
+        for message in c.get("errors") or []:
+            issues.append({"cohort": cohort, **_classify_syntax(message, rules)})
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Concept codes, checked in the background and kept on disk
+# ---------------------------------------------------------------------------
+
+_CONCEPT_COMPONENTS = [
+    ("concepts.variable", "variable_status", "variable_reason"),
+    ("concepts.categorical", "categorical_value_status", "categorical_value_reason"),
+    ("concepts.unit", "unit_status", "unit_reason"),
+    ("concepts.visit", "visit_status", "visit_reason"),
+]
+
+
+def _concept_results_path() -> str:
+    return os.path.join(settings.data_folder, "data_quality", "concept_check.json")
+
+
+_concept_lock = threading.Lock()
+_concept_job: dict[str, Any] = {
+    "running": False, "started_at": None, "finished_at": None,
+    "done": 0, "total": 0, "current": None, "error": None,
+}
+
+
+def _load_concept_results() -> dict[str, Any]:
+    try:
+        with open(_concept_results_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_concept_result(cohort_id: str, record: dict[str, Any]) -> None:
+    path = _concept_results_path()
+    with _concept_lock:
+        data = _load_concept_results()
+        data.setdefault("cohorts", {})[cohort_id] = record
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1, default=str)
+        os.replace(tmp, path)
+
+
+def _additional_context_reason(raw: str) -> Optional[str]:
+    """The CSV keeps the additional-context verdict as a ValidationLog repr."""
+    if "status='FAIL'" not in raw and 'status="FAIL"' not in raw:
+        return None
+    m = re.search(r"description='([^']*)'", raw) or re.search(r'description="([^"]*)"', raw)
+    return m.group(1) if m else raw
+
+
+def _check_cohort_concepts(cohort_id: str) -> dict[str, Any]:
+    """Run the concept check on one cohort's current dictionary."""
+    from CohortVarLinker.validate_cde import validate_dictionary
+    from src.upload import get_latest_datadictionary
+
+    folder = os.path.join(settings.cohort_folder, cohort_id)
+    path = get_latest_datadictionary(folder) if os.path.isdir(folder) else None
+    record: dict[str, Any] = {"checked_at": datetime.now().isoformat(timespec="seconds"), "issues": []}
+    if not path:
+        record["status"] = "no_dictionary"
+        return record
+    st = os.stat(path)
+    record["dictionary_file"] = os.path.basename(path)
+    record["dictionary_mtime_ns"] = st.st_mtime_ns
+
+    out_csv = os.path.join(os.path.dirname(_concept_results_path()), f"_{cohort_id}_{os.getpid()}.csv")
+    os.makedirs(os.path.dirname(out_csv), exist_ok=True)
+    try:
+        verdict = validate_dictionary(path, out_csv)
+        result = pd.read_csv(out_csv) if os.path.exists(out_csv) else pd.DataFrame()
+        if verdict is None:
+            # The structure check failed before any concept was looked at; its
+            # CSV holds one row per problem with a status and a description.
+            record["status"] = "structure_failed"
+            for _, r in result.iterrows():
+                record["issues"].append({"type": "concepts.structure", "variable": None, "row": None,
+                                         "message": str(r.get("description") or "Structure check failed")})
+            return record
+        record["status"] = "passed" if verdict else "failed"
+        for _, r in result.iterrows():
+            if str(r.get("overall_status", "")).strip() != "FAIL":
+                continue
+            variable = str(r.get("variable name") or "").strip() or None
+            for issue_type, status_col, reason_col in _CONCEPT_COMPONENTS:
+                if str(r.get(status_col, "")).strip() == "FAIL":
+                    reason = str(r.get(reason_col) or "").strip()
+                    record["issues"].append({"type": issue_type, "variable": variable, "row": None,
+                                             "message": reason if reason.lower() != "nan" else "Fails the OMOP check"})
+            ac = _additional_context_reason(str(r.get("additional_context_status", "")))
+            if ac:
+                record["issues"].append({"type": "concepts.additional_context", "variable": variable,
+                                         "row": None, "message": ac})
+        return record
+    except Exception as e:
+        logger.warning("concept check failed for %s: %s", cohort_id, e)
+        record["status"] = "error"
+        record["issues"].append({"type": "concepts.check_failed", "variable": None, "row": None,
+                                 "message": f"The concept check stopped with an error: {e}"})
+        return record
+    finally:
+        if os.path.exists(out_csv):
+            os.remove(out_csv)
+
+
+def _run_concept_check(cohort_ids: list[str]) -> None:
+    try:
+        for cohort_id in cohort_ids:
+            _concept_job["current"] = cohort_id
+            _save_concept_result(cohort_id, _check_cohort_concepts(cohort_id))
+            _concept_job["done"] += 1
+    except Exception as e:
+        logger.exception("concept check run failed")
+        _concept_job["error"] = str(e)
+    finally:
+        _concept_job.update(running=False, current=None,
+                            finished_at=datetime.now().isoformat(timespec="seconds"))
+
+
+def _concept_issues(cohort_ids: list[str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The stored concept findings, and per cohort when they were computed and
+    whether the dictionary has changed since."""
+    from src.upload import get_latest_datadictionary
+    stored = _load_concept_results().get("cohorts", {})
+    issues: list[dict[str, Any]] = []
+    status: dict[str, Any] = {}
+    for cohort_id in cohort_ids:
+        record = stored.get(cohort_id)
+        if not record:
+            status[cohort_id] = {"checked_at": None, "stale": False}
+            continue
+        folder = os.path.join(settings.cohort_folder, cohort_id)
+        current = get_latest_datadictionary(folder) if os.path.isdir(folder) else None
+        stale = bool(current) and (
+            os.path.basename(current) != record.get("dictionary_file")
+            or os.stat(current).st_mtime_ns != record.get("dictionary_mtime_ns"))
+        status[cohort_id] = {"checked_at": record.get("checked_at"), "stale": stale,
+                             "status": record.get("status")}
+        for issue in record.get("issues", []):
+            issues.append({"cohort": cohort_id, **issue, "stale": stale})
+    return issues, status
+
+
+# ---------------------------------------------------------------------------
+# Data values
+# ---------------------------------------------------------------------------
+
+_CAUSE_TYPE = {
+    "undeclared missing code": "values.undeclared_missing_code",
+    "negative minimum": "values.negative_minimum",
+    "extreme outlier": "values.extreme_outlier",
+}
+
+
+def _value_issues() -> tuple[list[dict[str, Any]], Optional[str]]:
+    from src.suspect_values import _all_rows
+    data = _all_rows()
+    issues = []
+    for r in data["rows"]:
+        if r["score"] < 1:
+            continue
+        issues.append({
+            "cohort": r["cohort"],
+            "type": _CAUSE_TYPE.get(r["likely_cause"], "values.extreme_outlier"),
+            "variable": r["variable"],
+            "row": None,
+            "message": "; ".join(r["reasons"]),
+            "reasons": r["reasons"],
+            "level": r["level"],
+            "level_rank": r["level_rank"],
+            "suspect_value": r.get("suspect_value"),
+            "median": r.get("median"),
+            "minimum": r.get("minimum"),
+            "maximum": r.get("maximum"),
+            "declared_missing": r.get("declared_missing") or [],
+            "measure": r.get("measure"),
+            "label": r.get("label"),
+            "units": r.get("units"),
+            "visits": r.get("visits"),
+            "omop_id": r.get("omop_id"),
+            "concept_code": r.get("concept_code"),
+        })
+    return issues, data.get("built_at")
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+def _require_admin(user: dict[str, Any]) -> None:
+    if user.get("email") not in settings.admins_list:
+        raise HTTPException(status_code=403, detail="Admins only.")
+
+
+def _known_cohorts() -> list[str]:
+    from src.cohort_cache import get_cohorts_from_cache
+    return sorted(get_cohorts_from_cache(settings.admins_list[0]).keys())
+
+
+def _attach_variable_details(issues: list[dict[str, Any]]) -> None:
+    """Label, units and visit from the cohort cache, for issues that name a
+    variable but did not come with them (syntax and concept issues)."""
+    from src.cohort_cache import get_cohorts_from_cache
+    cohorts = get_cohorts_from_cache(settings.admins_list[0])
+    lookup: dict[str, dict[str, Any]] = {}
+    for issue in issues:
+        if not issue.get("variable") or issue.get("label"):
+            continue
+        cohort = cohorts.get(issue["cohort"])
+        if cohort is None:
+            continue
+        if issue["cohort"] not in lookup:
+            lookup[issue["cohort"]] = {name.lower(): v for name, v in (cohort.variables or {}).items()}
+        var = lookup[issue["cohort"]].get(issue["variable"].lower())
+        if var is not None:
+            issue["label"] = getattr(var, "var_label", None)
+            issue["units"] = getattr(var, "units", None)
+            issue["visits"] = getattr(var, "visits", None)
+            issue["omop_id"] = getattr(var, "omop_id", None)
+            issue["concept_code"] = getattr(var, "concept_code", None)
+
+
+@router.get("/data-quality/issues")
+def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Every known issue of every cohort, from the three sources, each issue
+    carrying its cohort, type, variable where there is one, and message."""
+    _require_admin(user)
+    from src.suspect_values import _profiling_files
+
+    cohorts = _known_cohorts()
+    syntax = _syntax_report()
+    issues = _syntax_issues(syntax)
+    concept_issues, concept_status = _concept_issues(cohorts)
+    issues += concept_issues
+    value_issues, values_read_at = _value_issues()
+    issues += value_issues
+    _attach_variable_details(issues)
+
+    order = {key: i for i, key in enumerate(ISSUE_TYPES)}
+    for issue in issues:
+        category, _label, _desc = ISSUE_TYPES[issue["type"]]
+        issue["category"] = category
+        issue.setdefault("level", None)
+        issue.setdefault("level_rank", None)
+    issues.sort(key=lambda i: (order[i["type"]], i["level_rank"] if i["level_rank"] is not None else 0,
+                               i["cohort"], (i.get("variable") or "").lower(), i.get("row") or 0))
+
+    profiled = {cohort_id for cohort_id, _p, _v in _profiling_files()}
+    return {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "cohorts": sorted(set(cohorts) | profiled | {i["cohort"] for i in issues}),
+        "cohorts_with_profiling": sorted(profiled),
+        "categories": CATEGORIES,
+        "types": [{"key": k, "category": c, "label": l, "description": d} for k, (c, l, d) in ISSUE_TYPES.items()],
+        "issues": issues,
+        "sources": {
+            "syntax": {"checked_at": syntax.get("generated_at")},
+            "concepts": {"cohorts": concept_status, "job": dict(_concept_job)},
+            "values": {"read_at": values_read_at},
+        },
+    }
+
+
+@router.post("/data-quality/concept-check")
+def start_concept_check(cohort: Optional[str] = None, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Start the concept check in the background, for one cohort or all."""
+    _require_admin(user)
+    cohorts = _known_cohorts()
+    if cohort:
+        match = next((c for c in cohorts if c.lower() == cohort.strip().lower()), None)
+        if match is None:
+            raise HTTPException(status_code=404, detail=f"Unknown cohort {cohort!r}.")
+        targets = [match]
+    else:
+        targets = cohorts
+    with _concept_lock:
+        if _concept_job["running"]:
+            raise HTTPException(status_code=409, detail="A concept check is already running.")
+        _concept_job.update(running=True, started_at=datetime.now().isoformat(timespec="seconds"),
+                            finished_at=None, done=0, total=len(targets), current=None, error=None,
+                            cohorts=targets)
+    threading.Thread(target=_run_concept_check, args=(targets,), daemon=True).start()
+    return dict(_concept_job)
+
+
+@router.get("/data-quality/concept-check/status")
+def concept_check_status(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    _require_admin(user)
+    return dict(_concept_job)

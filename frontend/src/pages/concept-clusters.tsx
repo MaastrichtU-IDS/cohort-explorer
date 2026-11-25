@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { useCohorts } from '@/components/CohortsContext';
 import { Cohort, Variable } from '@/types';
 import { Layers, ArrowUp, ArrowDown, AlertTriangle, Maximize2, X } from 'react-feather';
+import AdminOnly from '@/components/AdminOnly';
 
 type ClusterMode = 'concept_name' | 'concept_code' | 'omop_id';
 type SortKey = 'cohorts' | 'variables';
@@ -178,7 +179,7 @@ function outOfSyncFields(member: ClusterMember, cluster: Cluster): { mode: Clust
   return out;
 }
 
-export default function ConceptClustersPage() {
+function ConceptClustersPage() {
   const { cohortsData, isLoading } = useCohorts();
   const [mode, setMode] = useState<ClusterMode>('concept_name');
   const [sortKey, setSortKey] = useState<SortKey>('cohorts');
@@ -668,4 +669,9 @@ function ClusterCard({ cluster }: { cluster: Cluster }) {
       </div>
     </div>
   );
+}
+
+// Administrators only, as every page of the data quality hub is.
+export default function ConceptClustersPageAdminOnly() {
+  return <AdminOnly><ConceptClustersPage /></AdminOnly>;
 }

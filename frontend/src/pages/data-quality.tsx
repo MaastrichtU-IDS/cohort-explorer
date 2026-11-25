@@ -1,408 +1,504 @@
 'use client';
 
-// Data quality (/data-quality): one entry point for the checks that say how
-// sound the catalogue's data is, rather than what it contains. Most of the
-// linked pages already existed and were reachable only by URL. The two
-// dictionary reports run here and render their findings; the text file each
-// has always produced is still a download next to them.
-// Pages marked "admins only" render their own refusal for everyone else, so
-// this hub stays visible to any signed-in user.
+// Data quality (/data-quality): every known issue of a cohort in one list, from
+// three sources: the dictionary syntax check every upload goes through, the
+// OMOP concept-code check, and the suspect values found in the variable
+// profiling. Pick a cohort at the top; its issue types appear as tags, each
+// with a checkbox that shows or hides that type. The links to the individual
+// checks are on the data quality hub (/data-quality-hub).
 
-import React, {useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
-import {Activity, AlertTriangle, Calendar, CheckSquare, Download, GitMerge, Grid, Layers, Play, Shield} from 'react-feather';
+import {AlertTriangle, Download, Play, RefreshCw, Search} from 'react-feather';
 import {apiUrl} from '@/utils';
+import AdminOnly from '@/components/AdminOnly';
+import VariableGraphModal from '@/components/VariableGraphModal';
 
-interface Entry {
-  title: string;
-  href: string;
+interface Issue {
+  cohort: string;
+  category: string;
+  type: string;
+  variable?: string | null;
+  row?: number | null;
+  message: string;
+  reasons?: string[];
+  level?: string | null;
+  level_rank?: number | null;
+  suspect_value?: number | null;
+  median?: number | null;
+  minimum?: number | null;
+  maximum?: number | null;
+  declared_missing?: string[];
+  label?: string | null;
+  units?: string | null;
+  visits?: string | null;
+  omop_id?: string | number | null;
+  concept_code?: string | null;
+  stale?: boolean;
+}
+
+interface IssueType {
+  key: string;
+  category: string;
+  label: string;
   description: string;
-  admin?: boolean;
-  icon: React.ReactNode;
 }
 
-interface Section {
-  heading: string;
-  blurb: string;
-  entries: Entry[];
+interface Category {
+  key: string;
+  label: string;
+  description: string;
 }
 
-const SECTIONS: Section[] = [
-  {
-    heading: 'Values and distributions',
-    blurb: 'Whether the numbers in a column are what they claim to be.',
-    entries: [
-      {
-        title: 'Suspect values',
-        href: '/suspect-values',
-        admin: true,
-        icon: <AlertTriangle size={18} />,
-        description:
-          'Numeric variables whose profiling looks distorted by values that are probably not real measurements, most often a stand-in for missing that the data owner never declared. Each is given a level of suspicion, from low to very high, worked out from the variable profiling already on disk.',
-      },
-    ],
-  },
-  {
-    heading: 'Visits',
-    blurb: 'Whether the same visit means the same thing across cohorts.',
-    entries: [
-      {
-        title: 'Visit mapping check',
-        href: '/visit-mapping-check',
-        icon: <Calendar size={18} />,
-        description:
-          'Visit values that map to more than one visit concept, split into real disagreements and trivial ones, with the variables behind each. Also lists visit values that carry no concept at all.',
-      },
-    ],
-  },
-  {
-    heading: 'Concept mappings',
-    blurb: 'Whether variables are mapped to OMOP concepts consistently and traceably.',
-    entries: [
-      {
-        title: 'Concept clusters',
-        href: '/concept-clusters',
-        icon: <Layers size={18} />,
-        description:
-          'Variables grouped by concept name, concept code or OMOP id, so a concept that several cohorts map differently stands out from one they agree on.',
-      },
-      {
-        title: 'Mapping comparison',
-        href: '/mapping-comparison',
-        icon: <GitMerge size={18} />,
-        description:
-          'Two mapping result files side by side, to see what a change of model, mode or prompt did to the pairs that were found.',
-      },
-      {
-        title: 'Mapping activity log',
-        href: '/mapping-log',
-        icon: <Activity size={18} />,
-        description:
-          'Every cross-study mapping run with who asked for it, the cohorts involved and how it ended.',
-      },
-      {
-        title: 'LLM mapping decisions',
-        href: '/llm-decisions',
-        admin: true,
-        icon: <Shield size={18} />,
-        description:
-          'The stored decisions behind the mappings, with the consistency view that shows where the same pair was judged differently on different runs.',
-      },
-    ],
-  },
-  {
-    heading: 'Coverage across cohorts',
-    blurb: 'Which concepts the catalogue actually holds, and where the gaps are.',
-    entries: [
-      {
-        title: 'Concept coverage',
-        href: '/concept-coverage',
-        icon: <Grid size={18} />,
-        description:
-          'Every concept threaded through every cohort, with the observation counts of the cohorts that went through variable profiling.',
-      },
-    ],
-  },
-];
-
-// ---------------------------------------------------------------------------
-// Dictionary reports
-// ---------------------------------------------------------------------------
-
-interface CohortIssues {
-  cohort_id: string;
-  status: string;
-  file?: string;
-  folder?: string;
-  dictionary_date?: string;
-  errors?: string[];
-  error?: string;
+interface ConceptJob {
+  running: boolean;
+  started_at?: string | null;
+  finished_at?: string | null;
+  done: number;
+  total: number;
+  current?: string | null;
+  error?: string | null;
 }
 
-interface AthenaCohort {
-  cohort_id: string;
-  status: string;
-  file?: string;
-  n_pass?: number;
-  n_fail?: number;
-  n_na?: number;
-  fail_variables?: string[];
-  na_variables?: string[];
-  error?: string;
-}
-
-interface ReportData<T> {
+interface Payload {
   generated_at: string;
-  summary: Record<string, number>;
-  cohorts: T[];
+  cohorts: string[];
+  cohorts_with_profiling: string[];
+  categories: Category[];
+  types: IssueType[];
+  issues: Issue[];
+  sources: {
+    syntax: {checked_at?: string | null};
+    concepts: {cohorts: Record<string, {checked_at?: string | null; stale?: boolean; status?: string}>; job: ConceptJob};
+    values: {read_at?: string | null};
+  };
 }
 
-const SUMMARY_LABELS: Record<string, string> = {
-  total_cohorts: 'cohorts',
-  cohorts_with_errors: 'with issues',
-  cohorts_without_dict: 'without a dictionary',
-  total_errors: 'issues in total',
-  repeated_category_codes: 'repeated category codes',
-  empty_category_labels: 'empty category labels',
-  cohorts_passed: 'passed',
-  cohorts_failed: 'with failures',
-  cohorts_errored: 'could not be checked',
+const CATEGORY_BADGE: Record<string, string> = {
+  syntax: 'badge-secondary',
+  concepts: 'badge-accent',
+  values: 'badge-primary',
 };
 
-const STATUS_BADGE: Record<string, string> = {
-  ok: 'badge-success',
-  passed: 'badge-success',
-  errors: 'badge-warning',
-  failed: 'badge-warning',
-  structure_failed: 'badge-error',
-  error: 'badge-error',
-  no_dictionary: 'badge-ghost',
-  no_folder: 'badge-ghost',
+// What the severity column says for issues that have no suspicion level.
+const CATEGORY_SEVERITY: Record<string, {label: string; badge: string; title: string}> = {
+  syntax: {label: 'Blocks upload', badge: 'badge-error badge-outline', title: 'A dictionary with this issue is rejected on upload'},
+  concepts: {label: 'Fails check', badge: 'badge-warning badge-outline', title: 'The concept does not match OMOP'},
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  ok: 'OK',
-  passed: 'passed',
-  errors: 'issues',
-  failed: 'failures',
-  structure_failed: 'structure check failed',
-  error: 'could not be checked',
-  no_dictionary: 'no dictionary',
-  no_folder: 'no folder',
+const LEVEL_BADGE: Record<string, string> = {
+  'very high': 'badge-error',
+  high: 'badge-warning',
+  moderate: 'badge-info',
+  low: 'badge-ghost',
 };
 
-const Summary = ({summary}: {summary: Record<string, number>}) => (
-  <div className="flex flex-wrap gap-2 mb-3">
-    {Object.entries(summary).map(([key, value]) => (
-      <span key={key} className="badge badge-outline badge-sm">
-        {value} {SUMMARY_LABELS[key] || key.replace(/_/g, ' ')}
-      </span>
-    ))}
-  </div>
-);
+const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-const VariableList = ({label, names}: {label: string; names: string[]}) => {
-  const [open, setOpen] = useState(false);
-  if (!names.length) return null;
-  const shown = open ? names : names.slice(0, 12);
+const num = (v?: number | null): string => {
+  if (v === null || v === undefined || Number.isNaN(v)) return '';
+  return Number.isInteger(v) ? String(v) : v.toFixed(2);
+};
+
+const fmtDate = (iso?: string | null): string => {
+  if (!iso) return '';
+  const d = new Date(iso.replace(' ', 'T'));
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+};
+
+type Arrange = 'type' | 'variable';
+
+function DataQualityPage() {
+  const [data, setData] = useState<Payload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [cohort, setCohort] = useState('');
+  // Types the reader has unticked. Kept as the hidden set, so a type that first
+  // appears after a refresh is shown.
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState('');
+  const [arrange, setArrange] = useState<Arrange>('type');
+  const [chartOf, setChartOf] = useState<Issue | null>(null);
+
+  const [job, setJob] = useState<ConceptJob | null>(null);
+  const [jobError, setJobError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(`${apiUrl}/api/data-quality/issues`, {credentials: 'include'});
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+      const payload: Payload = await r.json();
+      setData(payload);
+      setJob(payload.sources.concepts.job);
+    } catch (e: any) {
+      setError(e?.message || 'Could not load the data issues');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  // While a concept check runs, follow it, and reload the issues when it ends.
+  useEffect(() => {
+    if (!job?.running) return;
+    const timer = setInterval(async () => {
+      try {
+        const r = await fetch(`${apiUrl}/api/data-quality/concept-check/status`, {credentials: 'include'});
+        if (!r.ok) return;
+        const next: ConceptJob = await r.json();
+        setJob(next);
+        if (!next.running) load();
+      } catch {
+        // a missed poll is retried on the next tick
+      }
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [job?.running, load]);
+
+  const runConceptCheck = async (forCohort: string) => {
+    setJobError(null);
+    try {
+      const qs = forCohort ? `?cohort=${encodeURIComponent(forCohort)}` : '';
+      const r = await fetch(`${apiUrl}/api/data-quality/concept-check${qs}`, {method: 'POST', credentials: 'include'});
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+      setJob(await r.json());
+    } catch (e: any) {
+      setJobError(e?.message || 'Could not start the concept check');
+    }
+  };
+
+  const typeByKey = useMemo(() => {
+    const m: Record<string, IssueType> = {};
+    for (const t of data?.types || []) m[t.key] = t;
+    return m;
+  }, [data]);
+
+  const typeOrder = useMemo(() => {
+    const m: Record<string, number> = {};
+    (data?.types || []).forEach((t, i) => { m[t.key] = i; });
+    return m;
+  }, [data]);
+
+  const byCohort = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const i of data?.issues || []) counts[i.cohort] = (counts[i.cohort] || 0) + 1;
+    return counts;
+  }, [data]);
+
+  const cohortIssues = useMemo(() => {
+    const items = data?.issues || [];
+    return cohort ? items.filter(i => i.cohort === cohort) : items;
+  }, [data, cohort]);
+
+  // The tags: only the types this cohort actually has, with their counts.
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const i of cohortIssues) counts[i.type] = (counts[i.type] || 0) + 1;
+    return counts;
+  }, [cohortIssues]);
+
+  const visible = useMemo(() => {
+    let items = cohortIssues.filter(i => !hiddenTypes.has(i.type));
+    const q = query.trim().toLowerCase();
+    if (q) {
+      items = items.filter(i =>
+        (i.variable || '').toLowerCase().includes(q) ||
+        (i.label || '').toLowerCase().includes(q) ||
+        i.message.toLowerCase().includes(q)
+      );
+    }
+    if (arrange === 'variable') {
+      items = [...items].sort((a, b) =>
+        a.cohort.localeCompare(b.cohort) ||
+        (a.variable || '￿').toLowerCase().localeCompare((b.variable || '￿').toLowerCase()) ||
+        (typeOrder[a.type] ?? 0) - (typeOrder[b.type] ?? 0));
+    }
+    return items;
+  }, [cohortIssues, hiddenTypes, query, arrange, typeOrder]);
+
+  const toggleType = (key: string) => setHiddenTypes(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+
+  const setCategoryShown = (category: string, shown: boolean) => setHiddenTypes(prev => {
+    const next = new Set(prev);
+    for (const t of data?.types || []) {
+      if (t.category !== category || !typeCounts[t.key]) continue;
+      if (shown) next.delete(t.key); else next.add(t.key);
+    }
+    return next;
+  });
+
+  const profiled = useMemo(() => new Set(data?.cohorts_with_profiling || []), [data]);
+
+  const conceptStatus = cohort ? data?.sources.concepts.cohorts[cohort] : undefined;
+  const conceptCheckedCount = useMemo(
+    () => Object.values(data?.sources.concepts.cohorts || {}).filter(c => c.checked_at).length,
+    [data]);
+
+  const downloadCsv = () => {
+    const header = ['cohort', 'category', 'type', 'variable', 'dictionary_row', 'visit', 'label', 'severity', 'message'];
+    const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [header.join(',')].concat(visible.map(i => [
+      i.cohort, i.category, typeByKey[i.type]?.label || i.type, i.variable, i.row, i.visits, i.label,
+      i.level || CATEGORY_SEVERITY[i.category]?.label, i.message,
+    ].map(esc).join(',')));
+    const blob = new Blob([lines.join('\n')], {type: 'text/csv'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `data-issues-${cohort || 'all-cohorts'}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   return (
-    <div className="mt-1">
-      <span className="text-base-content/60">{label}: </span>
-      <span className="font-mono">{shown.join(', ')}</span>
-      {names.length > shown.length && (
-        <button className="link link-primary ml-1" onClick={() => setOpen(true)}>
-          and {names.length - shown.length} more
+    <div className="container mx-auto p-6 max-w-[90rem]">
+      <div className="flex items-center gap-3 mb-2">
+        <AlertTriangle size={28} />
+        <h1 className="text-3xl font-bold">Data quality</h1>
+        <Link href="/data-quality-hub" className="btn btn-ghost btn-sm ml-auto">Data quality hub</Link>
+        <button className="btn btn-ghost btn-sm" onClick={load} title="Refresh">
+          <RefreshCw size={16} />
         </button>
+        <button className="btn btn-ghost btn-sm" onClick={downloadCsv} disabled={!visible.length} title="Download the list as CSV">
+          <Download size={16} />
+        </button>
+      </div>
+      <p className="text-sm text-base-content/70 mb-5 max-w-3xl">
+        Every known issue of a cohort in one list: mistakes in how the data dictionary is written,
+        concept codes that do not match OMOP, and values in the data that are probably not real
+        measurements.
+      </p>
+
+      <div className="card bg-base-200 mb-5">
+        <div className="card-body p-5 gap-4">
+          <label className="form-control w-full max-w-xl mx-auto">
+            <span className="label-text font-semibold mb-1">Cohort</span>
+            <select className="select select-bordered select-lg w-full" value={cohort}
+                    onChange={e => setCohort(e.target.value)}>
+              <option value="">All cohorts</option>
+              {(data?.cohorts || []).map(c => (
+                <option key={c} value={c}>{c}{byCohort[c] ? ` (${byCohort[c]})` : ' (no issues)'}</option>
+              ))}
+            </select>
+          </label>
+
+          {data && (
+            <div className="flex flex-col gap-3">
+              {data.categories.map(cat => {
+                const types = data.types.filter(t => t.category === cat.key && typeCounts[t.key]);
+                if (!types.length) return null;
+                const allShown = types.every(t => !hiddenTypes.has(t.key));
+                return (
+                  <div key={cat.key} className="flex flex-wrap items-center justify-center gap-2">
+                    <button className="text-sm font-semibold mr-1 hover:underline" title={`${cat.description} Click to ${allShown ? 'hide' : 'show'} all.`}
+                            onClick={() => setCategoryShown(cat.key, !allShown)}>
+                      {cat.label}
+                    </button>
+                    {types.map(t => {
+                      const on = !hiddenTypes.has(t.key);
+                      return (
+                        <label key={t.key} title={t.description}
+                               className={`flex items-center gap-2 rounded-full border px-3 py-1 cursor-pointer text-sm transition-opacity ${
+                                 on ? 'bg-base-100 border-base-300' : 'border-transparent opacity-50'}`}>
+                          <input type="checkbox" className="checkbox checkbox-xs" checked={on}
+                                 onChange={() => toggleType(t.key)} />
+                          <span>{t.label}</span>
+                          <span className={`badge badge-sm ${CATEGORY_BADGE[cat.key]}`}>{typeCounts[t.key]}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+              {cohort && !cohortIssues.length && !loading && (
+                <div className="text-center text-sm text-base-content/70">No known issues for {cohort}.</div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Concept codes are checked on request: the check queries Athena for every concept. */}
+      {data && (
+        <div className="flex flex-wrap items-center gap-3 mb-4 text-sm">
+          <span className="text-base-content/70">
+            Concept codes:{' '}
+            {job?.running
+              ? `checking ${job.current || '…'} (${job.done} of ${job.total} cohorts)`
+              : cohort
+                ? conceptStatus?.checked_at
+                  ? <>checked {fmtDate(conceptStatus.checked_at)}{conceptStatus.stale && <span className="badge badge-warning badge-sm ml-2">dictionary changed since</span>}</>
+                  : 'not checked yet for this cohort'
+                : `checked for ${conceptCheckedCount} of ${data.cohorts.length} cohorts`}
+          </span>
+          {job?.running
+            ? <span className="loading loading-spinner loading-sm" />
+            : (
+              <button className="btn btn-outline btn-xs gap-1" onClick={() => runConceptCheck(cohort)}>
+                <Play size={12} /> {cohort ? `Check ${cohort} now` : 'Check all cohorts now'}
+              </button>
+            )}
+          {!job?.running && (
+            <span className="text-xs text-base-content/50">
+              Runs in the background{cohort ? ', a minute or two for one cohort' : ' and takes a while across all cohorts'}.
+            </span>
+          )}
+          {jobError && <span className="text-error text-xs">{jobError}</span>}
+          {job?.error && !job.running && <span className="text-error text-xs">Last run stopped: {job.error}</span>}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-end gap-3 mb-4">
+        <label className="form-control flex-1 min-w-60">
+          <span className="label-text text-xs">Search</span>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-50" />
+            <input value={query} onChange={e => setQuery(e.target.value)}
+                   placeholder="variable, label or message"
+                   className="input input-bordered input-sm w-full pl-8" />
+          </div>
+        </label>
+        <label className="form-control">
+          <span className="label-text text-xs">Arrange by</span>
+          <select className="select select-bordered select-sm w-44" value={arrange}
+                  onChange={e => setArrange(e.target.value as Arrange)}>
+            <option value="type">Type of issue</option>
+            <option value="variable">Variable</option>
+          </select>
+        </label>
+      </div>
+
+      {error && <div className="alert alert-error mb-4 text-sm">{error}</div>}
+
+      {data && !loading && (
+        <p className="text-xs text-base-content/60 mb-2">
+          Showing {visible.length} of {cohortIssues.length} issues{cohort ? ` for ${cohort}` : ' across all cohorts'}.
+          {data.sources.syntax.checked_at && ` Dictionaries checked ${fmtDate(data.sources.syntax.checked_at)}.`}
+          {data.sources.values.read_at && ` Profiling read ${fmtDate(data.sources.values.read_at)}.`}
+        </p>
+      )}
+
+      {loading ? (
+        <div className="flex items-center gap-3 text-base-content/70 py-8">
+          <span className="loading loading-spinner loading-md" /> <span>Gathering the issues…</span>
+        </div>
+      ) : visible.length === 0 ? (
+        data && cohortIssues.length > 0 && <div className="alert">Nothing to show with these filters.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="table table-sm table-zebra">
+            <thead>
+              <tr>
+                <th>Issue</th>
+                {!cohort && <th>Cohort</th>}
+                <th>Variable</th>
+                <th>What is wrong</th>
+                <th>Severity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((i, idx) => {
+                const t = typeByKey[i.type];
+                const severity = CATEGORY_SEVERITY[i.category];
+                return (
+                  <tr key={`${i.cohort}/${i.type}/${i.variable || ''}/${i.row || ''}/${idx}`}>
+                    <td className="whitespace-nowrap align-top">
+                      <span className={`badge badge-sm ${CATEGORY_BADGE[i.category]}`} title={t?.description}>
+                        {t?.label || i.type}
+                      </span>
+                    </td>
+                    {!cohort && <td className="whitespace-nowrap align-top">{i.cohort}</td>}
+                    <td className="max-w-72 align-top">
+                      {i.variable ? (
+                        <>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono text-xs">{i.variable}</span>
+                            {i.visits && <span className="badge badge-ghost badge-xs whitespace-nowrap">{i.visits}</span>}
+                            {i.row && <span className="text-xs text-base-content/50">row {i.row}</span>}
+                          </div>
+                          {i.label && <div className="text-xs text-base-content/60 truncate" title={i.label}>{i.label}</div>}
+                          {i.units && <div className="text-xs text-base-content/40">{i.units}</div>}
+                          {profiled.has(i.cohort) && (
+                            <div className="mt-1">
+                              <button
+                                className="btn-sm rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-100 dark:bg-teal-900/30 dark:border-teal-700 inline-flex items-center gap-1.5 px-2"
+                                title="Summary statistics — click to view"
+                                onClick={() => setChartOf(i)}
+                              >
+                                <span className="text-xl leading-none">📊</span>
+                                <span className="text-xs font-medium text-teal-800 dark:text-teal-300">summary statistics</span>
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-xs text-base-content/50">{i.row ? `row ${i.row}` : 'whole dictionary'}</span>
+                      )}
+                    </td>
+                    <td className="max-w-2xl align-top text-xs">
+                      {i.reasons && i.reasons.length ? (
+                        <>
+                          {i.suspect_value !== null && i.suspect_value !== undefined && (
+                            <div className="mb-1">
+                              Suspect value <span className="font-mono font-semibold">{num(i.suspect_value)}</span>
+                              <span className="text-base-content/50">
+                                {' '}· median {num(i.median)} · range {num(i.minimum)} to {num(i.maximum)}
+                                {i.declared_missing && i.declared_missing.length > 0 && ` · declared missing ${i.declared_missing.join(' | ')}`}
+                              </span>
+                            </div>
+                          )}
+                          <ul className="list-disc list-inside space-y-0.5">
+                            {i.reasons.map((r, k) => <li key={k}>{r}</li>)}
+                          </ul>
+                        </>
+                      ) : (
+                        <span className="whitespace-pre-wrap">{i.message}</span>
+                      )}
+                      {i.stale && (
+                        <div className="mt-1">
+                          <span className="badge badge-warning badge-xs">dictionary changed since this was checked</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap align-top">
+                      {i.level ? (
+                        <span className={`badge badge-sm ${LEVEL_BADGE[i.level] || 'badge-ghost'}`} title="Suspicion that the value is not a real measurement">
+                          {capitalise(i.level)}
+                        </span>
+                      ) : severity ? (
+                        <span className={`badge badge-sm ${severity.badge}`} title={severity.title}>{severity.label}</span>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {chartOf && chartOf.variable && (
+        <VariableGraphModal
+          isOpen={true}
+          cohortId={chartOf.cohort}
+          variableName={chartOf.variable}
+          variableLabel={chartOf.label || undefined}
+          omopId={chartOf.omop_id !== null && chartOf.omop_id !== undefined ? String(chartOf.omop_id) : undefined}
+          conceptCode={chartOf.concept_code || undefined}
+          onClose={() => setChartOf(null)}
+        />
       )}
     </div>
   );
-};
+}
 
-export default function DataQualityPage() {
-  const [running, setRunning] = useState<string | null>(null);
-  const [error, setError] = useState<Record<string, string>>({});
-  const [issues, setIssues] = useState<ReportData<CohortIssues> | null>(null);
-  const [athena, setAthena] = useState<ReportData<AthenaCohort> | null>(null);
-
-  const post = async (path: string) => {
-    const response = await fetch(`${apiUrl}${path}`, {method: 'POST', credentials: 'include'});
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({}));
-      throw new Error(detail.detail || `HTTP ${response.status}`);
-    }
-    return response;
-  };
-
-  const run = async (key: string, path: string, apply: (data: any) => void) => {
-    setRunning(key);
-    setError(e => ({...e, [key]: ''}));
-    try {
-      apply(await (await post(path)).json());
-    } catch (e: any) {
-      setError(err => ({...err, [key]: e?.message || 'The check could not be run'}));
-    } finally {
-      setRunning(null);
-    }
-  };
-
-  const download = async (key: string, path: string, filename: string) => {
-    setRunning(key);
-    setError(e => ({...e, [key]: ''}));
-    try {
-      const response = await post(path);
-      const blob = await response.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${filename}_${new Date().toISOString().slice(0, 10)}.txt`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch (e: any) {
-      setError(err => ({...err, [key]: e?.message || 'The report could not be generated'}));
-    } finally {
-      setRunning(null);
-    }
-  };
-
-  const Buttons = ({k, jsonPath, filePath, filename}: {k: string; jsonPath: string; filePath: string; filename: string}) => (
-    <div className="flex flex-wrap gap-2 mt-3">
-      <button className="btn btn-sm btn-primary" disabled={running !== null}
-              onClick={() => run(k, jsonPath, k === 'issues' ? setIssues : setAthena)}>
-        {running === k
-          ? <><span className="loading loading-spinner loading-xs" /> Running…</>
-          : <><Play size={14} /> Run the check</>}
-      </button>
-      <button className="btn btn-sm btn-outline" disabled={running !== null}
-              onClick={() => download(`${k}-file`, filePath, filename)}>
-        {running === `${k}-file`
-          ? <><span className="loading loading-spinner loading-xs" /> Generating…</>
-          : <><Download size={14} /> Download the text report</>}
-      </button>
-    </div>
-  );
-
-  return (
-    <div className="container mx-auto p-6 max-w-6xl">
-      <div className="flex items-center gap-3 mb-2">
-        <CheckSquare size={28} />
-        <h1 className="text-3xl font-bold">Data quality</h1>
-      </div>
-      <p className="text-sm text-base-content/70 mb-8 max-w-3xl">
-        The checks and views that say something about how sound the catalogue&apos;s data is, rather
-        than what it contains. Entries marked as administrator pages will refuse anyone else.
-      </p>
-
-      {SECTIONS.map(section => (
-        <section key={section.heading} className="mb-8">
-          <h2 className="text-xl font-semibold">{section.heading}</h2>
-          <p className="text-sm text-base-content/60 mb-3">{section.blurb}</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {section.entries.map(entry => (
-              <Link
-                key={entry.href}
-                href={entry.href}
-                className="flex gap-3 rounded-lg border border-base-300 bg-base-100 p-4 hover:border-primary transition-colors"
-              >
-                <span className="mt-0.5 shrink-0 text-primary">{entry.icon}</span>
-                <span>
-                  <span className="flex items-center gap-2">
-                    <span className="font-medium">{entry.title}</span>
-                    {entry.admin && <span className="badge badge-ghost badge-sm">admins only</span>}
-                  </span>
-                  <span className="block text-xs text-base-content/60 mt-1">{entry.description}</span>
-                </span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      ))}
-
-      <section className="mb-8">
-        <h2 className="text-xl font-semibold">Dictionary checks</h2>
-        <p className="text-sm text-base-content/60 mb-3">
-          Run over the current data dictionary of every cohort, on demand. Administrators only, and
-          they take a while on a full catalogue. The text report each one has always produced is
-          still available next to it.
-        </p>
-
-        <div className="rounded-lg border border-base-300 bg-base-100 p-4 mb-3">
-          <div className="font-medium">Metadata syntax issues</div>
-          <p className="text-xs text-base-content/60 mt-1">
-            Every validation and syntax problem in the dictionaries: missing required columns,
-            malformed categorical definitions, missing-value codes that cannot be read, and the rest
-            of the upload validation, applied to what is on the server now.
-          </p>
-          <Buttons k="issues" jsonPath="/metadata-syntax-issues-report-json"
-                   filePath="/metadata-syntax-issues-report" filename="metadata_syntax_issues" />
-          {error['issues'] && <div className="alert alert-error mt-3 text-sm">{error['issues']}</div>}
-          {error['issues-file'] && <div className="alert alert-error mt-3 text-sm">{error['issues-file']}</div>}
-
-          {issues && (
-            <div className="mt-4">
-              <Summary summary={issues.summary} />
-              <p className="text-xs text-base-content/50 mb-2">Run at {issues.generated_at}.</p>
-              <div className="space-y-2">
-                {issues.cohorts.filter(c => c.status !== 'ok' && c.status !== 'no_folder').map(c => (
-                  <details key={c.cohort_id} className="rounded border border-base-300 p-2">
-                    <summary className="cursor-pointer text-sm flex items-center gap-2">
-                      <span className={`badge badge-sm ${STATUS_BADGE[c.status] || 'badge-ghost'}`}>
-                        {STATUS_LABEL[c.status] || c.status}
-                      </span>
-                      <span className="font-medium">{c.cohort_id}</span>
-                      {!!c.errors?.length && <span className="text-base-content/60">{c.errors.length} issues</span>}
-                    </summary>
-                    <div className="text-xs mt-2 space-y-1">
-                      {c.file && <div className="text-base-content/60">{c.file} of {c.dictionary_date}</div>}
-                      {c.folder && <div className="text-base-content/60 font-mono">{c.folder}</div>}
-                      {c.error && <div className="text-error">{c.error}</div>}
-                      {!!c.errors?.length && (
-                        <ol className="list-decimal list-inside space-y-1">
-                          {c.errors.map((e, i) => <li key={i}>{e}</li>)}
-                        </ol>
-                      )}
-                    </div>
-                  </details>
-                ))}
-                {issues.cohorts.every(c => c.status === 'ok' || c.status === 'no_folder') && (
-                  <div className="alert alert-success text-sm">Every dictionary on the server passes validation.</div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-lg border border-base-300 bg-base-100 p-4">
-          <div className="font-medium">Athena concept code validation</div>
-          <p className="text-xs text-base-content/60 mt-1">
-            Checks the concept name, concept code and OMOP id of every variable, additional context,
-            categorical value, unit and visit against the OMOP graph and the Athena API, and reports
-            the triples that disagree.
-          </p>
-          <Buttons k="athena" jsonPath="/validate-athena-codes-all-summary-json"
-                   filePath="/validate-athena-codes-all-summary" filename="athena_code_validation" />
-          {error['athena'] && <div className="alert alert-error mt-3 text-sm">{error['athena']}</div>}
-          {error['athena-file'] && <div className="alert alert-error mt-3 text-sm">{error['athena-file']}</div>}
-
-          {athena && (
-            <div className="mt-4">
-              <Summary summary={athena.summary} />
-              <p className="text-xs text-base-content/50 mb-2">Run at {athena.generated_at}.</p>
-              <div className="overflow-x-auto">
-                <table className="table table-sm">
-                  <thead>
-                    <tr>
-                      <th>Cohort</th><th>Status</th>
-                      <th className="text-right">Pass</th>
-                      <th className="text-right">Fail</th>
-                      <th className="text-right">N/A</th>
-                      <th>Variables that did not validate</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {athena.cohorts.filter(c => c.status !== 'no_folder' && c.status !== 'no_dictionary').map(c => (
-                      <tr key={c.cohort_id}>
-                        <td className="whitespace-nowrap font-medium">{c.cohort_id}</td>
-                        <td>
-                          <span className={`badge badge-sm ${STATUS_BADGE[c.status] || 'badge-ghost'}`}>
-                            {STATUS_LABEL[c.status] || c.status}
-                          </span>
-                        </td>
-                        <td className="text-right">{c.n_pass ?? ''}</td>
-                        <td className="text-right">{c.n_fail ?? ''}</td>
-                        <td className="text-right">{c.n_na ?? ''}</td>
-                        <td className="text-xs max-w-xl">
-                          {c.error && <div className="text-error">{c.error}</div>}
-                          <VariableList label="failed" names={c.fail_variables || []} />
-                          <VariableList label="not applicable" names={c.na_variables || []} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-    </div>
-  );
+export default function DataQualityPageAdminOnly() {
+  return <AdminOnly><DataQualityPage /></AdminOnly>;
 }

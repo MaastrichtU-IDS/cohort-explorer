@@ -6,6 +6,7 @@ import { useCohorts } from '@/components/CohortsContext';
 import { apiUrl } from '@/utils';
 import LoginPrompt from '@/components/LoginPrompt';
 import { AlertTriangle, CheckCircle, Activity, HelpCircle, Hash, BookOpen } from 'react-feather';
+import AdminOnly from '@/components/AdminOnly';
 
 type VarPair = [string, string]; // [variable name, cohort id]
 type Severity = 'real' | 'trivial';
@@ -107,7 +108,7 @@ function matchesFilter(needle: string, texts: string[], pairs: VarPair[]): boole
   );
 }
 
-export default function VisitMappingCheckPage() {
+function VisitMappingCheckPage() {
   const { userEmail } = useCohorts();
   const [data, setData] = useState<VisitMappingResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -819,4 +820,9 @@ function VariableList({ variables, visitsValue, visitConceptName }: { variables:
       </table>
     </div>
   );
+}
+
+// Administrators only, as every page of the data quality hub is.
+export default function VisitMappingCheckPageAdminOnly() {
+  return <AdminOnly><VisitMappingCheckPage /></AdminOnly>;
 }

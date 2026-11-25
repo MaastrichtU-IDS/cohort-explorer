@@ -17,6 +17,7 @@ import SemanticMatchesModal from '@/components/SemanticMatchesModal';
 import VariableGraphModal from '@/components/VariableGraphModal';
 import {semanticMatchKey} from '@/utils/semanticMatches';
 import {type PointerTarget, BasketPreview, type ColumnLayout, type DensitySpec, type FilterResult, type LensCells, LoomAction, LoomModel, LoomUiState, LoomViewState, type PoolResult, type RowLayout, type RowStats, type SearchQuery, guestMembers, rowBridgePairs, lacksVocabularyPrefix, tokenLabel, fmtInt, type Domain, type Tier, DOMAIN_LABEL, DOMAIN_MONOGRAM, TIER_LABEL, fmtCompact, type LoomCohort, type PinKind, CellState, type FlatItem, type Metric, binFor, type LoomTokens, type LoomRow, SLOT_LONG, CellFlag, type Density, type VisitSlot, itemAtY, ALL_SLOTS_MASK, BAND_H, SLOT_BIT, VISIT_SLOTS, type VisitLens, computeRowStats, lensMembers, resolveCell, readLoomTokens, cellReadout, cohortReadout, rowReadout, columnAtX, ALL_LENS, jaccard, GROUP_GAP, type GridColumn, METRIC_LABEL, lensLabel, type ColGroup, type ColSort, type RowGroup, type RowSort, applySuggestion, parseSearch, searchSuggestions, toggleChipNegation, type SearchSuggestion, DOMAINS, SLOT_SHORT, FOLLOW_UP_MASK, METRIC_EXPLAINER, activePreset, VIEW_PRESETS, type CellStateValue, type ResolvedCell, CAVEATS, fmtPct, isAllLens, lensIncludes, cellMembers, type PoolCohort, type PoolStatus, BASELINE_LENS, sameLens, poolBasketPreview, cohortPasses, filterRows, DESIGN_LABEL, FAMILY_LABEL, STATUS_LABEL, DEFAULT_VIEW_STATE, SIZE_MAX, SIZE_MIN, COHORT_STATUSES, DESIGN_FAMILIES, STUDY_FAMILIES, type MatchMode, type TypeClass, BIN_LABELS, type CountsStatus, InspectorTarget, type LoomVariable, homeMembers, TIER_NOTE_LABEL, slotsOfMask, slotRowKeys, countAlreadyIn, useObservationCounts, reduceViewState, type FilterChip, type SetMode, cellSummary, stateLabel, type Toast, buildModel, resolveLens, buildColumns, buildRowLayout, orderRows, computePool, decodeViewState, encodeViewState, runSelfCheck, applyPreview, DcrBasket, persistBasket, DENSITY, buildAxes, cohortSlotMasks, type AxisItem, type CoverageAxes} from '@/utils/conceptCoverage';
+import AdminOnly from '@/components/AdminOnly';
 
 // ============================================================================
 // pointerStore
@@ -9343,7 +9344,7 @@ function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 }
 
-export default function LoomPage() {
+function LoomPage() {
   const router = useRouter();
   const {cohortsData, userEmail, isLoading, dataCleanRoom, setDataCleanRoom, semanticMatchIndex} = useCohorts();
   const hasData = !!cohortsData && Object.keys(cohortsData).length > 0;
@@ -9771,4 +9772,9 @@ export default function LoomPage() {
       )}
     </>
   );
+}
+
+// Administrators only, as every page of the data quality hub is.
+export default function LoomPageAdminOnly() {
+  return <AdminOnly><LoomPage /></AdminOnly>;
 }

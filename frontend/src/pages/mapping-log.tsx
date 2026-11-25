@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useCohorts } from '@/components/CohortsContext';
 import { apiUrl } from '@/utils';
 import LoginPrompt from '@/components/LoginPrompt';
+import AdminOnly from '@/components/AdminOnly';
 
 interface LogEntry {
   ts: string;
@@ -90,7 +91,7 @@ function CtxCell({ ctx }: { ctx: Record<string, any> }) {
   );
 }
 
-export default function MappingLogPage() {
+function MappingLogPage() {
   const { userEmail } = useCohorts();
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -262,4 +263,9 @@ export default function MappingLogPage() {
       )}
     </div>
   );
+}
+
+// Administrators only, as every page of the data quality hub is.
+export default function MappingLogPageAdminOnly() {
+  return <AdminOnly><MappingLogPage /></AdminOnly>;
 }
