@@ -1,7 +1,7 @@
 'use client';
 
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import {AlertTriangle, BarChart2, Download, RefreshCw, Search} from 'react-feather';
+import {AlertTriangle, Download, RefreshCw, Search} from 'react-feather';
 import {apiUrl} from '@/utils';
 import LoginPrompt from '@/components/LoginPrompt';
 import VariableGraphModal from '@/components/VariableGraphModal';
@@ -98,14 +98,22 @@ const SuspectTableRow = ({row: r, nested, others, isOpen, onToggle, onChart}: {
     <td className="whitespace-nowrap">{nested ? '' : r.cohort}</td>
     <td className={`max-w-72 ${nested ? 'pl-6' : ''}`}>
       <div className="flex items-center gap-1.5">
-        <button className="btn btn-ghost btn-xs px-1" onClick={onChart} title="Show the distribution chart">
-          <BarChart2 size={14} />
-        </button>
         <span className="font-mono text-xs">{r.variable}</span>
         {visitOf(r) && <span className="badge badge-ghost badge-xs whitespace-nowrap">{visitOf(r)}</span>}
       </div>
       {r.label && <div className="text-xs text-base-content/60 truncate" title={r.label}>{r.label}</div>}
       {r.units && <div className="text-xs text-base-content/40">{r.units}</div>}
+      {/* The same button the variable cards on the explore page carry. */}
+      <div className="mt-1">
+        <button
+          className="btn-sm rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-100 dark:bg-teal-900/30 dark:border-teal-700 inline-flex items-center gap-1.5 px-2"
+          title="Summary statistics — click to view"
+          onClick={onChart}
+        >
+          <span className="text-xl leading-none">📊</span>
+          <span className="text-xs font-medium text-teal-800 dark:text-teal-300">summary statistics</span>
+        </button>
+      </div>
       {others.length > 0 && (
         <button className="btn btn-link btn-xs px-0 h-auto min-h-0 no-underline text-left" onClick={onToggle}
                 title={others.map(o => `${o.variable}${visitOf(o) ? ` (${visitOf(o)})` : ''}`).join(', ')}>
