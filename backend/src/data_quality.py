@@ -54,32 +54,40 @@ CATEGORIES: list[dict[str, str]] = [
      "description": "Values in the profiled data that are probably not real measurements."},
 ]
 
-# key → (category, label, description). The order is the order on the page.
-ISSUE_TYPES: dict[str, tuple[str, str, str]] = {
-    "syntax.missing_columns": ("syntax", "Missing required columns", "Columns every dictionary must have are absent."),
-    "syntax.duplicate_variable": ("syntax", "Duplicate variable names", "The same VARIABLENAME appears on several rows."),
-    "syntax.missing_required_field": ("syntax", "Missing required field", "A required cell of a row is empty."),
-    "syntax.invalid_vartype": ("syntax", "Invalid VARTYPE", "VARTYPE is not one of STR, INT, FLOAT, DATETIME."),
-    "syntax.concept_code_format": ("syntax", "Malformed concept code", "A concept code lacks its prefix or colon, uses an unknown prefix, or several codes share one cell."),
-    "syntax.omop_id_format": ("syntax", "Malformed OMOP id", "An OMOP id is not an integer, or several share one cell."),
-    "syntax.concept_fields_mismatch": ("syntax", "Concept fields incomplete", "Concept names, codes and OMOP ids do not line up with each other or with the field they describe."),
-    "syntax.category_format": ("syntax", "Malformed categories", "Categories without '=', without the '|' separator, or not parseable."),
-    "syntax.repeated_category_code": ("syntax", "Repeated category code", "One code is declared twice in the same categorical cell."),
-    "syntax.empty_category_label": ("syntax", "Empty category label", "A category has a code but no label."),
-    "syntax.category_order": ("syntax", "Category value and label swapped", "Value and label appear reversed for the declared VARTYPE."),
-    "syntax.category_code_type": ("syntax", "Category code contradicts VARTYPE", "A category code is not of the declared VARTYPE, such as a non-integer code on an INT variable."),
-    "syntax.missing_code_format": ("syntax", "Malformed MISSING code", "A code in the MISSING column contains a space."),
-    "syntax.other": ("syntax", "Other syntax issue", "A dictionary problem of another kind."),
-    "concepts.structure": ("concepts", "Dictionary structure", "The concept check could not read the dictionary's columns or domains."),
-    "concepts.variable": ("concepts", "Variable concept", "The variable's concept code, name or OMOP id does not match OMOP."),
-    "concepts.categorical": ("concepts", "Category concepts", "A category's concept does not match OMOP."),
-    "concepts.unit": ("concepts", "Unit concept", "The unit's concept does not match OMOP."),
-    "concepts.visit": ("concepts", "Visit concept", "The visit's concept does not match OMOP."),
-    "concepts.additional_context": ("concepts", "Additional context concepts", "An additional context concept does not match OMOP."),
-    "concepts.check_failed": ("concepts", "Check could not run", "The concept check stopped with an error for this cohort."),
-    "values.undeclared_missing_code": ("values", "Undeclared missing code", "A value shaped like a missing code (999, -1) that the dictionary does not declare."),
-    "values.negative_minimum": ("values", "Negative minimum", "A negative value in a column that is otherwise positive."),
-    "values.extreme_outlier": ("values", "Extreme outlier", "A value far beyond the rest of its column."),
+# key → (category, label, description, specification id). The order is the
+# order on the page. The specification ids (S1 to S14) are those of the data
+# quality specification; a type outside it has none.
+ISSUE_TYPES: dict[str, tuple[str, str, str, Optional[str]]] = {
+    "syntax.missing_columns": ("syntax", "Missing required columns", "Columns every dictionary must have are absent.", None),
+    "syntax.invalid_vartype": ("syntax", "Invalid VARTYPE", "VARTYPE is not one of STR, INT, FLOAT, DATETIME.", "S1"),
+    "syntax.invalid_domain": ("syntax", "Invalid DOMAIN", "DOMAIN is not one of the OMOP tables it may name.", "S1"),
+    "syntax.concept_code_format": ("syntax", "Malformed concept code", "A concept code lacks its prefix or colon, uses an unknown prefix, or several codes share one cell.", "S1"),
+    "syntax.omop_id_format": ("syntax", "Malformed OMOP id", "An OMOP id is not an integer, or several share one cell.", "S1"),
+    "syntax.missing_code_format": ("syntax", "Malformed MISSING code", "A code in the MISSING column contains a space.", "S1"),
+    "syntax.missing_required_field": ("syntax", "Required field missing", "The variable name, label or VARTYPE of a row is blank.", "S2"),
+    "syntax.duplicate_variable": ("syntax", "Duplicate variable name", "The same VARIABLENAME appears on several rows.", "S3"),
+    "syntax.category_order": ("syntax", "Category value and label swapped", "Value and label appear reversed for the declared VARTYPE.", "S4"),
+    "syntax.category_code_type": ("syntax", "Category code contradicts VARTYPE", "A category code is not of the declared VARTYPE, such as a non-integer code on an INT variable.", "S4"),
+    "syntax.category_format": ("syntax", "Malformed categories", "Categories without '=', without the '|' separator, or not parseable.", "S5"),
+    "syntax.repeated_category_code": ("syntax", "Repeated category code", "One code is declared twice in the same categorical cell.", "S5"),
+    "syntax.empty_category_label": ("syntax", "Empty category label", "A category has a code but no label.", "S5"),
+    "syntax.orphan_concept": ("syntax", "Orphan concept annotation", "Category, unit, visit or additional-context concepts on a row without the categories, unit, visit or variable concept they describe.", "S8"),
+    "syntax.concept_count_mismatch": ("syntax", "Concept count mismatch", "Concept names, codes, OMOP ids and categories differ in number.", "S9"),
+    "syntax.other": ("syntax", "Other syntax issue", "A dictionary problem of another kind.", None),
+    "concepts.code_id_mismatch": ("concepts", "Concept code and ID disagree", "The concept code and the OMOP id refer to different concepts, or the id does not exist.", "S10"),
+    "concepts.wrong_vocabulary": ("concepts", "Wrong vocabulary", "A concept from a vocabulary not accepted for its field, such as a unit that is not UCUM.", "S11"),
+    "concepts.wrong_domain": ("concepts", "Wrong domain", "A concept whose OMOP domain does not fit its field or the row's DOMAIN.", "S11"),
+    "concepts.deprecated": ("concepts", "Deprecated concept", "Athena marks the concept deprecated or replaced.", "S12"),
+    "concepts.non_standard": ("concepts", "Non-standard concept", "Athena marks the concept non-standard or a classification concept.", "S12"),
+    "concepts.name_mismatch": ("concepts", "Concept name mismatch", "The concept name differs from the vocabulary's name and synonyms.", "S13"),
+    "concepts.vartype_implausible": ("concepts", "VARTYPE implausible for concept", "VARTYPE conflicts with the LOINC scale of the variable concept.", "S14"),
+    "concepts.unit_implausible": ("concepts", "Unit implausible for concept", "The unit's dimension conflicts with the LOINC property of the variable concept.", "S14"),
+    "concepts.structure": ("concepts", "Dictionary structure", "The concept check could not read the dictionary's columns.", None),
+    "concepts.other": ("concepts", "Other concept issue", "A concept problem of another kind.", None),
+    "concepts.check_failed": ("concepts", "Check incomplete", "The concept check stopped with an error, or Athena could not be reached for some concepts.", None),
+    "values.undeclared_missing_code": ("values", "Undeclared missing code", "A value shaped like a missing code (999, -1) that the dictionary does not declare.", None),
+    "values.negative_minimum": ("values", "Negative minimum", "A negative value in a column that is otherwise positive.", None),
+    "values.extreme_outlier": ("values", "Extreme outlier", "A value far beyond the rest of its column.", None),
 }
 
 
@@ -101,7 +109,8 @@ def _syntax_rules() -> list[tuple[str, re.Pattern[str]]]:
         ("syntax.category_code_type", r"have a code that contradicts the declared vartype"),
         ("syntax.missing_code_format", r"in the MISSING column contains a space"),
         ("syntax.category_format", r"without the '\|' separator|is missing '='|has an invalid category"),
-        ("syntax.concept_fields_mismatch", r"The number of |fields are provided|CONCEPT NAME is provided"),
+        ("syntax.concept_count_mismatch", r"The number of "),
+        ("syntax.orphan_concept", r"fields are provided|CONCEPT NAME is provided"),
         ("syntax.omop_id_format", r"OMOP IDs? |must be an integer"),
         ("syntax.concept_code_format", r"concept code|CURIE"),
     ]
@@ -181,12 +190,58 @@ def _syntax_issues(report: dict[str, Any]) -> list[dict[str, Any]]:
 # Concept codes, checked in the background and kept on disk
 # ---------------------------------------------------------------------------
 
+# The concept check's components, by the columns of its result CSV.
 _CONCEPT_COMPONENTS = [
-    ("concepts.variable", "variable_status", "variable_reason"),
-    ("concepts.categorical", "categorical_value_status", "categorical_value_reason"),
-    ("concepts.unit", "unit_status", "unit_reason"),
-    ("concepts.visit", "visit_status", "visit_reason"),
+    ("variable", "Variable concept", "variable_status", "variable_reason"),
+    ("categorical", "Category concepts", "categorical_value_status", "categorical_value_reason"),
+    ("unit", "Unit concept", "unit_status", "unit_reason"),
+    ("visit", "Visit concept", "visit_status", "visit_reason"),
 ]
+
+# Messages of the concept check that repeat what the syntax check already
+# reports (S1, S4, S8, S9): dropped, so one problem is listed once.
+_CDE_DUPLICATES = re.compile(
+    r"exist but|is empty but|Mismatch in number|Multiple .* found|must be strings|"
+    r"Invalid data type for visit|depends on|Additional context depends", re.I)
+_CDE_TYPES = [
+    ("concepts.code_id_mismatch", re.compile(
+        r"do not match|only in capitalization|matched but|Neither concept_id nor concept_code", re.I)),
+    ("concepts.wrong_vocabulary", re.compile(r"Vocabulary prefix missing/unknown", re.I)),
+]
+# "label= FAIL: description" items joined by "; " for a list component. A
+# description may itself contain "; ", so items are split only before a label.
+_CDE_ITEM = re.compile(r";\s(?=[^;=]*=\s(?:PASS|FAIL|N/A):)")
+
+
+def _cde_failures(description: str) -> list[tuple[Optional[str], str]]:
+    """(item label, reason) for each failing part of one component's verdict."""
+    text = (description or "").strip()
+    # "Invalid categorical format ... Additionally <items>": the format part is
+    # S4, reported by the syntax check; keep the per-category verdicts.
+    if text.lower().startswith("invalid categorical format"):
+        _head, _sep, rest = text.partition("Additionally ")
+        text = rest.strip()
+        if not re.search(r"=\s(?:PASS|FAIL|N/A):", text):
+            return []
+    if re.search(r"=\s(?:PASS|FAIL|N/A):", text):
+        out = []
+        for item in _CDE_ITEM.split(text):
+            m = re.match(r"\s*(.*?)=\s(PASS|FAIL|N/A):\s*(.*)$", item, re.S)
+            if m and m.group(2) == "FAIL":
+                out.append((m.group(1).strip() or None, m.group(3).strip().rstrip(";").strip()))
+        return out
+    return [(None, text)]
+
+
+def _cde_issue_type(reason: str) -> Optional[str]:
+    """The issue type of one failing verdict, or None when the syntax check
+    already reports it."""
+    if _CDE_DUPLICATES.search(reason):
+        return None
+    for issue_type, pattern in _CDE_TYPES:
+        if pattern.search(reason):
+            return issue_type
+    return "concepts.other"
 
 
 def _concept_results_path() -> str:
@@ -254,23 +309,46 @@ def _check_cohort_concepts(cohort_id: str) -> dict[str, Any]:
             # CSV holds one row per problem with a status and a description.
             record["status"] = "structure_failed"
             for _, r in result.iterrows():
-                record["issues"].append({"type": "concepts.structure", "variable": None, "row": None,
-                                         "message": str(r.get("description") or "Structure check failed")})
+                text = str(r.get("description") or "Structure check failed")
+                issue_type = "syntax.invalid_domain" if "column 'domain'" in text else "concepts.structure"
+                record["issues"].append({"type": issue_type, "variable": None, "row": None, "message": text})
             return record
         record["status"] = "passed" if verdict else "failed"
         for _, r in result.iterrows():
             if str(r.get("overall_status", "")).strip() != "FAIL":
                 continue
             variable = str(r.get("variable name") or "").strip() or None
-            for issue_type, status_col, reason_col in _CONCEPT_COMPONENTS:
-                if str(r.get(status_col, "")).strip() == "FAIL":
-                    reason = str(r.get(reason_col) or "").strip()
-                    record["issues"].append({"type": issue_type, "variable": variable, "row": None,
-                                             "message": reason if reason.lower() != "nan" else "Fails the OMOP check"})
+            verdicts = [(field, label, str(r.get(reason_col) or ""))
+                        for field, label, status_col, reason_col in _CONCEPT_COMPONENTS
+                        if str(r.get(status_col, "")).strip() == "FAIL"]
             ac = _additional_context_reason(str(r.get("additional_context_status", "")))
             if ac:
-                record["issues"].append({"type": "concepts.additional_context", "variable": variable,
-                                         "row": None, "message": ac})
+                verdicts.append(("additional_context", "Additional context concept", ac))
+            for field, label, description in verdicts:
+                for item, reason in _cde_failures(description):
+                    issue_type = _cde_issue_type(reason)
+                    if issue_type is None or not reason or reason.lower() == "nan":
+                        continue
+                    what = f"{label} '{item}'" if item else label
+                    record["issues"].append({"type": issue_type, "variable": variable, "row": None,
+                                             "field": field, "message": f"{what}: {reason}"})
+
+        # S10 to S14 beyond what the validator checks (src/concept_semantics.py).
+        from src.concept_semantics import check_dictionary
+        semantics = check_dictionary(path)
+        reported = {(i["variable"], i.get("field")) for i in record["issues"]
+                    if i["type"] == "concepts.code_id_mismatch"}
+        for issue in semantics["issues"]:
+            if issue["type"] == "concepts.code_id_mismatch" and (issue["variable"], issue.get("field")) in reported:
+                continue  # the validator already named this disagreement
+            record["issues"].append(issue)
+        if semantics["athena_failed"]:
+            record["issues"].append({
+                "type": "concepts.check_failed", "variable": None, "row": None,
+                "message": f"Athena could not be reached for {semantics['athena_failed']} of "
+                           f"{semantics['concepts_checked']} concepts, so whether they are standard and "
+                           f"valid (S12) was not checked, and ids missing from the local OMOP graph "
+                           f"were not confirmed (S10). Run the check again later."})
         return record
     except Exception as e:
         logger.warning("concept check failed for %s: %s", cohort_id, e)
@@ -418,7 +496,11 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
 
     order = {key: i for i, key in enumerate(ISSUE_TYPES)}
     for issue in issues:
-        category, _label, _desc = ISSUE_TYPES[issue["type"]]
+        if issue["type"] not in ISSUE_TYPES:
+            # A finding stored under a type that has since been renamed.
+            issue["type"] = "concepts.other" if issue["type"].startswith("concepts.") else "syntax.other"
+        category, _label, _desc, spec = ISSUE_TYPES[issue["type"]]
+        issue["spec"] = spec
         issue["category"] = category
         issue.setdefault("level", None)
         issue.setdefault("level_rank", None)
@@ -431,7 +513,8 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
         "cohorts": sorted(set(cohorts) | profiled | {i["cohort"] for i in issues}),
         "cohorts_with_profiling": sorted(profiled),
         "categories": CATEGORIES,
-        "types": [{"key": k, "category": c, "label": l, "description": d} for k, (c, l, d) in ISSUE_TYPES.items()],
+        "types": [{"key": k, "category": c, "label": l, "description": d, "spec": sp}
+                  for k, (c, l, d, sp) in ISSUE_TYPES.items()],
         "issues": issues,
         "sources": {
             "syntax": {"checked_at": syntax.get("generated_at")},

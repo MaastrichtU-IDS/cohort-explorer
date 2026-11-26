@@ -42,7 +42,12 @@ interface IssueType {
   category: string;
   label: string;
   description: string;
+  // Id in the data quality specification (S1 to S14), where the type has one.
+  spec?: string | null;
 }
+
+const typeLabel = (t?: IssueType, fallback = '') =>
+  t ? (t.spec ? `${t.label} (${t.spec})` : t.label) : fallback;
 
 interface Category {
   key: string;
@@ -246,7 +251,7 @@ function DataQualityPage() {
     const header = ['cohort', 'category', 'type', 'variable', 'dictionary_row', 'visit', 'label', 'severity', 'message'];
     const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [header.join(',')].concat(visible.map(i => [
-      i.cohort, i.category, typeByKey[i.type]?.label || i.type, i.variable, i.row, i.visits, i.label,
+      i.cohort, i.category, typeLabel(typeByKey[i.type], i.type), i.variable, i.row, i.visits, i.label,
       i.level || CATEGORY_SEVERITY[i.category]?.label, i.message,
     ].map(esc).join(',')));
     const blob = new Blob([lines.join('\n')], {type: 'text/csv'});
@@ -309,7 +314,7 @@ function DataQualityPage() {
                                  on ? 'bg-base-100 border-base-300' : 'border-transparent opacity-50'}`}>
                           <input type="checkbox" className="checkbox checkbox-xs" checked={on}
                                  onChange={() => toggleType(t.key)} />
-                          <span>{t.label}</span>
+                          <span>{typeLabel(t)}</span>
                           <span className={`badge badge-sm ${CATEGORY_BADGE[cat.key]}`}>{typeCounts[t.key]}</span>
                         </label>
                       );
@@ -418,7 +423,7 @@ function DataQualityPage() {
                   <tr key={`${i.cohort}/${i.type}/${i.variable || ''}/${i.row || ''}/${idx}`}>
                     <td className="whitespace-nowrap align-top">
                       <span className={`badge badge-sm ${CATEGORY_BADGE[i.category]}`} title={t?.description}>
-                        {t?.label || i.type}
+                        {typeLabel(t, i.type)}
                       </span>
                     </td>
                     {!cohort && <td className="whitespace-nowrap align-top">{i.cohort}</td>}
