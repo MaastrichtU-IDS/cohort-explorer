@@ -5,7 +5,9 @@ import {apiUrl} from '@/utils';
 import LoginPrompt from '@/components/LoginPrompt';
 
 // Renders its children only for an administrator. Everyone else gets the sign-in
-// prompt (no session) or a short refusal (signed in, not an admin).
+// prompt (no session, or an expired or invalid one: the backend answers 401 or
+// 403 for those) or a short refusal (signed in, not an admin). A failed request
+// says so rather than claiming the user is not an admin.
 //
 // The check needs only the session cookie, so it runs at once rather than
 // waiting for the cohorts payload. It gates the page, not the data: the
@@ -13,21 +15,33 @@ import LoginPrompt from '@/components/LoginPrompt';
 export default function AdminOnly({children}: {children: React.ReactNode}) {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [needsLogin, setNeedsLogin] = useState(false);
+  const [checkFailed, setCheckFailed] = useState(false);
 
   useEffect(() => {
     fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
-      .then(r => {
-        if (r.status === 401) {
+      .then(async r => {
+        if (r.status === 401 || r.status === 403) {
           setNeedsLogin(true);
-          return {is_admin: false};
+          return;
         }
-        return r.ok ? r.json() : {is_admin: false};
+        if (!r.ok) {
+          setCheckFailed(true);
+          return;
+        }
+        const d = await r.json();
+        setIsAdmin(!!d.is_admin);
       })
-      .then(d => setIsAdmin(!!d.is_admin))
-      .catch(() => setIsAdmin(false));
+      .catch(() => setCheckFailed(true));
   }, []);
 
   if (needsLogin) return <LoginPrompt message="Authenticate to access this page (administrators only)" />;
+  if (checkFailed) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="alert alert-error">Could not check your access to this page. Reload to try again.</div>
+      </div>
+    );
+  }
   if (isAdmin === false) {
     return (
       <div className="container mx-auto p-6">

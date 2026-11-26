@@ -163,7 +163,8 @@ export default function SuspectValuesPage() {
   useEffect(() => {
     fetch(`${apiUrl}/admin/check`, {credentials: 'include'})
       .then(r => {
-        if (r.status === 401) {
+        // 401: no session; 403: an expired or invalid one. Both mean sign in.
+        if (r.status === 401 || r.status === 403) {
           setNeedsLogin(true);
           return {is_admin: false};
         }
