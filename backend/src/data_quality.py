@@ -33,6 +33,7 @@ from typing import Any, Optional
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 
 from src.auth import get_current_user
 from src.config import settings
@@ -854,6 +855,55 @@ def _value_issues() -> tuple[list[dict[str, Any]], Optional[str]]:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+_dictionary_lock = threading.Lock()
+_dictionary_cache: dict[str, Any] = {}
+
+
+def _dictionary_index(cohort_id: str) -> Optional[dict[str, Any]]:
+    """The cohort's current dictionary (the file its card dates too), read once
+    per version of the file: the path, when it was uploaded (the file's date),
+    the columns as written, and each row by lower-cased variable name, with
+    the row number as a spreadsheet shows it (header is row 1)."""
+    from src.upload import current_datadictionary, normalize_column_name
+    folder = os.path.join(settings.cohort_folder, cohort_id)
+    path = current_datadictionary(folder) if os.path.isdir(folder) else None
+    if not path:
+        return None
+    st = os.stat(path)
+    key = f"{path}:{st.st_mtime_ns}:{st.st_size}"
+    with _dictionary_lock:
+        hit = _dictionary_cache.get(cohort_id)
+        if hit and hit["key"] == key:
+            return hit
+    try:
+        df = pd.read_csv(path, na_values=[""], keep_default_na=False, dtype=str).fillna("")
+    except Exception as e:
+        logger.warning("cannot read the dictionary of %s: %s", cohort_id, e)
+        return None
+    columns = [str(c) for c in df.columns]
+    normalized = [normalize_column_name(c) for c in columns]
+    rows: dict[str, dict[str, Any]] = {}
+    for i, values in enumerate(df.itertuples(index=False, name=None)):
+        raw = dict(zip(columns, (str(v) for v in values)))
+        norm = dict(zip(normalized, (str(v).strip() for v in values)))
+        name = norm.get("VARIABLENAME", "").strip()
+        if name and name.lower() not in rows:
+            rows[name.lower()] = {"row": i + 2, "raw": raw, "norm": norm}
+    index = {
+        "key": key, "path": path, "file": os.path.basename(path),
+        "uploaded_at": datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds"),
+        "columns": columns, "rows": rows, "n_variables": len(rows),
+    }
+    with _dictionary_lock:
+        _dictionary_cache[cohort_id] = index
+    return index
+
+
+def _blank(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return None if text.lower() in ("", "na", "nan", "none") else text
+
+
 def _charted_variables(cohort_id: str) -> set[str]:
     """Lower-cased names of the variables that have a distribution chart: the
     {name}.png files the profiling left in the cohort's results folder, which
@@ -914,6 +964,25 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
     value_issues, values_read_at = _value_issues()
     issues += value_issues
     _attach_variable_details(issues)
+    # Label, standard concept name and visit from the dictionary itself, which
+    # holds them for every cohort whatever the state of the cache.
+    dictionaries = {c: _dictionary_index(c) for c in sorted(set(cohorts) | {i["cohort"] for i in issues})}
+    for issue in issues:
+        if not issue.get("variable"):
+            continue
+        index = dictionaries.get(issue["cohort"])
+        entry = (index or {}).get("rows", {}).get(issue["variable"].strip().lower())
+        issue["in_dictionary"] = entry is not None
+        if entry is None:
+            continue
+        norm = entry["norm"]
+        issue["label"] = _blank(norm.get("VARIABLELABEL")) or issue.get("label")
+        issue["concept_name"] = _blank(norm.get("VARIABLE CONCEPT NAME")) or issue.get("concept_name")
+        issue["visit_name"] = _blank(norm.get("VISIT CONCEPT NAME")) or _blank(norm.get("VISITS"))
+        issue["visits"] = _blank(norm.get("VISITS")) or issue.get("visits")
+        issue["units"] = _blank(norm.get("UNITS")) or issue.get("units")
+        issue["omop_id"] = _blank(norm.get("VARIABLE OMOP ID")) or issue.get("omop_id")
+        issue["concept_code"] = _blank(norm.get("VARIABLE CONCEPT CODE")) or issue.get("concept_code")
     charts: dict[str, set[str]] = {}
     for issue in issues:
         if issue.get("variable"):
@@ -941,6 +1010,10 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "cohorts": sorted(set(cohorts) | profiled | {i["cohort"] for i in issues}),
+        # Per cohort: its dictionary (file, when uploaded, how many variables),
+        # how many issues, and how many distinct variables they concern.
+        "cohort_summary": _cohort_summary(sorted(set(cohorts) | profiled | {i["cohort"] for i in issues}),
+                                          issues, dictionaries),
         "cohorts_with_profiling": sorted(profiled),
         # The profiling notes files on disk, per cohort, for the page's buttons.
         "data_issues_files": {c: files for c in sorted(set(cohorts) | profiled)
@@ -988,6 +1061,49 @@ def _known_cohort(cohort: str) -> str:
     if match is None:
         raise HTTPException(status_code=404, detail=f"Unknown cohort {cohort!r}.")
     return match
+
+
+def _cohort_summary(cohorts: list[str], issues: list[dict[str, Any]],
+                    dictionaries: dict[str, Optional[dict[str, Any]]]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for cohort in cohorts:
+        mine = [i for i in issues if i["cohort"] == cohort]
+        index = dictionaries.get(cohort) or _dictionary_index(cohort)
+        out[cohort] = {
+            "issues": len(mine),
+            "variables_with_issues": len({i["variable"].strip().lower() for i in mine if i.get("variable")}),
+            "variables_total": (index or {}).get("n_variables"),
+            "dictionary_file": (index or {}).get("file"),
+            "dictionary_uploaded_at": (index or {}).get("uploaded_at"),
+        }
+    return out
+
+
+@router.get("/data-quality/dictionary/{cohort}")
+def download_dictionary(cohort: str, user: Any = Depends(get_current_user)) -> FileResponse:
+    """The cohort's current dictionary file, as uploaded."""
+    _require_admin(user)
+    cohort_id = _known_cohort(cohort)
+    index = _dictionary_index(cohort_id)
+    if not index:
+        raise HTTPException(status_code=404, detail=f"{cohort_id} has no dictionary.")
+    return FileResponse(index["path"], media_type="text/csv", filename=index["file"])
+
+
+@router.get("/data-quality/dictionary-row/{cohort}/{variable}")
+def dictionary_row(cohort: str, variable: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """One variable's row of the cohort's current dictionary, every column as written."""
+    _require_admin(user)
+    cohort_id = _known_cohort(cohort)
+    index = _dictionary_index(cohort_id)
+    if not index:
+        raise HTTPException(status_code=404, detail=f"{cohort_id} has no dictionary.")
+    entry = index["rows"].get(variable.strip().lower())
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"{variable!r} is not in the dictionary of {cohort_id}.")
+    return {"cohort": cohort_id, "variable": variable, "file": index["file"],
+            "uploaded_at": index["uploaded_at"], "row_number": entry["row"],
+            "columns": index["columns"], "values": entry["raw"]}
 
 
 @router.get("/data-quality/data-issues-files/{cohort}/{name}")
