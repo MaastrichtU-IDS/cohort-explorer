@@ -1027,6 +1027,87 @@ vars_to_graph = list(vars_details.columns)
 vars_to_graph = [x.strip().lower() for x in vars_to_graph]
 vars_to_graph = [x for x in vars_to_graph if x not in patient_id_cols]
 
+# ---------------------------------------------------------------------------
+# Integrity measures for the explorer's data quality page: I4 mixed value
+# formats, I5 duplicate records, I6 rows per participant. Counts only: no value
+# and no identifier leaves the enclave. A failure here is noted and the
+# profiling carries on.
+# ---------------------------------------------------------------------------
+_DEC_POINT = re.compile(r'^[+-]?\d+\.\d+$')
+_DEC_COMMA = re.compile(r'^[+-]?\d+,\d+$')
+_DMY = re.compile(r'^(\d{1,2})[/.\-](\d{1,2})[/.\-]\d{4}$')
+
+def _date_shape(tok):
+    # "2020-01-05" -> "Y-n-n", "5/1/2020 10:00" -> "n/n/Y time": the layout of
+    # a date, ignoring zero padding. None for a token with no digits.
+    parts = re.split(r'[ T]', tok.strip(), maxsplit=1)
+    runs = re.findall(r'\d+|\D+', parts[0])
+    if not any(r.isdigit() for r in runs):
+        return None
+    shape = ''.join(('Y' if len(r) == 4 else 'n') if r.isdigit() else r for r in runs)
+    return shape + (' time' if len(parts) > 1 and parts[1].strip() else '')
+
+integrity_measures = {'n_rows': int(len(raw_data))}
+try:
+    _mixed = {}
+    for _v in list(vars_details.columns):
+        _vl = str(_v).strip().lower()
+        if _vl in patient_id_cols or _vl not in raw_data.columns:
+            continue
+        _d = vars_details[_v]
+        _declared = str(_d.get('declared_type') or '').strip().upper()
+        _inferred = str(_d.get('inferred_type') or '')
+        _toks = candidate_tokens(raw_data[_vl], _missing_codes_of(_d))
+        if len(_toks) == 0:
+            continue
+        if _declared in ('INT', 'FLOAT') or _inferred in ('int', 'float'):
+            _point = int(_toks.str.match(_DEC_POINT).sum())
+            _comma_all = _toks[_toks.str.match(_DEC_COMMA)]
+            # Three digits after a comma may be a thousands separator: counted apart.
+            _comma3 = int(_comma_all.str.match(r'^[+-]?\d+,\d{3}$').sum())
+            _comma = int(len(_comma_all)) - _comma3
+            if _point and _comma:
+                _mixed[_vl] = {'kind': 'decimal', 'decimal_point': _point, 'decimal_comma': _comma,
+                               'comma_three_digits': _comma3}
+        elif _declared == 'DATETIME' or _inferred == 'date':
+            _shapes = _toks.map(_date_shape).dropna().value_counts()
+            _dm = _toks.str.extract(_DMY).dropna().astype(int)
+            _day_first = int((_dm[0] > 12).sum()) if len(_dm) else 0
+            _month_first = int((_dm[1] > 12).sum()) if len(_dm) else 0
+            if len(_shapes) >= 2 or (_day_first and _month_first):
+                _mixed[_vl] = {'kind': 'date',
+                               'shapes': {str(k): int(n) for k, n in _shapes.head(6).items()},
+                               'day_first': _day_first, 'month_first': _month_first}
+    integrity_measures['mixed_formats'] = _mixed
+
+    # Exact duplicate rows: every column identical, whatever the layout.
+    integrity_measures['exact_duplicate_rows'] = int(raw_data.duplicated().sum())
+
+    _id_cols = [c for c in raw_data.columns if c in patient_id_cols]
+    if _id_cols:
+        _ids = raw_data[_id_cols[0]].astype('string').str.strip()
+        _ids = _ids[_ids.notna() & (_ids != '')]
+        _per = _ids.value_counts()
+        _dist = _per.value_counts().sort_index()
+        integrity_measures['patient_id_column'] = _id_cols[0]
+        integrity_measures['rows_per_participant'] = {
+            'participants': int(len(_per)),
+            'rows_with_id': int(len(_ids)),
+            'with_multiple_rows': int((_per > 1).sum()),
+            'max': int(_per.max()) if len(_per) else 0,
+            'median': float(_per.median()) if len(_per) else 0.0,
+            # rows per participant -> how many participants have that many;
+            # the tail is folded into "10+".
+            'distribution': {('10+' if k >= 10 else str(int(k))): 0 for k in _dist.index},
+        }
+        for _k, _n in _dist.items():
+            _key = '10+' if _k >= 10 else str(int(_k))
+            integrity_measures['rows_per_participant']['distribution'][_key] += int(_n)
+        integrity_measures['rows_without_id'] = int(len(raw_data) - len(_ids))
+except Exception as _e:
+    data_issues.append(f"Integrity measures could not be computed: {_e}")
+    integrity_measures['error'] = str(_e)
+
 def _lowercase_if_string(x):
     if isinstance(x, str):
         return x.lower()
@@ -1711,6 +1792,7 @@ def write_structured_v2(structured_stats, stratifier_meta=None):
         'stratified_analysis': stratifier_meta or {},
         'variables': variables,
         'data_issues': data_issues,
+        'integrity': integrity_measures,
     }
     with open("/output/eda_output_v2_{cohort_id}.json", 'w', encoding='utf-8') as f:
         json.dump(output, f, indent=4, default=str)

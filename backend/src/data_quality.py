@@ -94,6 +94,10 @@ ISSUE_TYPES: dict[str, tuple[str, str, str, Optional[str]]] = {
     "integrity.column_not_in_dictionary": ("integrity", "Column not in dictionary", "A data column with no dictionary entry.", "I2"),
     "integrity.type_contradicted": ("integrity", "Type contradicted", "The values of a variable are not of its VARTYPE, such as numbers in a DATETIME variable.", "I3"),
     "integrity.unreadable_values": ("integrity", "Values not readable", "Some values of a variable could not be read as its type.", "I3"),
+    "integrity.mixed_formats": ("integrity", "Mixed value formats", "A variable mixes date formats, day-first and month-first dates, or decimal points and decimal commas.", "I4"),
+    "integrity.duplicate_rows": ("integrity", "Duplicate records", "Rows that are exact copies of an earlier row.", "I5"),
+    "integrity.duplicate_ids": ("integrity", "Duplicate participant IDs", "A few participants appear on more than one row where each should have one.", "I5"),
+    "integrity.record_structure": ("integrity", "Record structure", "Rows per participant do not fit the layout the dictionary describes.", "I6"),
     "values.undeclared_missing_code": ("values", "Undeclared missing code", "A value shaped like a missing code (999, -1) that the dictionary does not declare.", None),
     "values.negative_minimum": ("values", "Negative minimum", "A negative value in a column that is otherwise positive.", None),
     "values.extreme_outlier": ("values", "Extreme outlier", "A value far beyond the rest of its column.", None),
@@ -512,6 +516,12 @@ def _integrity_issues_for(cohort: str, path: str, version: str) -> list[dict[str
                 add("integrity.variable_not_in_data", name,
                     f"The profiling of {when} has no column of this name.")
 
+    # I4 to I6, measured in the enclave (v2 profiling from the version that
+    # added them on; an older profiling has no "integrity" block).
+    measures = raw.get("integrity") if version == "v2" and isinstance(raw.get("integrity"), dict) else None
+    if measures:
+        issues += _measured_integrity_issues(cohort, measures, dictionary_path, when, stale)
+
     # I3: the profiled kind of each variable against its VARTYPE.
     for name, entry in entries.items():
         if not isinstance(entry, dict):
@@ -529,6 +539,93 @@ def _integrity_issues_for(cohort: str, path: str, version: str) -> list[dict[str
                 f"{n} value{'s' if n != 1 else ''} could not be read as {_KIND_WORDS.get(kind or '', kind or 'its type')}"
                 f"{f' (VARTYPE {declared})' if declared else ''}; profiling of {when}.")
     return issues
+
+
+# Share of participants with more than one row from which the data is taken to
+# be in long layout rather than to hold a few duplicated participants.
+_LONG_LAYOUT_SHARE = 0.05
+
+
+def _dictionary_is_wide(dictionary_path: Optional[str]) -> Optional[bool]:
+    """Whether the dictionary puts visits in separate columns: one concept
+    recorded as several variables at different visits (hscrp_bl, hscrp_v12).
+    None when the dictionary cannot be read."""
+    from src.upload import normalize_column_name
+    if not dictionary_path:
+        return None
+    try:
+        df = pd.read_csv(dictionary_path, na_values=[""], keep_default_na=False, dtype=str).fillna("")
+    except Exception:
+        return None
+    df.columns = [normalize_column_name(c) for c in df.columns]
+    if "VISITS" not in df.columns:
+        return False
+    visits_by_concept: dict[str, set[str]] = {}
+    for _, row in df.iterrows():
+        concept = str(row.get("VARIABLE OMOP ID") or row.get("VARIABLE CONCEPT CODE") or "").strip().lower()
+        visit = str(row.get("VISITS") or "").strip().lower()
+        if concept and concept not in ("na", "nan") and visit and visit not in ("na", "nan"):
+            visits_by_concept.setdefault(concept, set()).add(visit)
+    return any(len(v) >= 2 for v in visits_by_concept.values())
+
+
+def _measured_integrity_issues(cohort: str, m: dict[str, Any], dictionary_path: Optional[str],
+                               when: str, stale: bool) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+
+    def add(issue_type: str, variable: Optional[str], message: str) -> None:
+        out.append({"cohort": cohort, "type": issue_type, "variable": variable, "row": None,
+                    "message": message, "stale": stale})
+
+    # I4
+    for variable, f in sorted((m.get("mixed_formats") or {}).items()):
+        if f.get("kind") == "decimal":
+            extra = (f"; {f['comma_three_digits']} more have three digits after a comma, which may be "
+                     f"a thousands separator" if f.get("comma_three_digits") else "")
+            add("integrity.mixed_formats", variable,
+                f"{f.get('decimal_point', 0)} values use a decimal point and {f.get('decimal_comma', 0)} a "
+                f"decimal comma{extra} (profiling of {when}).")
+        elif f.get("kind") == "date":
+            shapes = ", ".join(f"{shape} ({n})" for shape, n in (f.get("shapes") or {}).items())
+            order = ""
+            if f.get("day_first") and f.get("month_first"):
+                order = (f"; {f['day_first']} dates can only be day-first and {f['month_first']} only "
+                         f"month-first")
+            add("integrity.mixed_formats", variable,
+                f"Dates are written in several layouts: {shapes}{order} (Y is a four-digit year, n a "
+                f"day or month; profiling of {when}).")
+
+    # I5: exact copies, whatever the layout.
+    n_rows = m.get("n_rows") or 0
+    dup = m.get("exact_duplicate_rows") or 0
+    if dup:
+        add("integrity.duplicate_rows", None,
+            f"{dup} of {n_rows} rows are exact copies of an earlier row (profiling of {when}).")
+
+    # I5 and I6 from rows per participant, judged against the dictionary's layout.
+    rpp = m.get("rows_per_participant") or {}
+    participants = rpp.get("participants") or 0
+    multi = rpp.get("with_multiple_rows") or 0
+    if participants and multi:
+        wide = _dictionary_is_wide(dictionary_path)
+        share = multi / participants
+        id_col = m.get("patient_id_column") or "the patient identifier"
+        if wide:
+            extra_rows = (rpp.get("rows_with_id") or 0) - participants
+            if share < _LONG_LAYOUT_SHARE:
+                add("integrity.duplicate_ids", id_col,
+                    f"{multi} participants appear on more than one row ({extra_rows} extra rows), but the "
+                    f"dictionary puts each visit in its own column, so each participant should have one "
+                    f"row (profiling of {when}).")
+            else:
+                add("integrity.record_structure", id_col,
+                    f"{multi} of {participants} participants ({share:.0%}) have more than one row (median "
+                    f"{rpp.get('median', 0):g}, up to {rpp.get('max', 0)}), so the data looks long, but the "
+                    f"dictionary puts visits in separate columns, which is a wide layout (profiling of {when}).")
+    if m.get("rows_without_id"):
+        add("integrity.record_structure", m.get("patient_id_column"),
+            f"{m['rows_without_id']} rows have no participant identifier (profiling of {when}).")
+    return out
 
 
 _integrity_lock = threading.Lock()
