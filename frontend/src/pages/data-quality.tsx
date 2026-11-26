@@ -34,6 +34,8 @@ interface Issue {
   omop_id?: string | number | null;
   concept_code?: string | null;
   stale?: boolean;
+  // Whether the variable has a distribution chart from the profiling.
+  has_chart?: boolean;
   // A dictionary syntax issue: the upload validation would reject the dictionary.
   blocks_upload?: boolean;
 }
@@ -423,7 +425,6 @@ function DataQualityPage() {
     return next;
   });
 
-  const profiled = useMemo(() => new Set(data?.cohorts_with_profiling || []), [data]);
 
   const conceptStatus = cohort ? data?.sources.concepts.cohorts[cohort] : undefined;
   const conceptCheckedCount = useMemo(
@@ -627,7 +628,7 @@ function DataQualityPage() {
                           </div>
                           {i.label && <div className="text-xs text-base-content/60 truncate" title={i.label}>{i.label}</div>}
                           {i.units && <div className="text-xs text-base-content/40">{i.units}</div>}
-                          {profiled.has(i.cohort) && (
+                          {i.has_chart ? (
                             <div className="mt-1">
                               <button
                                 className="btn-sm rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-100 dark:bg-teal-900/30 dark:border-teal-700 inline-flex items-center gap-1.5 px-2"
@@ -638,6 +639,8 @@ function DataQualityPage() {
                                 <span className="text-xs font-medium text-teal-800 dark:text-teal-300">summary statistics</span>
                               </button>
                             </div>
+                          ) : (
+                            <div className="mt-1 text-[11px] text-base-content/50">This variable has no EDA information.</div>
                           )}
                         </>
                       ) : (

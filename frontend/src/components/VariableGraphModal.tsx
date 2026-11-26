@@ -35,7 +35,9 @@ const VariableGraphModal: React.FC<VariableGraphModalProps> = ({
 
   return (
     <div className="modal modal-open">
-      <div className="modal-box space-y-2 max-w-5xl">
+      {/* Taller than a default modal box, and the chart is scaled to the room
+          left under the header, so the whole chart shows without scrolling. */}
+      <div className="modal-box space-y-2 w-auto min-w-[min(36rem,95vw)] max-w-[95vw] max-h-[96vh] overflow-hidden p-4">
         {/* Add a header with the close button */}
         <div className="flex justify-between items-center">
           <h3 className="font-bold text-lg">{variableLabel || variableName} Distribution</h3>
@@ -66,7 +68,8 @@ const VariableGraphModal: React.FC<VariableGraphModalProps> = ({
                   key={`${cohortId}-${variableName}`}
                   src={imageUrl}
                   alt={`${variableName} distribution graph`}
-                  className={`max-w-full transition-opacity duration-300 ${
+                  style={{maxHeight: 'calc(96vh - 5.5rem)'}}
+                  className={`max-w-full w-auto h-auto object-contain mx-auto transition-opacity duration-300 ${
                     imageState === 'loaded' ? 'opacity-100' : 'opacity-0'
                   }`}
                   onError={() => setImageState('error')}

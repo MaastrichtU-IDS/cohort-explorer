@@ -854,6 +854,17 @@ def _value_issues() -> tuple[list[dict[str, Any]], Optional[str]]:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+def _charted_variables(cohort_id: str) -> set[str]:
+    """Lower-cased names of the variables that have a distribution chart: the
+    {name}.png files the profiling left in the cohort's results folder, which
+    is where /api/variable-graph serves them from."""
+    folder = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+    try:
+        return {n[:-4].lower() for n in os.listdir(folder) if n.lower().endswith(".png")}
+    except OSError:
+        return set()
+
+
 def _require_admin(user: dict[str, Any]) -> None:
     if user.get("email") not in settings.admins_list:
         raise HTTPException(status_code=403, detail="Admins only.")
@@ -903,6 +914,12 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
     value_issues, values_read_at = _value_issues()
     issues += value_issues
     _attach_variable_details(issues)
+    charts: dict[str, set[str]] = {}
+    for issue in issues:
+        if issue.get("variable"):
+            if issue["cohort"] not in charts:
+                charts[issue["cohort"]] = _charted_variables(issue["cohort"])
+            issue["has_chart"] = issue["variable"].strip().lower() in charts[issue["cohort"]]
 
     order = {key: i for i, key in enumerate(ISSUE_TYPES)}
     for issue in issues:
