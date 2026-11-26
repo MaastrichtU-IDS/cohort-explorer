@@ -12,6 +12,18 @@ import LoginPrompt from '@/components/LoginPrompt';
 // The check needs only the session cookie, so it runs at once rather than
 // waiting for the cohorts payload. It gates the page, not the data: the
 // endpoints a page calls apply their own rules.
+// Whether the session is missing, expired or invalid. A data endpoint answers
+// 403 both for that and for "admins only"; /admin/check tells them apart, since
+// it answers 401 or 403 only for the session and 200 for any signed-in user.
+export async function sessionIsGone(): Promise<boolean> {
+  try {
+    const r = await fetch(`${apiUrl}/admin/check`, {credentials: 'include'});
+    return r.status === 401 || r.status === 403;
+  } catch {
+    return false;
+  }
+}
+
 export default function AdminOnly({children}: {children: React.ReactNode}) {
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [needsLogin, setNeedsLogin] = useState(false);

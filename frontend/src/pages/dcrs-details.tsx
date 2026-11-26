@@ -13,6 +13,7 @@ import {
   groupEventsBySession,
 } from '@/components/dcrSessions';
 import { DcrLogPanel } from '@/components/DcrLogPanel';
+import {sessionIsGone} from '@/components/AdminOnly';
 
 type FilterMode = 'all' | 'completed' | 'abandoned';
 
@@ -30,7 +31,8 @@ export default function DcrsDetailsPage() {
       setError(null);
       try {
         const response = await fetch(`${apiUrl}/dcr-events`, { credentials: 'include' });
-        if (response.status === 401) {
+        // 401: no session. 403: an expired session, or a user who is not an admin.
+        if (response.status === 401 || (response.status === 403 && await sessionIsGone())) {
           setNeedsLogin(true);
           return;
         }

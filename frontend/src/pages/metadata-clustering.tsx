@@ -7,6 +7,7 @@ import {apiUrl} from '@/utils';
 import LoginPrompt from '@/components/LoginPrompt';
 import ThemeVocabularyManager from '@/components/ThemeVocabularyManager';
 import {AiExplanation, MatchList, MetadataElement, MetadataMatch, SourceBadge} from '@/components/MetadataMatches';
+import {sessionIsGone} from '@/components/AdminOnly';
 
 interface FieldGroup {
   group: string;
@@ -105,7 +106,8 @@ export default function MetadataClusteringPage() {
   const loadStatus = useCallback(async () => {
     try {
       const r = await fetch(`${apiUrl}/api/metadata-clustering/status`, {credentials: 'include'});
-      if (r.status === 401) {
+      // 401: no session. 403: an expired session, or a user who is not an admin.
+      if (r.status === 401 || (r.status === 403 && await sessionIsGone())) {
         setNeedsLogin(true);
         return null;
       }
