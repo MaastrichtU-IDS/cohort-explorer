@@ -9,27 +9,30 @@ concurrency:
   group: "pages"
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Build and deploy are separate jobs, as in GitHub's own Pages workflows. In a
+# single job, deploy-pages looked the artifact up seconds after the upload and
+# intermittently got "No artifacts named github-pages were found" although the
+# artifact was there. A separate job starts once the upload is complete, and a
+# failed deploy can be re-run on its own without rebuilding.
 jobs:
 
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'zulu'
@@ -44,7 +47,6 @@ jobs:
         run: |
           bash scripts/docs-build.sh
 
-
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v4
@@ -54,6 +56,13 @@ jobs:
         with:
           path: './docs'
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
