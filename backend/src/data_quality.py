@@ -56,8 +56,6 @@ CATEGORIES: list[dict[str, str]] = [
 
 # key → (category, label, description). The order is the order on the page.
 ISSUE_TYPES: dict[str, tuple[str, str, str]] = {
-    "syntax.no_dictionary": ("syntax", "No dictionary", "The cohort has no data dictionary on file."),
-    "syntax.unreadable": ("syntax", "Dictionary unreadable", "The dictionary file could not be parsed at all."),
     "syntax.missing_columns": ("syntax", "Missing required columns", "Columns every dictionary must have are absent."),
     "syntax.duplicate_variable": ("syntax", "Duplicate variable names", "The same VARIABLENAME appears on several rows."),
     "syntax.missing_required_field": ("syntax", "Missing required field", "A required cell of a row is empty."),
@@ -170,13 +168,9 @@ def _syntax_issues(report: dict[str, Any]) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
     for c in report.get("cohorts", []):
         cohort = c["cohort_id"]
-        if c["status"] in ("no_dictionary", "no_folder"):
-            issues.append({"cohort": cohort, "type": "syntax.no_dictionary", "variable": None, "row": None,
-                           "message": "No data dictionary has been uploaded for this cohort."})
-            continue
-        if c["status"] == "failed":
-            issues.append({"cohort": cohort, "type": "syntax.unreadable", "variable": None, "row": None,
-                           "message": f"{c.get('file') or 'The dictionary'} could not be read: {c.get('error')}"})
+        # A cohort without a dictionary has nothing to be wrong yet, and a file
+        # that cannot be parsed is turned away at upload: neither is listed.
+        if c["status"] in ("no_dictionary", "no_folder", "failed"):
             continue
         for message in c.get("errors") or []:
             issues.append({"cohort": cohort, **_classify_syntax(message, rules)})
