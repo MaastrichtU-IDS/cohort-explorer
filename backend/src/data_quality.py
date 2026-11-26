@@ -133,7 +133,7 @@ EXAMPLES: dict[str, str] = {
     "concepts.wrong_domain": "DOMAIN 'condition_occurrence' with a Measurement concept; a unit concept outside the Unit domain.",
     "concepts.deprecated": "A SNOMED code that Athena marks deprecated or replaced by another.",
     "concepts.non_standard": "An ICD-10 code or an ATC class where OMOP expects a standard SNOMED or RxNorm concept.",
-    "concepts.name_mismatch": "Concept name 'Blood sugar' for a code OMOP calls 'Glucose [Mass/volume] in Serum or Plasma'.",
+    "concepts.name_mismatch": "The dictionary associates loinc:2345-7 with the name 'Blood sugar'; LOINC associates it with 'Glucose [Mass/volume] in Serum or Plasma'.",
     "concepts.vartype_implausible": "A quantitative LOINC test declared STR; a nominal one declared FLOAT.",
     "concepts.unit_implausible": "A LOINC mass concentration ([Mass/volume]) with UNITS 'mmol/L'.",
     "concepts.structure": "A DOMAIN value the concept check does not accept, or columns it cannot find.",

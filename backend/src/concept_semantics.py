@@ -40,7 +40,6 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from difflib import SequenceMatcher
 from typing import Any, Optional
 
 import pandas as pd
@@ -407,10 +406,17 @@ def check_dictionary(dict_path: str) -> dict[str, Any]:
                 written = _norm_name(a["name"])
                 known = {_norm_name(vocab_name)} | {_norm_name(s) for s in (rec or {}).get("synonyms", [])}
                 if written and written not in known:
-                    similarity = SequenceMatcher(None, written, _norm_name(vocab_name)).ratio()
-                    issues.append(_issue("concepts.name_mismatch", variable, row_no, a,
-                                         f"the vocabulary calls it '{vocab_name}' "
-                                         f"({similarity:.0%} similar to the name written here)."))
+                    # Plainly: what the dictionary calls the code, and what the
+                    # code's own vocabulary calls it.
+                    vocabulary = ((rec or {}).get("vocabulary") or a["vocab"] or "the vocabulary").strip()
+                    field = a["field_label"][0].lower() + a["field_label"][1:]
+                    id_part = f" (OMOP {a['omop_id']})" if a["omop_id"] is not None else ""
+                    issues.append({
+                        "type": "concepts.name_mismatch", "variable": variable, "row": row_no, "field": a["field"],
+                        "message": (f"The dictionary associates {field} {a['code']}{id_part} with the name "
+                                    f"'{a['name']}'. {vocabulary} instead associates {a['code']} with the "
+                                    f"name '{vocab_name}'."),
+                    })
 
             # S14: declarations against what a LOINC variable concept implies.
             if a["field"] == "variable" and graph is not None and a["omop_id"] is not None:
