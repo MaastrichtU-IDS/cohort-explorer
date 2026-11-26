@@ -2266,6 +2266,21 @@ def run_computation_get_output(dcr_id: str, background_tasks: BackgroundTasks, u
     result.extractall(str(storage_dir))
     if longitudinal_result is not None:
         longitudinal_result.extractall(str(storage_dir))
+
+    # c1's comparison of the dictionary's variable names with the data's column
+    # names (names only, no values), for the data quality page: variables
+    # missing from the data (I1) and columns missing from the dictionary (I2).
+    # c1 has already run as a dependency of c3, so this only collects its output.
+    try:
+        c1_result = dcr.get_node("c1_data_dict_check").run_computation_and_get_results_as_zip()
+        wanted = {"in_dictionary_not_in_dataset.csv", "in_dataset_not_in_dictionary.csv"}
+        for member in c1_result.namelist():
+            name = os.path.basename(member)
+            if name in wanted:
+                with open(os.path.join(storage_dir, name), "wb") as f:
+                    f.write(c1_result.read(member))
+    except Exception as e:
+        logging.warning(f"DCR {dcr_id}: could not collect the c1 name comparison: {e}")
     os.sync()
 
     # Update this cohort's EDA markers (eda_version / has_longitudinal) in the

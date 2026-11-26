@@ -50,6 +50,8 @@ CATEGORIES: list[dict[str, str]] = [
      "description": "Problems in how the data dictionary is written. Each one blocks a dictionary upload."},
     {"key": "concepts", "label": "Concept codes",
      "description": "Concept codes that do not match OMOP: wrong code, wrong name for the code, or a code that does not exist."},
+    {"key": "integrity", "label": "Dictionary vs data",
+     "description": "Whether the dictionary and the dataset describe the same thing, from the last variable profiling."},
     {"key": "values", "label": "Data values",
      "description": "Values in the profiled data that are probably not real measurements."},
 ]
@@ -88,6 +90,10 @@ ISSUE_TYPES: dict[str, tuple[str, str, str, Optional[str]]] = {
     "concepts.structure": ("concepts", "Dictionary structure", "The concept check could not read the dictionary's columns.", None),
     "concepts.other": ("concepts", "Other concept issue", "A concept problem of another kind.", None),
     "concepts.check_failed": ("concepts", "Check incomplete", "The concept check stopped with an error, or Athena could not be reached for some concepts.", None),
+    "integrity.variable_not_in_data": ("integrity", "Variable not in data", "A dictionary variable with no matching column in the data.", "I1"),
+    "integrity.column_not_in_dictionary": ("integrity", "Column not in dictionary", "A data column with no dictionary entry.", "I2"),
+    "integrity.type_contradicted": ("integrity", "Type contradicted", "The values of a variable are not of its VARTYPE, such as numbers in a DATETIME variable.", "I3"),
+    "integrity.unreadable_values": ("integrity", "Values not readable", "Some values of a variable could not be read as its type.", "I3"),
     "values.undeclared_missing_code": ("values", "Undeclared missing code", "A value shaped like a missing code (999, -1) that the dictionary does not declare.", None),
     "values.negative_minimum": ("values", "Negative minimum", "A negative value in a column that is otherwise positive.", None),
     "values.extreme_outlier": ("values", "Extreme outlier", "A value far beyond the rest of its column.", None),
@@ -406,6 +412,153 @@ def _concept_issues(cohort_ids: list[str]) -> tuple[list[dict[str, Any]], dict[s
 
 
 # ---------------------------------------------------------------------------
+# Dictionary vs data (I1 to I3), from the variable profiling
+# ---------------------------------------------------------------------------
+
+def _profiled_kind(entry: dict[str, Any], version: str) -> Optional[str]:
+    """numeric, categorical, date or text: how the profiling read the column."""
+    raw = str(entry.get("type") or "").lower()
+    for kind in ("numeric", "categorical", "date", "text"):
+        if raw.startswith(kind) or (kind == "date" and raw.startswith("datetime")):
+            return kind
+    return None
+
+
+def _declared_type(entry: dict[str, Any], version: str) -> str:
+    if version == "v2":
+        meta = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+        return str(meta.get("var_type") or "").strip().upper()
+    return str(entry.get("vartype (metadata dictionary)") or "").strip().upper()
+
+
+# VARTYPE → the profiled kinds its values may come out as. A coded INT or FLOAT
+# variable comes out categorical, and a STR variable with few distinct values
+# does too, so categorical fits every type except DATETIME.
+_KINDS_FITTING = {
+    "INT": {"numeric", "categorical"},
+    "FLOAT": {"numeric", "categorical"},
+    "STR": {"categorical", "text"},
+    "DATETIME": {"date"},
+}
+
+_KIND_WORDS = {"numeric": "numbers", "categorical": "a few distinct codes",
+               "date": "dates", "text": "free text"}
+
+
+def _c1_names(folder: str, filename: str, column: str) -> Optional[list[str]]:
+    path = os.path.join(folder, filename)
+    if not os.path.exists(path):
+        return None
+    try:
+        df = pd.read_csv(path, dtype=str, keep_default_na=False)
+    except Exception:
+        return None
+    return [str(v).strip() for v in df.get(column, pd.Series(dtype=str)).tolist() if str(v).strip()]
+
+
+def _integrity_issues_for(cohort: str, path: str, version: str) -> list[dict[str, Any]]:
+    from src.upload import get_latest_datadictionary, normalize_column_name
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f, parse_constant=lambda _c: None)
+    entries = raw.get("variables") if version == "v2" else raw
+    if not isinstance(entries, dict):
+        return []
+    profiled_at = datetime.fromtimestamp(os.path.getmtime(path))
+    when = profiled_at.strftime("%d.%m.%Y")
+    folder = os.path.dirname(path)
+
+    dictionary_path = get_latest_datadictionary(os.path.join(settings.cohort_folder, cohort))
+    stale = bool(dictionary_path) and datetime.fromtimestamp(os.path.getmtime(dictionary_path)) > profiled_at
+    issues: list[dict[str, Any]] = []
+
+    def add(issue_type: str, variable: Optional[str], message: str) -> None:
+        issues.append({"cohort": cohort, "type": issue_type, "variable": variable, "row": None,
+                       "message": message, "stale": stale})
+
+    # I1 and I2. c1's own comparison where the server has it (collected with the
+    # profiling since it was added); it is case-sensitive while the profiling is
+    # not, so a name differing only in case is taken as a match.
+    not_in_data = _c1_names(folder, "in_dictionary_not_in_dataset.csv", "In Dictionary Not in Dataset")
+    not_in_dict = _c1_names(folder, "in_dataset_not_in_dictionary.csv", "In Dataset Not in Dictionary")
+    if not_in_data is not None and not_in_dict is not None:
+        case_only = {n.lower() for n in not_in_data} & {n.lower() for n in not_in_dict}
+        for name in sorted(not_in_data, key=str.lower):
+            if name.lower() not in case_only:
+                add("integrity.variable_not_in_data", name,
+                    f"No column of this name in the data (profiling of {when}).")
+        for name in sorted(not_in_dict, key=str.lower):
+            if name.lower() not in case_only:
+                add("integrity.column_not_in_dictionary", name,
+                    f"A data column with no entry in the dictionary (profiling of {when}).")
+    elif dictionary_path:
+        # Without c1's lists: the profiling covers every column that is in both
+        # the data and the dictionary, so a dictionary variable it has no entry
+        # for is missing from the data, unless the profiling says it was a
+        # patient identifier or failed. Columns missing from the dictionary
+        # leave no trace, so I2 waits for the next profiling download.
+        notes = [str(n) for n in (raw.get("data_issues") or [])] if version == "v2" else []
+        skipped = set()
+        for note in notes:
+            m = re.match(r"Variable (\S+) is a patient identifier", note) or \
+                re.match(r"Failed to perform EDA on column (\S+?)\.", note)
+            if m:
+                skipped.add(m.group(1).strip().lower())
+        profiled = {str(k).strip().lower() for k in entries}
+        df = pd.read_csv(dictionary_path, na_values=[""], keep_default_na=False, dtype=str).fillna("")
+        df.columns = [normalize_column_name(c) for c in df.columns]
+        for name in df.get("VARIABLENAME", pd.Series(dtype=str)).tolist():
+            name = str(name).strip()
+            if name and name.lower() not in profiled and name.lower() not in skipped:
+                add("integrity.variable_not_in_data", name,
+                    f"The profiling of {when} has no column of this name.")
+
+    # I3: the profiled kind of each variable against its VARTYPE.
+    for name, entry in entries.items():
+        if not isinstance(entry, dict):
+            continue
+        declared = _declared_type(entry, version)
+        kind = _profiled_kind(entry, version)
+        if declared in _KINDS_FITTING and kind and kind not in _KINDS_FITTING[declared]:
+            add("integrity.type_contradicted", name,
+                f"VARTYPE is {declared}, but the values came out as {_KIND_WORDS[kind]} (profiling of {when}).")
+        comp = entry.get("completeness") if isinstance(entry.get("completeness"), dict) else {}
+        n_invalid = comp.get("n_invalid") or 0
+        if isinstance(n_invalid, (int, float)) and n_invalid > 0:
+            n = int(n_invalid)
+            add("integrity.unreadable_values", name,
+                f"{n} value{'s' if n != 1 else ''} could not be read as {_KIND_WORDS.get(kind or '', kind or 'its type')}"
+                f"{f' (VARTYPE {declared})' if declared else ''}; profiling of {when}.")
+    return issues
+
+
+_integrity_lock = threading.Lock()
+_integrity_cache: dict[str, Any] = {"signature": None, "issues": None}
+
+
+def _integrity_issues() -> list[dict[str, Any]]:
+    from src.suspect_values import _profiling_files, _signature
+    files = _profiling_files()
+    c1 = []
+    for cohort_id, path, _v in files:
+        for name in ("in_dictionary_not_in_dataset.csv", "in_dataset_not_in_dictionary.csv"):
+            p = os.path.join(os.path.dirname(path), name)
+            c1.append(f"{name}:{os.path.getmtime(p) if os.path.exists(p) else 0}")
+    signature = _signature(files) + "|" + "|".join(c1) + "|" + _dictionary_signature()
+    with _integrity_lock:
+        if _integrity_cache["signature"] == signature and _integrity_cache["issues"] is not None:
+            return [dict(i) for i in _integrity_cache["issues"]]
+    issues: list[dict[str, Any]] = []
+    for cohort_id, path, version in files:
+        try:
+            issues += _integrity_issues_for(cohort_id, path, version)
+        except Exception as e:
+            logger.warning("integrity check failed for %s: %s", cohort_id, e)
+    with _integrity_lock:
+        _integrity_cache.update(signature=signature, issues=issues)
+    return [dict(i) for i in issues]
+
+
+# ---------------------------------------------------------------------------
 # Data values
 # ---------------------------------------------------------------------------
 
@@ -496,6 +649,7 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
     issues = _syntax_issues(syntax)
     concept_issues, concept_status = _concept_issues(cohorts)
     issues += concept_issues
+    issues += _integrity_issues()
     value_issues, values_read_at = _value_issues()
     issues += value_issues
     _attach_variable_details(issues)

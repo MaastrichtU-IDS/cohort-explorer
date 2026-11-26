@@ -82,6 +82,7 @@ interface Payload {
 const CATEGORY_BADGE: Record<string, string> = {
   syntax: 'badge-secondary',
   concepts: 'badge-accent',
+  integrity: 'badge-neutral',
   values: 'badge-primary',
 };
 
@@ -89,6 +90,7 @@ const CATEGORY_BADGE: Record<string, string> = {
 const CATEGORY_SEVERITY: Record<string, {label: string; badge: string; title: string}> = {
   syntax: {label: 'Blocks upload', badge: 'badge-error badge-outline', title: 'A dictionary with this issue is rejected on upload'},
   concepts: {label: 'Fails check', badge: 'badge-warning badge-outline', title: 'The concept does not match OMOP'},
+  integrity: {label: 'Mismatch', badge: 'badge-neutral badge-outline', title: 'The dictionary and the profiled data disagree'},
 };
 
 const LEVEL_BADGE: Record<string, string> = {
@@ -277,8 +279,8 @@ function DataQualityPage() {
       </div>
       <p className="text-sm text-base-content/70 mb-5 max-w-3xl">
         Every known issue of a cohort in one list: mistakes in how the data dictionary is written,
-        concept codes that do not match OMOP, and values in the data that are probably not real
-        measurements.
+        concept codes that do not match OMOP, places where the dictionary and the data disagree, and
+        values in the data that are probably not real measurements.
       </p>
 
       <div className="card bg-base-200 mb-5">
