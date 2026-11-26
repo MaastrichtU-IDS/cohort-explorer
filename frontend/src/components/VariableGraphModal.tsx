@@ -35,10 +35,11 @@ const VariableGraphModal: React.FC<VariableGraphModalProps> = ({
 
   return (
     <div className="modal modal-open">
-      {/* The width it always had; the height may reach 90% of the window, and
-          the chart is scaled down to the room left under the header, so a tall
-          chart shows whole without scrolling. */}
-      <div className="modal-box space-y-2 max-w-5xl max-h-[90vh] overflow-hidden">
+      {/* The width it always had. The height may reach the window's less 1rem,
+          about four lines more than a modal box's default (100vh - 5em), which
+          fell a few lines short of the profiling charts; a chart taller still
+          is scaled down to the room under the header rather than scrolled. */}
+      <div className="modal-box space-y-2 max-w-5xl max-h-[calc(100vh-1rem)] overflow-hidden">
         {/* Add a header with the close button */}
         <div className="flex justify-between items-center">
           <h3 className="font-bold text-lg">{variableLabel || variableName} Distribution</h3>
@@ -69,7 +70,7 @@ const VariableGraphModal: React.FC<VariableGraphModalProps> = ({
                   key={`${cohortId}-${variableName}`}
                   src={imageUrl}
                   alt={`${variableName} distribution graph`}
-                  style={{maxHeight: 'calc(90vh - 6.5rem)'}}
+                  style={{maxHeight: 'calc(100vh - 7rem)'}}
                   className={`max-w-full w-auto h-auto object-contain mx-auto transition-opacity duration-300 ${
                     imageState === 'loaded' ? 'opacity-100' : 'opacity-0'
                   }`}
