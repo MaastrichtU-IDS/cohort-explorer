@@ -769,6 +769,9 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "cohorts": sorted(set(cohorts) | profiled | {i["cohort"] for i in issues}),
         "cohorts_with_profiling": sorted(profiled),
+        # The profiling notes files on disk, per cohort, for the page's buttons.
+        "data_issues_files": {c: files for c in sorted(set(cohorts) | profiled)
+                              if (files := _data_issues_files(c))},
         "categories": CATEGORIES,
         "types": [{"key": k, "category": c, "label": l, "description": d, "spec": sp}
                   for k, (c, l, d, sp) in ISSUE_TYPES.items()],
@@ -779,6 +782,53 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
             "values": {"read_at": values_read_at},
         },
     }
+
+
+# The notes the profiling enclave writes next to its results, by file name:
+# label for the page. Only these names are ever served.
+DATA_ISSUES_FILES = {
+    "data_issues.json": "Profiling notes",
+    "data_issues_longitudinal.json": "Longitudinal notes",
+}
+
+
+def _data_issues_files(cohort_id: str) -> list[dict[str, Any]]:
+    folder = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}")
+    out = []
+    for name, label in DATA_ISSUES_FILES.items():
+        path = os.path.join(folder, name)
+        if os.path.isfile(path):
+            st = os.stat(path)
+            out.append({"name": name, "label": label, "size": st.st_size,
+                        "generated_at": datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")})
+    return out
+
+
+def _known_cohort(cohort: str) -> str:
+    """The cohort id as the catalog or the profiling folders spell it; 404 otherwise.
+    It becomes part of a path, so only a known id is accepted."""
+    from src.suspect_values import _profiling_files
+    known = set(_known_cohorts()) | {c for c, _p, _v in _profiling_files()}
+    match = next((c for c in known if c.lower() == cohort.strip().lower()), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail=f"Unknown cohort {cohort!r}.")
+    return match
+
+
+@router.get("/data-quality/data-issues-files/{cohort}/{name}")
+def get_data_issues_file(cohort: str, name: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """The text of one of a cohort's profiling notes files."""
+    _require_admin(user)
+    if name not in DATA_ISSUES_FILES:
+        raise HTTPException(status_code=404, detail="No such file.")
+    cohort_id = _known_cohort(cohort)
+    entry = next((f for f in _data_issues_files(cohort_id) if f["name"] == name), None)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"{cohort_id} has no {name}.")
+    path = os.path.join(settings.data_folder, f"dcr_output_{cohort_id}", name)
+    with open(path, encoding="utf-8", errors="replace") as f:
+        content = f.read()
+    return {**entry, "cohort": cohort_id, "content": content}
 
 
 @router.post("/data-quality/concept-check")

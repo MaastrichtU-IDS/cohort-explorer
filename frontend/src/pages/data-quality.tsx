@@ -9,7 +9,7 @@
 
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import Link from 'next/link';
-import {AlertTriangle, Download, Play, RefreshCw, Search} from 'react-feather';
+import {AlertTriangle, Download, FileText, Play, RefreshCw, Search, X} from 'react-feather';
 import {apiUrl} from '@/utils';
 import AdminOnly from '@/components/AdminOnly';
 import VariableGraphModal from '@/components/VariableGraphModal';
@@ -69,6 +69,8 @@ interface Payload {
   generated_at: string;
   cohorts: string[];
   cohorts_with_profiling: string[];
+  // The profiling notes files on disk, per cohort (only cohorts that have any).
+  data_issues_files?: Record<string, DataIssuesFile[]>;
   categories: Category[];
   types: IssueType[];
   issues: Issue[];
@@ -107,6 +109,77 @@ const num = (v?: number | null): string => {
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 };
 
+interface DataIssuesFile {
+  name: string;
+  label: string;
+  size: number;
+  generated_at: string;
+}
+
+// dd.mm.yyyy hh:mm, the date style used across the explorer.
+const fmtDayFirst = (iso?: string | null): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+// A file's text in an overlay. Closes on Escape, on the backdrop or on the button.
+const FileOverlay = ({cohort, file, onClose}: {cohort: string; file: DataIssuesFile; onClose: () => void}) => {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    fetch(`${apiUrl}/api/data-quality/data-issues-files/${encodeURIComponent(cohort)}/${encodeURIComponent(file.name)}`,
+          {credentials: 'include'})
+      .then(async r => {
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(d => { if (live) setContent(d.content ?? ''); })
+      .catch(e => { if (live) setError(e?.message || 'Could not load the file'); });
+    return () => { live = false; };
+  }, [cohort, file.name]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-base-100 rounded-lg shadow-xl w-full max-w-5xl max-h-[85vh] flex flex-col"
+           onClick={e => e.stopPropagation()} role="dialog" aria-modal="true">
+        <div className="flex items-start gap-3 px-5 py-3 border-b border-base-300">
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold">{cohort}: {file.label}</div>
+            <div className="text-xs text-base-content/60">
+              <span className="font-mono">{file.name}</span> · generated {fmtDayFirst(file.generated_at)}
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-sm btn-square" onClick={onClose} title="Close (Esc)">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="overflow-auto px-5 py-4">
+          {error ? (
+            <div className="alert alert-error text-sm">{error}</div>
+          ) : content === null ? (
+            <div className="flex items-center gap-2 text-base-content/70">
+              <span className="loading loading-spinner loading-sm" /> Loading…
+            </div>
+          ) : (
+            <pre className="font-mono text-sm whitespace-pre-wrap break-words">{content || '(empty file)'}</pre>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const fmtDate = (iso?: string | null): string => {
   if (!iso) return '';
   const d = new Date(iso.replace(' ', 'T'));
@@ -130,6 +203,8 @@ function DataQualityPage() {
 
   const [job, setJob] = useState<ConceptJob | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
+  // The profiling notes file open in the overlay, if any.
+  const [openFile, setOpenFile] = useState<DataIssuesFile | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -285,10 +360,25 @@ function DataQualityPage() {
 
       <div className="card bg-base-200 mb-5">
         <div className="card-body p-5 gap-4">
+          {/* The chosen cohort's profiling notes files, when the server has them. */}
+          {cohort && (data?.data_issues_files?.[cohort] || []).length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 self-start">
+              {(data?.data_issues_files?.[cohort] || []).map(f => (
+                <button key={f.name} className="btn btn-sm btn-outline gap-2 h-auto py-1.5" onClick={() => setOpenFile(f)}
+                        title={`Open ${f.name}`}>
+                  <FileText size={14} />
+                  <span className="flex flex-col items-start leading-tight">
+                    <span>{f.label}</span>
+                    <span className="text-[11px] font-normal opacity-70">generated {fmtDayFirst(f.generated_at)}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
           <label className="form-control w-full max-w-xl mx-auto">
             <span className="label-text font-semibold mb-1">Cohort</span>
             <select className="select select-bordered select-lg w-full" value={cohort}
-                    onChange={e => setCohort(e.target.value)}>
+                    onChange={e => { setCohort(e.target.value); setOpenFile(null); }}>
               <option value="">All cohorts</option>
               {(data?.cohorts || []).map(c => (
                 <option key={c} value={c}>{c}{byCohort[c] ? ` (${byCohort[c]})` : ' (no issues)'}</option>
@@ -496,6 +586,10 @@ function DataQualityPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {openFile && cohort && (
+        <FileOverlay cohort={cohort} file={openFile} onClose={() => setOpenFile(null)} />
       )}
 
       {chartOf && chartOf.variable && (
