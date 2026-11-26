@@ -372,6 +372,7 @@ function DataQualityPage() {
   const setCohort = (next: string) => {
     setOpenFile(null);
     setRowOf(null);
+    setQuery('');
     router.push({pathname: router.pathname, query: next ? {cohort: next} : {}}, undefined, {shallow: true});
   };
 
@@ -654,7 +655,7 @@ function DataQualityPage() {
 
   // A variable: name, visit and row, its label, standard concept and visit
   // names, the chart button (or a note that it has none), and its dictionary row.
-  const variableCell = (i: Issue, withRow = true) => {
+  const variableCell = (i: Issue, withRow = true, withVisitAndUnits = true) => {
     if (!i.variable) {
       return <span className="text-xs text-base-content/50">{i.row ? `row ${i.row}` : 'whole dictionary or dataset'}</span>;
     }
@@ -668,11 +669,11 @@ function DataQualityPage() {
         {i.concept_name && (
           <div className="text-xs text-base-content/60"><span className="text-base-content/45">Concept: </span>{i.concept_name}</div>
         )}
-        {(i.visit_name || i.visits) && (
+        {withVisitAndUnits && (i.visit_name || i.visits) && (
           <div className="text-xs text-base-content/60"><span className="text-base-content/45">Visit: </span>{i.visit_name || i.visits}</div>
         )}
-        {i.units && <div className="text-xs text-base-content/45">{i.units}</div>}
-        <div className="flex flex-wrap items-center gap-1.5 pt-1">
+        {withVisitAndUnits && i.units && <div className="text-xs text-base-content/45">{i.units}</div>}
+        <div className="flex flex-nowrap items-center gap-1.5 pt-1 whitespace-nowrap">
           {i.has_chart ? (
             <button
               className="btn-sm rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-100 dark:bg-teal-900/30 dark:border-teal-700 inline-flex items-center gap-1.5 px-2"
@@ -686,7 +687,7 @@ function DataQualityPage() {
             <span className="text-[11px] text-base-content/50">This variable has no EDA information.</span>
           )}
           {i.in_dictionary && (
-            <button className="btn btn-xs btn-outline gap-1" onClick={() => setRowOf(i.variable!)}
+            <button className="btn btn-xs btn-outline gap-1 shrink-0" onClick={() => setRowOf(i.variable!)}
                     title="Show this variable's row of the metadata dictionary">
               <Table size={12} /> dictionary row
             </button>
@@ -704,7 +705,7 @@ function DataQualityPage() {
       <select className="select select-bordered select-lg w-full" value={cohort}
               onChange={e => setCohort(e.target.value)}>
         {!cohort && <option value="" disabled>Choose a cohort…</option>}
-        {(data?.cohorts || []).map(c => {
+        {(data?.cohorts || []).filter(c => summaries[c]?.dictionary_file).map(c => {
           const n = summaries[c]?.variables_with_issues || 0;
           return <option key={c} value={c}>{c} ({n} {n === 1 ? 'variable' : 'variables'} with issues)</option>;
         })}
@@ -768,12 +769,7 @@ function DataQualityPage() {
                   ? `checking ${job.current || '…'} (${job.done} of ${job.total} cohorts)`
                   : `checked for ${Object.values(data.sources.concepts.cohorts || {}).filter(c => c.checked_at).length} of ${data.cohorts.length} cohorts`}
               </span>
-              {job?.running ? <span className="loading loading-spinner loading-sm" /> : (
-                <button className="btn btn-outline btn-xs gap-1" onClick={() => runConceptCheck('')} title="Takes a while across all cohorts">
-                  <Play size={12} /> Check all cohorts now
-                </button>
-              )}
-              {jobError && <span className="text-error text-xs">{jobError}</span>}
+              {job?.running && <span className="loading loading-spinner loading-sm" />}
             </div>
           )}
         </>
@@ -809,20 +805,10 @@ function DataQualityPage() {
               {picker}
 
               {current && (
-                <div className="text-center">
-                  <div className="text-4xl font-bold">
-                    {current.variables_with_issues}
-                    <span className="text-xl font-semibold text-base-content/60">
-                      {' '}of {current.variables_total ?? '—'} variables
-                    </span>
-                  </div>
-                  <div className="text-base text-base-content/70">
-                    have issues
-                    {current.variables_total
-                      ? ` (${(100 * current.variables_with_issues / current.variables_total).toFixed(1)}%)`
-                      : ''}
-                    {' · '}{current.issues} issues in all
-                  </div>
+                <div className="text-center text-base text-base-content/80">
+                  <span className="font-semibold text-base-content">{current.variables_with_issues}</span>
+                  {' '}of {current.variables_total ?? '—'} variables have issues
+                  <span className="text-base-content/60"> · {current.issues} issues in all</span>
                 </div>
               )}
 
@@ -840,18 +826,20 @@ function DataQualityPage() {
                     const foundTypes = types.filter(t => tagInfo[t.key]?.state === 'found');
                     const allShown = foundTypes.every(t => !hiddenTypes.has(t.key));
                     return (
-                      <div key={cat.key} className="flex flex-wrap items-center justify-center gap-2">
-                        <button className="text-sm font-semibold mr-1 hover:underline disabled:no-underline disabled:cursor-default"
+                      <div key={cat.key} className="flex flex-col items-center gap-2">
+                        <button className="text-sm font-semibold hover:underline disabled:no-underline disabled:cursor-default"
                                 disabled={!foundTypes.length}
                                 title={`${cat.description}${foundTypes.length ? ` Click to ${allShown ? 'hide' : 'show'} all found.` : ''}`}
                                 onClick={() => setCategoryShown(cat.key, !allShown)}>
                           {cat.label}
                         </button>
-                        {types.map(t => (
-                          <TypeTag key={t.key} type={t} index={typeOrder[t.key] ?? 0}
-                                   state={tagInfo[t.key].state} count={tagInfo[t.key].count} note={tagInfo[t.key].note}
-                                   shown={!hiddenTypes.has(t.key)} onToggle={() => toggleType(t.key)} />
-                        ))}
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          {types.map(t => (
+                            <TypeTag key={t.key} type={t} index={typeOrder[t.key] ?? 0}
+                                     state={tagInfo[t.key].state} count={tagInfo[t.key].count} note={tagInfo[t.key].note}
+                                     shown={!hiddenTypes.has(t.key)} onToggle={() => toggleType(t.key)} />
+                          ))}
+                        </div>
                       </div>
                     );
                   })}
@@ -875,9 +863,6 @@ function DataQualityPage() {
                 <>
                   <button className="btn btn-outline btn-xs gap-1" onClick={() => runConceptCheck(cohort)} title="A minute or two for one cohort">
                     <Play size={12} /> Check {cohort} now
-                  </button>
-                  <button className="btn btn-outline btn-xs gap-1" onClick={() => runConceptCheck('')} title="Takes a while across all cohorts">
-                    <Play size={12} /> Check all cohorts now
                   </button>
                   <span className="text-xs text-base-content/50">Runs in the background.</span>
                 </>
@@ -930,11 +915,14 @@ function DataQualityPage() {
                     const nVars = new Set(g.items.filter(i => i.variable).map(i => i.variable!.toLowerCase())).size;
                     return (
                       <React.Fragment key={g.type}>
-                        <tr className="bg-base-200">
-                          <td colSpan={3} className="py-2">
+                        <tr className="bg-base-200 border-t-2 border-base-300">
+                          <td colSpan={3} className="py-3">
                             <div className="flex flex-wrap items-center gap-3">
-                              {typeBadge(g.type)}
-                              <span className="text-xs text-base-content/70">
+                              <span className="badge badge-lg border text-base font-semibold px-3 py-3 whitespace-nowrap"
+                                    style={typeShade(typeOrder[g.type] ?? 0)} title={typeByKey[g.type]?.description}>
+                                {typeLabel(typeByKey[g.type], g.type)}
+                              </span>
+                              <span className="text-sm text-base-content/70">
                                 {g.items.length} {g.items.length === 1 ? 'issue' : 'issues'}
                                 {nVars ? ` · ${nVars} ${nVars === 1 ? 'variable' : 'variables'}` : ''}
                               </span>
@@ -943,7 +931,7 @@ function DataQualityPage() {
                         </tr>
                         {g.items.map((i, idx) => (
                           <tr key={`${g.type}/${i.variable || ''}/${i.row || ''}/${idx}`}>
-                            <td className="align-top pl-10 w-80 max-w-80">{variableCell(i)}</td>
+                            <td className="align-top pl-10 min-w-80">{variableCell(i, true, false)}</td>
                             <td className="align-top text-xs max-w-2xl">{whatCell(i)}</td>
                             <td className="align-top whitespace-nowrap">{levelCell(i)}</td>
                           </tr>
@@ -1006,7 +994,7 @@ function DataQualityPage() {
                   {visible.map((i, idx) => (
                     <tr key={`${i.type}/${i.variable || ''}/${i.row || ''}/${idx}`}>
                       <td className="whitespace-nowrap align-top">{typeBadge(i.type)}</td>
-                      <td className="max-w-80 align-top">{variableCell(i)}</td>
+                      <td className="min-w-80 align-top">{variableCell(i)}</td>
                       <td className="max-w-2xl align-top text-xs">{whatCell(i)}</td>
                       <td className="whitespace-nowrap align-top">{levelCell(i)}</td>
                     </tr>
