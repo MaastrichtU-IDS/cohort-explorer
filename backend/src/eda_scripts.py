@@ -3131,7 +3131,9 @@ for fam in families:
 with open('/output/eda_longitudinal_v1_{cohort_id}.json', 'w') as f:
     json.dump(longitudinal_json, f, indent=4)
 
-with open('/output/data_issues.json', 'w') as f:
+# Its own name: c3 writes data_issues.json, and both outputs are unpacked
+# into the same folder on the explorer.
+with open('/output/data_issues_longitudinal.json', 'w') as f:
     json.dump(data_issues, f, indent=4)
 """
     return (raw_script.replace("{shared_helpers}", _SHARED_HELPERS)

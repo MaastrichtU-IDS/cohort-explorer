@@ -2265,7 +2265,17 @@ def run_computation_get_output(dcr_id: str, background_tasks: BackgroundTasks, u
     os.makedirs(storage_dir, mode=0o777, exist_ok=True)
     result.extractall(str(storage_dir))
     if longitudinal_result is not None:
-        longitudinal_result.extractall(str(storage_dir))
+        # Both nodes write a data_issues.json. Unpacked into the same folder, the
+        # longitudinal one replaced c3's, so it is kept under its own name.
+        # (Provision DCRs from 2026-11-26 on write that name themselves.)
+        for member in longitudinal_result.namelist():
+            if member.endswith("/"):
+                continue
+            name = os.path.basename(member)
+            if name == "data_issues.json":
+                name = "data_issues_longitudinal.json"
+            with open(os.path.join(storage_dir, name), "wb") as f:
+                f.write(longitudinal_result.read(member))
 
     # c1's comparison of the dictionary's variable names with the data's column
     # names (names only, no values), for the data quality page: variables
