@@ -1657,6 +1657,13 @@ export default function CohortsList() {
                       {cohortData.eda_version === 'v1' ? 'variable profiling v1' : `variable profiling & analyses ${cohortData.eda_version}`}
                     </span>
                   )}
+                  {/* The cohort has a shuffled sample on file (its date is in the cache). */}
+                  {cohortData.shuffled_sample_generated_at && (
+                    <span className="badge mx-1" style={{ backgroundColor: '#dbeafe', color: '#1e3a8a', border: '1px solid #bfdbfe' }}
+                          title={`Generated ${formatFileDate(cohortData.shuffled_sample_generated_at, '')}`}>
+                      shuffled sample available
+                    </span>
+                  )}
                   {/* Removed start date - end date tag as it's shown in the More Details section */}
                   {/* Removed contact email tags as they're shown in the More Details section */}
                 </div>
