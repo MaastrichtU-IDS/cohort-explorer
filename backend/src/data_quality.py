@@ -130,7 +130,7 @@ EXAMPLES: dict[str, str] = {
     "syntax.other": "A dictionary message that fits none of the types above.",
     "concepts.code_id_mismatch": "Code 'loinc:2160-0' (creatinine) with OMOP id 3004249 (systolic blood pressure).",
     "concepts.wrong_vocabulary": "A unit coded 'loinc:2345-7'; a variable coded with a UCUM unit.",
-    "concepts.wrong_domain": "DOMAIN 'condition_occurrence' with a Measurement concept; a unit concept outside the Unit domain.",
+    "concepts.wrong_domain": "The dictionary declares a heart failure concept to be in domain \"Observation\". Correct domain: \"Condition\".",
     "concepts.deprecated": "A SNOMED code that Athena marks deprecated or replaced by another.",
     "concepts.non_standard": "An ICD-10 code or an ATC class where OMOP expects a standard SNOMED or RxNorm concept.",
     "concepts.name_mismatch": "The dictionary associates loinc:2345-7 with the name 'Blood sugar'; LOINC associates it with 'Glucose [Mass/volume] in Serum or Plasma'.",

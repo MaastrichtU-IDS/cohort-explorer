@@ -308,6 +308,14 @@ def _describe(a: dict[str, Any]) -> str:
     return f"{a['field_label']}{name} ({', '.join(bits)})"
 
 
+def _concept_phrase(a: dict[str, Any]) -> str:
+    """"variable concept 'Exacerbation of heart failure' (omop:OMOP5166003, OMOP 1340348)"."""
+    field = a["field_label"][0].lower() + a["field_label"][1:]
+    name = f" '{a['name']}'" if a["name"] else ""
+    omop = f", OMOP {a['omop_id']}" if a["omop_id"] is not None else ""
+    return f"{field}{name} ({a['code']}{omop})"
+
+
 def _issue(issue_type: str, variable: Optional[str], row: int, a: dict[str, Any], text: str) -> dict[str, Any]:
     return {"type": issue_type, "variable": variable, "row": row, "field": a["field"],
             "message": f"{_describe(a)}: {text}"}
@@ -370,22 +378,24 @@ def check_dictionary(dict_path: str) -> dict[str, Any]:
                     issues.append(_issue("concepts.wrong_vocabulary", variable, row_no, a,
                                          f"a visit concept is expected from SNOMED, LOINC, OMOP or CDISC, not {a['vocab']}."))
 
-            # S11: domain for the field.
+            # S11: domain for the field. Plain wording: what the dictionary says,
+            # and what the concept's domain actually is.
             domain = (rec or {}).get("domain") or (ath or {}).get("domain") or ""
             if domain:
+                shown = domain[:1].upper() + domain[1:]
+                concept = _concept_phrase(a)
+                message = None
                 if a["field"] == "unit" and domain.lower() != "unit":
-                    issues.append(_issue("concepts.wrong_domain", variable, row_no, a,
-                                         f"a unit concept should be in the Unit domain; this one is in {domain}."))
+                    message = f'The dictionary uses {concept} as a unit. Its domain is "{shown}"; a unit\'s domain is "Unit".'
                 elif a["field"] == "categorical" and domain.lower() == "unit":
-                    issues.append(_issue("concepts.wrong_domain", variable, row_no, a,
-                                         "a category concept is in the Unit domain."))
+                    message = f'The dictionary uses {concept} as a category, but it is a unit (domain "Unit").'
                 elif a["field"] == "variable":
-                    table = _cell(row, "DOMAIN").lower()
-                    expected = _TABLE_DOMAIN.get(table)
+                    expected = _TABLE_DOMAIN.get(_cell(row, "DOMAIN").lower())
                     if expected and domain.lower() != expected.lower():
-                        issues.append(_issue("concepts.wrong_domain", variable, row_no, a,
-                                             f"DOMAIN says {table}, which holds {expected} concepts, "
-                                             f"but this concept is in the {domain} domain."))
+                        message = f'The dictionary declares {concept} to be in domain "{expected}". Correct domain: "{shown}".'
+                if message:
+                    issues.append({"type": "concepts.wrong_domain", "variable": variable, "row": row_no,
+                                   "field": a["field"], "message": message})
 
             # S12: standard and valid, from Athena.
             if ath and ath.get("found"):
