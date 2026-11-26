@@ -35,8 +35,6 @@ interface Issue {
   omop_id?: string | number | null;
   concept_code?: string | null;
   stale?: boolean;
-  // False for dictionary problems the upload does not check (S6, S7, range bounds).
-  blocking?: boolean;
 }
 
 interface IssueType {
@@ -92,10 +90,6 @@ const CATEGORY_SEVERITY: Record<string, {label: string; badge: string; title: st
   syntax: {label: 'Blocks upload', badge: 'badge-error badge-outline', title: 'A dictionary with this issue is rejected on upload'},
   concepts: {label: 'Fails check', badge: 'badge-warning badge-outline', title: 'The concept does not match OMOP'},
 };
-
-// A dictionary problem found only by this page: the upload accepts it.
-const NON_BLOCKING_SEVERITY = {label: 'Does not block upload', badge: 'badge-info badge-outline',
-  title: 'Found by this page only; the dictionary upload does not check it'};
 
 const LEVEL_BADGE: Record<string, string> = {
   'very high': 'badge-error',
@@ -258,7 +252,7 @@ function DataQualityPage() {
     const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [header.join(',')].concat(visible.map(i => [
       i.cohort, i.category, typeLabel(typeByKey[i.type], i.type), i.variable, i.row, i.visits, i.label,
-      i.level || (i.category === 'syntax' && i.blocking === false ? NON_BLOCKING_SEVERITY.label : CATEGORY_SEVERITY[i.category]?.label), i.message,
+      i.level || CATEGORY_SEVERITY[i.category]?.label, i.message,
     ].map(esc).join(',')));
     const blob = new Blob([lines.join('\n')], {type: 'text/csv'});
     const a = document.createElement('a');
@@ -424,8 +418,7 @@ function DataQualityPage() {
             <tbody>
               {visible.map((i, idx) => {
                 const t = typeByKey[i.type];
-                const severity = i.category === 'syntax' && i.blocking === false
-                  ? NON_BLOCKING_SEVERITY : CATEGORY_SEVERITY[i.category];
+                const severity = CATEGORY_SEVERITY[i.category];
                 return (
                   <tr key={`${i.cohort}/${i.type}/${i.variable || ''}/${i.row || ''}/${idx}`}>
                     <td className="whitespace-nowrap align-top">

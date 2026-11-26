@@ -10,7 +10,7 @@ import warnings
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 from re import sub
 
 # Silence noisy openpyxl warnings that fire every time we read the central
@@ -650,6 +650,130 @@ def normalize_omop_id_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# ---------------------------------------------------------------------------
+# Declared range and missing codes: S1 (MIN and MAX), S6 and S7 of the data
+# quality specification
+# ---------------------------------------------------------------------------
+
+def _range_number(text: str) -> Optional[float]:
+    try:
+        value = float(str(text).strip().strip("'\"").replace(",", "."))
+    except ValueError:
+        return None
+    return value if value == value and abs(value) != float("inf") else None
+
+
+def _range_date(text: str) -> Optional[datetime]:
+    """A date or a bare year (pandas may have read it as 1970.0). Python's
+    datetime rather than pandas', which stops at 2262 and would call a year of
+    9999 no date at all."""
+    from dateutil import parser as date_parser
+    text = str(text).strip()
+    year = re.fullmatch(r"(\d{4})(?:\.0+)?", text)
+    if year:
+        return datetime(int(year.group(1)), 1, 1) if int(year.group(1)) >= 1 else None
+    try:
+        return date_parser.parse(text, default=datetime(2000, 1, 1))
+    except (ValueError, OverflowError, TypeError):
+        return None
+
+
+def _range_fmt(value: float) -> str:
+    return str(int(value)) if value == int(value) else f"{value:g}"
+
+
+def _cannot_be_negative(units: str) -> Optional[str]:
+    """What a unit measures when that quantity has no negative values (a mass,
+    an amount of substance, a length, area or volume, or a concentration of
+    these), else None. Time, temperature, fractions and unitless scores can go
+    below zero, so they are not judged."""
+    if not units:
+        return None
+    from CohortVarLinker.src.units import parse_unit
+    parsed = parse_unit(units)
+    if parsed is None:
+        return None
+    dims = dict(parsed[1])
+    if dims.get("[mass]", 0) > 0 and set(dims) <= {"[mass]", "[length]"}:
+        return "a mass or mass concentration"
+    if dims.get("[substance]", 0) > 0 and set(dims) <= {"[substance]", "[length]", "[time]"}:
+        return "an amount or concentration of substance"
+    if dims and set(dims) == {"[length]"}:
+        return "a length, area, volume or count per volume"
+    return None
+
+
+def _check_declared_range_and_missing(row: pd.Series, columns: Any, vartype: str) -> list[str]:
+    """Problems with a row's MIN, MAX and MISSING, without the row prefix:
+
+    - S1: MIN or MAX that is not a number for INT or FLOAT, or not a date or
+      year for DATETIME.
+    - S6: MIN above MAX; or a negative MIN for a quantity that cannot be
+      negative, decided from UNITS.
+    - S7: a declared missing code that is also a category code, or lies
+      inside MIN to MAX, so a value in the data cannot be told apart.
+    """
+    def cell(col: str) -> str:
+        if col not in columns:
+            return ""
+        value = row.get(col, "")
+        value = "" if value is None or (isinstance(value, float) and value != value) else str(value).strip()
+        return "" if value.lower() in ("na", "nan", "none") else value
+
+    out: list[str] = []
+    # A year pandas read as a number comes back as 1970.0; show it as written.
+    raw_min, raw_max = (re.sub(r"^(\d+)\.0+$", r"\1", cell(c)) for c in ("MIN", "MAX"))
+    low = high = d_low = d_high = None
+    if vartype in ("INT", "FLOAT"):
+        low = _range_number(raw_min) if raw_min else None
+        high = _range_number(raw_max) if raw_max else None
+        for label, raw, value in (("MIN", raw_min, low), ("MAX", raw_max, high)):
+            if raw and value is None:
+                out.append(f"{label} '{raw}' is not a number, but VARTYPE is {vartype}.")
+        if low is not None and high is not None and low > high:
+            out.append(f"MIN {_range_fmt(low)} is above MAX {_range_fmt(high)}.")
+        kind = _cannot_be_negative(cell("UNITS"))
+        if kind and low is not None and low < 0:
+            out.append(f"MIN is {_range_fmt(low)}, but '{cell('UNITS')}' measures {kind}, which cannot be negative.")
+    elif vartype == "DATETIME":
+        # A bare number shorter than a year (a month or day count typed
+        # DATETIME) is no date to compare: a parser reads 1 as a day and 99 as
+        # 1999. Such bounds are left unjudged.
+        if not any(re.fullmatch(r"\d{1,3}(?:\.0+)?", r) for r in (raw_min, raw_max) if r):
+            d_low = _range_date(raw_min) if raw_min else None
+            d_high = _range_date(raw_max) if raw_max else None
+            for label, raw, value in (("MIN", raw_min, d_low), ("MAX", raw_max, d_high)):
+                if raw and value is None:
+                    out.append(f"{label} '{raw}' is not a date, but VARTYPE is DATETIME.")
+            if d_low is not None and d_high is not None and d_low > d_high:
+                out.append(f"MIN {raw_min} is after MAX {raw_max}.")
+
+    missing = [c.strip() for c in cell("MISSING").split("|") if c.strip()]
+    if not missing:
+        return out
+    categories: dict[str, str] = {}
+    for entry in cell("CATEGORICAL").split("|"):
+        parts = _CAT_PAIR.split(entry.strip(), maxsplit=1)
+        if len(parts) == 2 and _cat_strip(parts[0]):
+            categories.setdefault(_category_code_key(parts[0]), entry.strip())
+    for code in missing:
+        entry = categories.get(_category_code_key(code))
+        if entry:
+            out.append(f"Missing code '{code}' is also the category '{entry}': a {code} in the data cannot be "
+                       f"told apart as missing or as that category.")
+            continue
+        value = _range_number(code)
+        if value is not None and low is not None and high is not None and low <= value <= high:
+            out.append(f"Missing code '{code}' lies inside the declared range {_range_fmt(low)} to "
+                       f"{_range_fmt(high)}, so it cannot be told apart from a real value.")
+            continue
+        as_date = _range_date(code) if d_low is not None and d_high is not None else None
+        if as_date is not None and d_low <= as_date <= d_high:
+            out.append(f"Missing code '{code}' lies inside the declared range {raw_min} to {raw_max}, "
+                       f"so it cannot be told apart from a real date.")
+    return out
+
+
 def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
     """Validate a metadata dictionary DataFrame and return a list of error messages.
     
@@ -1018,6 +1142,10 @@ def validate_metadata_dataframe(df: pd.DataFrame, cohort_id: str) -> list[str]:
                         f"Missing codes must not contain spaces. If a space was intended as a decimal or thousands separator, "
                         f"use a dot or remove it (e.g. '999.000' or '999000' instead of '999 000')."
                     )
+
+        # Declared range and missing codes (S1, S6, S7).
+        for problem in _check_declared_range_and_missing(row, df.columns, str(row.get("VARTYPE", "")).strip().upper()):
+            errors.append(f"Row {i+2} (Variable: '{var_name_for_error}'): {problem}")
 
     return errors
 

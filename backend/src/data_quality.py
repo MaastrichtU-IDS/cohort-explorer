@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 CATEGORIES: list[dict[str, str]] = [
     {"key": "syntax", "label": "Dictionary syntax",
-     "description": "Problems in how the data dictionary is written. Most block a dictionary upload; the declared range and missing-code checks (S6, S7 and invalid MIN or MAX) are found only here."},
+     "description": "Problems in how the data dictionary is written. Each one blocks a dictionary upload."},
     {"key": "concepts", "label": "Concept codes",
      "description": "Concept codes that do not match OMOP: wrong code, wrong name for the code, or a code that does not exist."},
     {"key": "values", "label": "Data values",
@@ -94,11 +94,6 @@ ISSUE_TYPES: dict[str, tuple[str, str, str, Optional[str]]] = {
 }
 
 
-# Dictionary problems found only here, not by the upload validation, so they do
-# not block an upload.
-NON_BLOCKING_TYPES = {"syntax.invalid_range_bound", "syntax.impossible_range", "syntax.missing_code_collision"}
-
-
 # ---------------------------------------------------------------------------
 # Dictionary syntax
 # ---------------------------------------------------------------------------
@@ -109,6 +104,9 @@ def _syntax_rules() -> list[tuple[str, re.Pattern[str]]]:
     rules = [
         ("syntax.repeated_category_code", re.escape(_TAG_REPEATED_CODE)),
         ("syntax.empty_category_label", re.escape(_TAG_EMPTY_LABEL)),
+        ("syntax.invalid_range_bound", r"(?:MIN|MAX) '.*' is not a (?:number|date), but VARTYPE"),
+        ("syntax.impossible_range", r"MIN .* is (?:above|after) MAX|which cannot be negative"),
+        ("syntax.missing_code_collision", r"Missing code '.*' (?:is also the category|lies inside the declared range)"),
         ("syntax.missing_columns", r"^Missing required columns"),
         ("syntax.duplicate_variable", r"^Duplicate VARIABLENAME"),
         ("syntax.missing_required_field", r"is missing value for the required field"),
@@ -192,164 +190,6 @@ def _syntax_issues(report: dict[str, Any]) -> list[dict[str, Any]]:
         for message in c.get("errors") or []:
             issues.append({"cohort": cohort, **_classify_syntax(message, rules)})
     return issues
-
-
-# ---------------------------------------------------------------------------
-# Declared range and missing codes (S1, S6, S7), which the upload does not check
-# ---------------------------------------------------------------------------
-
-def _number(text: str) -> Optional[float]:
-    try:
-        value = float(str(text).strip().strip("'\"").replace(",", "."))
-    except ValueError:
-        return None
-    return value if value == value and abs(value) != float("inf") else None
-
-
-def _date(text: str) -> Optional[datetime]:
-    """A date or a bare year. Python's datetime rather than pandas', which
-    stops at 2262 and would call a year of 9999 no date at all."""
-    from dateutil import parser as date_parser
-    text = str(text).strip()
-    if re.fullmatch(r"\d{4}", text):
-        return datetime(int(text), 1, 1) if int(text) >= 1 else None
-    try:
-        return date_parser.parse(text, default=datetime(2000, 1, 1))
-    except (ValueError, OverflowError, TypeError):
-        return None
-
-
-def _fmt_number(value: float) -> str:
-    return str(int(value)) if value == int(value) else f"{value:g}"
-
-
-def _cannot_be_negative(units: str) -> Optional[str]:
-    """What kind of quantity a unit measures when that quantity has no negative
-    values (a mass, an amount of substance, a length, area or volume, or any
-    concentration of these), else None. Time, temperature, fractions and
-    unitless scores can go below zero, so they are not judged."""
-    if not units:
-        return None
-    from CohortVarLinker.src.units import parse_unit
-    parsed = parse_unit(units)
-    if parsed is None:
-        return None
-    dims = dict(parsed[1])
-    if "[mass]" in dims and dims["[mass]"] > 0 and set(dims) <= {"[mass]", "[length]"}:
-        return "a mass or mass concentration"
-    if "[substance]" in dims and dims["[substance]"] > 0 and set(dims) <= {"[substance]", "[length]", "[time]"}:
-        return "an amount or concentration of substance"
-    if dims and set(dims) == {"[length]"}:
-        return "a length, area, volume or count per volume"
-    return None
-
-
-def _content_issues_for(cohort: str, path: str) -> list[dict[str, Any]]:
-    from src.upload import _CAT_PAIR, _category_code_key, _cat_strip, normalize_column_name
-    df = pd.read_csv(path, na_values=[""], keep_default_na=False, dtype=str).fillna("")
-    df.columns = [normalize_column_name(c) for c in df.columns]
-
-    def cell(row: pd.Series, col: str) -> str:
-        value = str(row.get(col, "") if col in df.columns else "").strip()
-        return "" if value.lower() in ("na", "nan", "none") else value
-
-    issues: list[dict[str, Any]] = []
-    for i, row in df.iterrows():
-        row_no = int(i) + 2
-        variable = cell(row, "VARIABLENAME") or None
-        vartype = cell(row, "VARTYPE").upper()
-        raw_min, raw_max = cell(row, "MIN"), cell(row, "MAX")
-
-        def add(issue_type: str, message: str) -> None:
-            issues.append({"cohort": cohort, "type": issue_type, "variable": variable, "row": row_no,
-                           "message": message})
-
-        # S1 and S6: the declared range.
-        low = high = None
-        if vartype in ("INT", "FLOAT"):
-            low, high = (_number(raw_min) if raw_min else None), (_number(raw_max) if raw_max else None)
-            for label, raw, value in (("MIN", raw_min, low), ("MAX", raw_max, high)):
-                if raw and value is None:
-                    add("syntax.invalid_range_bound", f"{label} '{raw}' is not a number, but VARTYPE is {vartype}.")
-            if low is not None and high is not None and low > high:
-                add("syntax.impossible_range", f"MIN {_fmt_number(low)} is above MAX {_fmt_number(high)}.")
-            kind = _cannot_be_negative(cell(row, "UNITS"))
-            if kind and low is not None and low < 0:
-                add("syntax.impossible_range",
-                    f"MIN is {_fmt_number(low)}, but '{cell(row, 'UNITS')}' measures {kind}, which cannot be negative.")
-        d_low = d_high = None
-        # A bare number shorter than a year (a month or day count typed
-        # DATETIME) is no date to compare: the parser would read 1 as a day
-        # and 99 as 1999. Such bounds are left unjudged.
-        short_numbers = any(re.fullmatch(r"\d{1,3}", r) for r in (raw_min, raw_max) if r)
-        if vartype == "DATETIME" and not short_numbers:
-            d_low, d_high = (_date(raw_min) if raw_min else None), (_date(raw_max) if raw_max else None)
-            for label, raw, value in (("MIN", raw_min, d_low), ("MAX", raw_max, d_high)):
-                if raw and value is None:
-                    add("syntax.invalid_range_bound", f"{label} '{raw}' is not a date, but VARTYPE is DATETIME.")
-            if d_low is not None and d_high is not None and d_low > d_high:
-                add("syntax.impossible_range", f"MIN {raw_min} is after MAX {raw_max}.")
-
-        # S7: missing codes that are also a category, or a value inside the range.
-        missing = [c.strip() for c in cell(row, "MISSING").split("|") if c.strip()]
-        if not missing:
-            continue
-        categories: dict[str, str] = {}
-        for entry in cell(row, "CATEGORICAL").split("|"):
-            parts = _CAT_PAIR.split(entry.strip(), maxsplit=1)
-            if len(parts) == 2 and _cat_strip(parts[0]):
-                categories.setdefault(_category_code_key(parts[0]), entry.strip())
-        for code in missing:
-            entry = categories.get(_category_code_key(code))
-            if entry:
-                add("syntax.missing_code_collision",
-                    f"Missing code '{code}' is also the category '{entry}': a {code} in the data cannot be "
-                    f"told apart as missing or as that category.")
-                continue
-            value = _number(code)
-            if value is not None and low is not None and high is not None and low <= value <= high:
-                add("syntax.missing_code_collision",
-                    f"Missing code '{code}' lies inside the declared range {_fmt_number(low)} to "
-                    f"{_fmt_number(high)}, so it cannot be told apart from a real value.")
-                continue
-            as_date = _date(code) if d_low is not None and d_high is not None else None
-            if as_date is not None and d_low <= as_date <= d_high:
-                add("syntax.missing_code_collision",
-                    f"Missing code '{code}' lies inside the declared range {raw_min} to {raw_max}, "
-                    f"so it cannot be told apart from a real date.")
-    return issues
-
-
-_content_cache: dict[str, Any] = {"signature": None, "issues": None}
-
-
-def _content_issues() -> list[dict[str, Any]]:
-    """S1 (range bounds), S6 and S7 for every cohort's current dictionary,
-    cached until a dictionary file changes."""
-    from src.upload import get_latest_datadictionary
-    signature = _dictionary_signature()
-    with _syntax_lock:
-        if _content_cache["signature"] == signature and _content_cache["issues"] is not None:
-            return [dict(i) for i in _content_cache["issues"]]
-    issues: list[dict[str, Any]] = []
-    try:
-        names = sorted(os.listdir(settings.cohort_folder))
-    except OSError:
-        names = []
-    for name in names:
-        folder = os.path.join(settings.cohort_folder, name)
-        if not os.path.isdir(folder):
-            continue
-        path = get_latest_datadictionary(folder)
-        if not path:
-            continue
-        try:
-            issues += _content_issues_for(name, path)
-        except Exception as e:
-            logger.warning("range and missing-code check failed for %s: %s", name, e)
-    with _syntax_lock:
-        _content_cache.update(signature=signature, issues=issues)
-    return [dict(i) for i in issues]
 
 
 # ---------------------------------------------------------------------------
@@ -653,7 +493,7 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
 
     cohorts = _known_cohorts()
     syntax = _syntax_report()
-    issues = _syntax_issues(syntax) + _content_issues()
+    issues = _syntax_issues(syntax)
     concept_issues, concept_status = _concept_issues(cohorts)
     issues += concept_issues
     value_issues, values_read_at = _value_issues()
@@ -667,7 +507,6 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
             issue["type"] = "concepts.other" if issue["type"].startswith("concepts.") else "syntax.other"
         category, _label, _desc, spec = ISSUE_TYPES[issue["type"]]
         issue["spec"] = spec
-        issue["blocking"] = category == "syntax" and issue["type"] not in NON_BLOCKING_TYPES
         issue["category"] = category
         issue.setdefault("level", None)
         issue.setdefault("level_rank", None)
