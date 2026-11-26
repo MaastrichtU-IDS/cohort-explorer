@@ -570,6 +570,77 @@ function FlyingGhost({ ghost, target, onDone }: { ghost: Ghost; target: HTMLElem
   );
 }
 
+// --- Scroll arrows: visible buttons for users without a wheel or trackpad ---
+
+// Whether `el` can scroll further toward its start / end on `axis`; kept
+// current on scroll and on resize of the box or its content.
+function useScrollEdges(el: HTMLElement | null, axis: 'x' | 'y'): { atStart: boolean; atEnd: boolean } {
+  const [edges, setEdges] = useState({ atStart: true, atEnd: true });
+  useEffect(() => {
+    if (!el) return;
+    const update = () => {
+      const pos = axis === 'x' ? el.scrollLeft : el.scrollTop;
+      const max = axis === 'x' ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight;
+      const next = { atStart: pos <= 1, atEnd: pos >= max - 1 };
+      setEdges(prev => (prev.atStart === next.atStart && prev.atEnd === next.atEnd ? prev : next));
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    Array.from(el.children).forEach(child => ro.observe(child));
+    // Content swapped in without resizing the box (filters, toggles)
+    const mo = new MutationObserver(update);
+    mo.observe(el, { childList: true, subtree: true });
+    return () => {
+      el.removeEventListener('scroll', update);
+      ro.disconnect();
+      mo.disconnect();
+    };
+  }, [el, axis]);
+  return edges;
+}
+
+// A list box with an up and a down bar, each scrolling by most of a page;
+// a bar fades and is disabled at its end.
+function VerticalScrollBox({
+  className,
+  label,
+  children,
+}: {
+  className: string;
+  label: string;
+  children: React.ReactNode;
+}) {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  const { atStart, atEnd } = useScrollEdges(el, 'y');
+  const scroll = (dir: 1 | -1) => el?.scrollBy({ top: dir * Math.max(40, el.clientHeight * 0.8), behavior: 'smooth' });
+  const bar = (dir: 1 | -1, disabled: boolean) => (
+    <button
+      type="button"
+      className="btn btn-sm btn-block btn-primary btn-outline min-h-0 h-7 disabled:opacity-30"
+      onClick={() => scroll(dir)}
+      disabled={disabled}
+      aria-label={`Scroll ${label} ${dir < 0 ? 'up' : 'down'}`}
+      title={`Scroll ${label} ${dir < 0 ? 'up' : 'down'}`}
+    >
+      {dir < 0 ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+    </button>
+  );
+  return (
+    <div className="space-y-1">
+      {bar(-1, atStart)}
+      <div ref={setEl} className={className}>
+        {children}
+      </div>
+      {bar(1, atEnd)}
+    </div>
+  );
+}
+
+// How many concept columns one arrow click moves the heatmap by.
+const COLUMN_STEP = 5;
+
 // --- Zoom overlay ---
 // A zoomed COLUMN lists its cells (one per cohort + visit) top to bottom and
 // wraps into the next column when the window is full, like reading a
@@ -744,7 +815,7 @@ export default function ConceptCoverageHeatmapPage() {
   const [shadeBy, setShadeBy] = useState<ShadeBy>('pct');
   const [pctMode, setPctMode] = useState<PctMode>('none');
   // Variable names inside the cells (the cells grow to fit them).
-  const [showVarNames, setShowVarNames] = useState(false);
+  const [showVarNames, setShowVarNames] = useState(true);
   // Percentages need a basis even when none are shown (shading, export).
   const pctBasis: Exclude<PctMode, 'none'> = 'ids';
   const [exportExcludeNonWide, setExportExcludeNonWide] = useState(false);
@@ -980,6 +1051,41 @@ export default function ConceptCoverageHeatmapPage() {
   // --- Zoom ---
   const [zoom, setZoom] = useState<ZoomTarget | null>(null);
 
+  // --- Horizontal arrows over the matrix ---
+  const [matrixEl, setMatrixEl] = useState<HTMLDivElement | null>(null);
+  const { atStart: matrixAtStart, atEnd: matrixAtEnd } = useScrollEdges(matrixEl, 'x');
+
+  // Moves by COLUMN_STEP concept columns, measured from the first column fully
+  // visible right of the sticky Cohort / Visit columns (cells vary in width).
+  const scrollColumns = (dir: 1 | -1) => {
+    const el = matrixEl;
+    if (!el) return;
+    const box = el.getBoundingClientRect();
+    const sticky = el.querySelector('th[data-sticky-end]');
+    const stickyW = sticky ? sticky.getBoundingClientRect().right - box.left : 0;
+    const lefts = Array.from(el.querySelectorAll('th[data-col]')).map(
+      th => th.getBoundingClientRect().left - box.left + el.scrollLeft - stickyW
+    );
+    if (lefts.length === 0) return;
+    let first = lefts.findIndex(l => l >= el.scrollLeft - 1);
+    if (first < 0) first = lefts.length - 1;
+    const target = lefts[Math.min(lefts.length - 1, Math.max(0, first + dir * COLUMN_STEP))];
+    el.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+  };
+
+  const matrixArrow = (dir: 1 | -1) => (
+    <button
+      type="button"
+      className="btn btn-circle btn-primary btn-md absolute top-1/2 z-40 -translate-y-1/2 shadow-lg opacity-90 hover:opacity-100"
+      style={dir < 0 ? { left: 'min(19rem, 35%)' } : { right: '0.75rem' }}
+      onClick={() => scrollColumns(dir)}
+      aria-label={dir < 0 ? `Scroll ${COLUMN_STEP} columns left` : `Scroll ${COLUMN_STEP} columns right`}
+      title={dir < 0 ? `Scroll ${COLUMN_STEP} columns left` : `More columns: scroll ${COLUMN_STEP} to the right`}
+    >
+      {dir < 0 ? <ChevronLeft size={26} /> : <ChevronRight size={26} />}
+    </button>
+  );
+
   const clusterSearchLower = clusterSearch.trim().toLowerCase();
   const clusterListForFilter = useMemo(
     () =>
@@ -1192,7 +1298,7 @@ export default function ConceptCoverageHeatmapPage() {
                           None
                         </button>
                       </div>
-                      <div className="max-h-64 overflow-y-auto space-y-1">
+                      <VerticalScrollBox label="cohorts" className="max-h-[32rem] overflow-y-auto space-y-1">
                         {allCohortIds.map(id => (
                           <label key={id} className="flex items-center gap-2 text-sm cursor-pointer">
                             <input
@@ -1209,7 +1315,7 @@ export default function ConceptCoverageHeatmapPage() {
                             </span>
                           </label>
                         ))}
-                      </div>
+                      </VerticalScrollBox>
                     </div>
                   </div>
 
@@ -1240,7 +1346,7 @@ export default function ConceptCoverageHeatmapPage() {
                           <span className="text-xs text-base-content/50">(applies to matches)</span>
                         )}
                       </div>
-                      <div className="max-h-96 overflow-y-auto space-y-1">
+                      <VerticalScrollBox label="variable clusters" className="max-h-96 overflow-y-auto space-y-1">
                         {clusterListForFilter.map(c => (
                           <label key={c.key} className="flex items-start gap-2 text-sm cursor-pointer">
                             <input
@@ -1265,7 +1371,7 @@ export default function ConceptCoverageHeatmapPage() {
                         {clusterListForFilter.length === 0 && (
                           <p className="text-xs text-base-content/40">No clusters match the search.</p>
                         )}
-                      </div>
+                      </VerticalScrollBox>
                     </div>
                   </div>
 
@@ -1279,19 +1385,23 @@ export default function ConceptCoverageHeatmapPage() {
                     Nothing to show. Select at least one cohort and one cluster, or lower the cohort threshold.
                   </div>
                 ) : (
-                  <div className="overflow-auto border border-base-300 rounded-lg" style={{ maxHeight: '97vh' }}>
+                  <div className="relative">
+                  {!matrixAtStart && matrixArrow(-1)}
+                  {!matrixAtEnd && matrixArrow(1)}
+                  <div ref={setMatrixEl} className="overflow-auto border border-base-300 rounded-lg" style={{ maxHeight: '97vh' }}>
                     <table className="border-separate border-spacing-0 text-xs">
                       <thead>
                         <tr>
                           <th className="sticky top-0 left-0 z-30 bg-base-200 border-b border-r border-base-300 px-2 py-1 text-left min-w-[8.5rem]">
                             Cohort
                           </th>
-                          <th className="sticky top-0 z-20 bg-base-200 border-b border-r border-base-300 px-2 py-1 text-left min-w-[10rem]" style={{ left: '8.5rem' }}>
+                          <th data-sticky-end className="sticky top-0 z-20 bg-base-200 border-b border-r border-base-300 px-2 py-1 text-left min-w-[10rem]" style={{ left: '8.5rem' }}>
                             Visit
                           </th>
                           {visibleClusters.map(c => (
                             <th
                               key={c.key}
+                              data-col
                               className="group/col sticky top-0 z-10 bg-base-200 border-b border-r border-base-300 px-1 align-bottom"
                             >
                               <div className="flex items-end justify-center gap-0.5">
@@ -1402,6 +1512,7 @@ export default function ConceptCoverageHeatmapPage() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
                   </div>
                 )}
                 <p className="mt-2 text-xs text-base-content/40">
