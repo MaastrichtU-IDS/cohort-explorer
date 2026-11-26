@@ -37,7 +37,7 @@ const SECTIONS: Section[] = [
         href: '/suspect-values',
         icon: <AlertTriangle size={18} />,
         description:
-          'Numeric variables whose profiling looks distorted by values that are probably not real measurements, most often a stand-in for missing that the data owner never declared. Each is given a level of suspicion, from low to very high, worked out from the variable profiling already on disk.',
+          'Numeric variables whose profiling looks distorted by values that are probably not real measurements, most often a stand-in for missing that the data owner never declared. Each is given a level of suspicion (low, moderate or high), worked out from the variable profiling already on disk.',
       },
     ],
   },

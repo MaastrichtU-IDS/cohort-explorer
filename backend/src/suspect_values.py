@@ -461,8 +461,7 @@ def _fmt(value: Optional[float]) -> str:
 # reader). The score only orders the rows and picks the level; the page shows
 # the level.
 SUSPICION_LEVELS: list[tuple[int, str, str]] = [
-    (10, "very high", "almost certainly not a real measurement: several independent signals agree"),
-    (6, "high", "probably not a real measurement"),
+    (6, "high", "probably not a real measurement: strong signals, or several agreeing"),
     (4, "moderate", "worth checking against the source data"),
     (1, "low", "one weak signal; often a natural extreme"),
 ]

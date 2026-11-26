@@ -8,7 +8,6 @@
 // checks are on the data quality hub (/data-quality-hub).
 
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
-import Link from 'next/link';
 import {AlertTriangle, Download, FileText, Play, RefreshCw, Search, X} from 'react-feather';
 import {apiUrl} from '@/utils';
 import AdminOnly from '@/components/AdminOnly';
@@ -35,6 +34,8 @@ interface Issue {
   omop_id?: string | number | null;
   concept_code?: string | null;
   stale?: boolean;
+  // A dictionary syntax issue: the upload validation would reject the dictionary.
+  blocks_upload?: boolean;
 }
 
 interface IssueType {
@@ -156,18 +157,18 @@ interface Payload {
   };
 }
 
-// What the severity column says for issues that have no suspicion level.
-const CATEGORY_SEVERITY: Record<string, {label: string; badge: string; title: string}> = {
-  syntax: {label: 'Blocks upload', badge: 'badge-error badge-outline', title: 'A dictionary with this issue is rejected on upload'},
-  concepts: {label: 'Fails check', badge: 'badge-warning badge-outline', title: 'The concept does not match OMOP'},
-  integrity: {label: 'Mismatch', badge: 'badge-neutral badge-outline', title: 'The dictionary and the profiled data disagree'},
+// Three levels for every issue: the suspicion level for data values, a level
+// per type for the rest (set in the backend).
+const LEVEL_BADGE: Record<string, string> = {
+  high: 'badge-error',
+  moderate: 'badge-warning',
+  low: 'badge-ghost',
 };
 
-const LEVEL_BADGE: Record<string, string> = {
-  'very high': 'badge-error',
-  high: 'badge-warning',
-  moderate: 'badge-info',
-  low: 'badge-ghost',
+const LEVEL_TITLE: Record<string, string> = {
+  high: 'Plainly wrong, or stands in the way of using the data',
+  moderate: 'Worth checking against the source data or the dictionary',
+  low: 'Usually minor, or a natural extreme',
 };
 
 const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -225,7 +226,7 @@ const FileOverlay = ({cohort, file, onClose}: {cohort: string; file: DataIssuesF
           <div className="flex-1 min-w-0">
             <div className="font-semibold">{cohort}: {file.label}</div>
             <div className="text-xs text-base-content/60">
-              <span className="font-mono">{file.name}</span> · generated {fmtDayFirst(file.generated_at)}
+              generated {fmtDayFirst(file.generated_at)}
             </div>
           </div>
           <button className="btn btn-ghost btn-sm btn-square" onClick={onClose} title="Close (Esc)">
@@ -430,11 +431,11 @@ function DataQualityPage() {
     [data]);
 
   const downloadCsv = () => {
-    const header = ['cohort', 'category', 'type', 'variable', 'dictionary_row', 'visit', 'label', 'severity', 'message'];
+    const header = ['cohort', 'category', 'type', 'variable', 'dictionary_row', 'visit', 'label', 'level', 'blocks_dictionary_upload', 'message'];
     const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [header.join(',')].concat(visible.map(i => [
       i.cohort, i.category, typeLabel(typeByKey[i.type], i.type), i.variable, i.row, i.visits, i.label,
-      i.level || CATEGORY_SEVERITY[i.category]?.label, i.message,
+      i.level, i.blocks_upload ? 'yes' : '', i.message,
     ].map(esc).join(',')));
     const blob = new Blob([lines.join('\n')], {type: 'text/csv'});
     const a = document.createElement('a');
@@ -449,28 +450,20 @@ function DataQualityPage() {
       <div className="flex items-center gap-3 mb-2">
         <AlertTriangle size={28} />
         <h1 className="text-3xl font-bold">Data quality</h1>
-        <Link href="/data-quality-hub" className="btn btn-ghost btn-sm ml-auto">Data quality hub</Link>
-        <button className="btn btn-ghost btn-sm" onClick={load} title="Refresh">
+        <button className="btn btn-ghost btn-sm ml-auto" onClick={load} title="Refresh">
           <RefreshCw size={16} />
         </button>
         <button className="btn btn-ghost btn-sm" onClick={downloadCsv} disabled={!visible.length} title="Download the list as CSV">
           <Download size={16} />
         </button>
       </div>
-      <p className="text-sm text-base-content/70 mb-5 max-w-3xl">
-        Every known issue of a cohort in one list: mistakes in how the data dictionary is written,
-        concept codes that do not match OMOP, places where the dictionary and the data disagree, and
-        values in the data that are probably not real measurements.
-      </p>
-
-      <div className="card bg-base-200 mb-5">
+      <div className="card bg-base-200 mb-5 mt-3">
         <div className="card-body p-5 gap-4">
           {/* The chosen cohort's profiling notes files, when the server has them. */}
           {cohort && (data?.data_issues_files?.[cohort] || []).length > 0 && (
             <div className="flex flex-wrap items-center gap-2 self-start">
               {(data?.data_issues_files?.[cohort] || []).map(f => (
-                <button key={f.name} className="btn btn-sm btn-outline gap-2 h-auto py-1.5" onClick={() => setOpenFile(f)}
-                        title={`Open ${f.name}`}>
+                <button key={f.name} className="btn btn-sm btn-outline gap-2 h-auto py-1.5" onClick={() => setOpenFile(f)}>
                   <FileText size={14} />
                   <span className="flex flex-col items-start leading-tight">
                     <span>{f.label}</span>
@@ -610,13 +603,12 @@ function DataQualityPage() {
                 {!cohort && <th>Cohort</th>}
                 <th>Variable</th>
                 <th>What is wrong</th>
-                <th>Severity</th>
+                <th>Level</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((i, idx) => {
                 const t = typeByKey[i.type];
-                const severity = CATEGORY_SEVERITY[i.category];
                 return (
                   <tr key={`${i.cohort}/${i.type}/${i.variable || ''}/${i.row || ''}/${idx}`}>
                     <td className="whitespace-nowrap align-top">
@@ -678,13 +670,16 @@ function DataQualityPage() {
                       )}
                     </td>
                     <td className="whitespace-nowrap align-top">
-                      {i.level ? (
-                        <span className={`badge badge-sm ${LEVEL_BADGE[i.level] || 'badge-ghost'}`} title="Suspicion that the value is not a real measurement">
+                      {i.level && (
+                        <span className={`badge badge-sm ${LEVEL_BADGE[i.level] || 'badge-ghost'}`} title={LEVEL_TITLE[i.level]}>
                           {capitalise(i.level)}
                         </span>
-                      ) : severity ? (
-                        <span className={`badge badge-sm ${severity.badge}`} title={severity.title}>{severity.label}</span>
-                      ) : null}
+                      )}
+                      {i.blocks_upload && (
+                        <div className="text-[11px] text-base-content/60 mt-1 whitespace-normal max-w-40">
+                          Would block a new upload of the dictionary
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

@@ -151,6 +151,35 @@ EXAMPLES: dict[str, str] = {
     "values.extreme_outlier": "QT interval 4060 ms in a column whose median is 412.",
 }
 
+# The level of every issue type outside the data values, whose level comes
+# from their suspicion score. Three levels, as for the values: high for what is
+# plainly wrong or blocks use of the data, moderate for what needs checking,
+# low for what is usually cosmetic or a limit of the check itself. Every
+# dictionary syntax issue is high: it would block a new upload of the dictionary.
+TYPE_LEVELS: dict[str, str] = {
+    **{k: "high" for k in ISSUE_TYPES if k.startswith("syntax.")},
+    "concepts.code_id_mismatch": "high",
+    "concepts.deprecated": "high",
+    "concepts.structure": "high",
+    "concepts.wrong_vocabulary": "moderate",
+    "concepts.wrong_domain": "moderate",
+    "concepts.non_standard": "moderate",
+    "concepts.vartype_implausible": "moderate",
+    "concepts.unit_implausible": "moderate",
+    "concepts.other": "moderate",
+    "concepts.name_mismatch": "low",
+    "concepts.check_failed": "low",
+    "integrity.duplicate_rows": "high",
+    "integrity.duplicate_ids": "high",
+    "integrity.variable_not_in_data": "moderate",
+    "integrity.column_not_in_dictionary": "moderate",
+    "integrity.type_contradicted": "moderate",
+    "integrity.mixed_formats": "moderate",
+    "integrity.record_structure": "moderate",
+    "integrity.unreadable_values": "low",
+}
+LEVEL_RANK = {"high": 0, "moderate": 1, "low": 2}
+
 # Shown on the page only when a cohort has some: catch-alls and problems with
 # the check itself rather than kinds of issue.
 OCCASIONAL_TYPES = {"syntax.other", "concepts.other", "concepts.structure", "concepts.check_failed"}
@@ -883,8 +912,11 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
         category, _label, _desc, spec = ISSUE_TYPES[issue["type"]]
         issue["spec"] = spec
         issue["category"] = category
-        issue.setdefault("level", None)
-        issue.setdefault("level_rank", None)
+        if category != "values":
+            issue["level"] = TYPE_LEVELS.get(issue["type"], "moderate")
+            issue["level_rank"] = LEVEL_RANK[issue["level"]]
+        # A dictionary syntax issue is one the upload validation rejects.
+        issue["blocks_upload"] = category == "syntax"
     issues.sort(key=lambda i: (order[i["type"]], i["level_rank"] if i["level_rank"] is not None else 0,
                                i["cohort"], (i.get("variable") or "").lower(), i.get("row") or 0))
 
@@ -913,8 +945,8 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
 # The notes the profiling enclave writes next to its results, by file name:
 # label for the page. Only these names are ever served.
 DATA_ISSUES_FILES = {
-    "data_issues.json": "Profiling notes",
-    "data_issues_longitudinal.json": "Longitudinal notes",
+    "data_issues.json": "data_issues.txt (generated during EDA)",
+    "data_issues_longitudinal.json": "data_issues_longitudinal.txt (generated during the longitudinal analysis)",
 }
 
 

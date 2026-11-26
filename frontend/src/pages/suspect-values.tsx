@@ -61,11 +61,10 @@ const num = (v?: number | null, digits = 2): string => {
 const CAUSES = ['undeclared missing code', 'negative minimum', 'extreme outlier'] as const;
 
 // Highest first, matching SUSPICION_LEVELS in the backend.
-const LEVELS = ['very high', 'high', 'moderate', 'low'] as const;
+const LEVELS = ['high', 'moderate', 'low'] as const;
 const LEVEL_BADGE: Record<string, string> = {
-  'very high': 'badge-error',
-  high: 'badge-warning',
-  moderate: 'badge-info',
+  high: 'badge-error',
+  moderate: 'badge-warning',
   low: 'badge-ghost',
 };
 const capitalise = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
