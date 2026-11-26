@@ -341,14 +341,21 @@ function DataQualityPage() {
           {job?.running
             ? <span className="loading loading-spinner loading-sm" />
             : (
-              <button className="btn btn-outline btn-xs gap-1" onClick={() => runConceptCheck(cohort)}>
-                <Play size={12} /> {cohort ? `Check ${cohort} now` : 'Check all cohorts now'}
-              </button>
+              <>
+                {cohort && (
+                  <button className="btn btn-outline btn-xs gap-1" onClick={() => runConceptCheck(cohort)}
+                          title="A minute or two for one cohort">
+                    <Play size={12} /> Check {cohort} now
+                  </button>
+                )}
+                <button className="btn btn-outline btn-xs gap-1" onClick={() => runConceptCheck('')}
+                        title="Takes a while across all cohorts">
+                  <Play size={12} /> Check all cohorts now
+                </button>
+              </>
             )}
           {!job?.running && (
-            <span className="text-xs text-base-content/50">
-              Runs in the background{cohort ? ', a minute or two for one cohort' : ' and takes a while across all cohorts'}.
-            </span>
+            <span className="text-xs text-base-content/50">Runs in the background.</span>
           )}
           {jobError && <span className="text-error text-xs">{jobError}</span>}
           {job?.error && !job.running && <span className="text-error text-xs">Last run stopped: {job.error}</span>}
