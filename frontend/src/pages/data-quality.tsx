@@ -42,12 +42,85 @@ interface IssueType {
   category: string;
   label: string;
   description: string;
-  // Id in the data quality specification (S1 to S14), where the type has one.
+  // Id in the data quality specification (S1 to S14, I1 to I6), where the type has one.
   spec?: string | null;
+  // A short generic example, for the explanation on hover.
+  example?: string | null;
+  // Catch-alls and check failures: shown only when a cohort has some.
+  occasional?: boolean;
 }
 
 const typeLabel = (t?: IssueType, fallback = '') =>
-  t ? (t.spec ? `${t.label} (${t.spec})` : t.label) : fallback;
+  t ? (t.spec ? `${t.spec}: ${t.label}` : t.label) : fallback;
+
+// A faint shade per type, spread around the colour wheel so neighbouring types
+// differ. Translucent, so it sits on the light and the dark theme alike.
+const typeShade = (index: number): React.CSSProperties => {
+  const hue = Math.round((index * 137.508) % 360);
+  return {
+    backgroundColor: `hsla(${hue}, 65%, 55%, 0.14)`,
+    borderColor: `hsla(${hue}, 55%, 50%, 0.45)`,
+  };
+};
+
+type TagState = 'found' | 'clean' | 'unchecked';
+
+// One issue type: its count, a checkbox when there is something to show or
+// hide, and on hover or focus a card with the definition and an example.
+const TypeTag = ({type, index, state, count, note, shown, onToggle}: {
+  type: IssueType;
+  index: number;
+  state: TagState;
+  count: number;
+  note: string;
+  shown: boolean;
+  onToggle: () => void;
+}) => {
+  const [hover, setHover] = useState(false);
+  const found = state === 'found';
+  const style: React.CSSProperties = found ? typeShade(index) : {};
+  const look = found
+    ? `cursor-pointer ${shown ? '' : 'opacity-50'}`
+    : state === 'clean'
+      ? 'cursor-default bg-base-200 border-base-300 text-base-content/50'
+      : 'cursor-default border-dashed border-base-content/30 text-base-content/45';
+  return (
+    <div className="relative" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <label
+        tabIndex={found ? undefined : 0}
+        aria-disabled={!found}
+        onFocus={() => setHover(true)}
+        onBlur={() => setHover(false)}
+        style={style}
+        className={`flex items-center gap-2 rounded-full border px-3 py-1 text-sm transition-opacity ${look}`}
+      >
+        <input type="checkbox" className="checkbox checkbox-xs" checked={found && shown} disabled={!found}
+               onChange={() => { if (found) onToggle(); }}
+               onFocus={() => setHover(true)} onBlur={() => setHover(false)} />
+        <span>{typeLabel(type)}</span>
+        <span className={`font-mono text-xs ${found ? 'font-semibold' : ''}`}>{state === 'unchecked' ? '—' : count}</span>
+      </label>
+      {hover && (
+        <div role="tooltip"
+             className="absolute z-40 left-1/2 -translate-x-1/2 top-full mt-2 w-80 max-w-[85vw] rounded-lg border border-base-300 bg-base-100 p-3 shadow-lg text-left text-xs font-normal text-base-content">
+          <div className="font-semibold text-sm mb-1">{typeLabel(type)}</div>
+          <div className="mb-2">{type.description}</div>
+          {type.example && (
+            <div className="mb-2">
+              <span className="text-base-content/60">Example: </span>
+              <span className="font-mono">{type.example}</span>
+            </div>
+          )}
+          <div className="text-base-content/70">
+            {state === 'found' && `${count} found${note ? ` (${note})` : ''}.`}
+            {state === 'clean' && `None found${note ? ` (${note})` : ''}.`}
+            {state === 'unchecked' && `Not checked yet: ${note || 'no data to check against'}.`}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface Category {
   key: string;
@@ -74,19 +147,14 @@ interface Payload {
   categories: Category[];
   types: IssueType[];
   issues: Issue[];
+  // cohort → type → whether it was checked, and a note (when, or why not).
+  check_status?: Record<string, Record<string, {checked: boolean; note: string}>>;
   sources: {
     syntax: {checked_at?: string | null};
     concepts: {cohorts: Record<string, {checked_at?: string | null; stale?: boolean; status?: string}>; job: ConceptJob};
     values: {read_at?: string | null};
   };
 }
-
-const CATEGORY_BADGE: Record<string, string> = {
-  syntax: 'badge-secondary',
-  concepts: 'badge-accent',
-  integrity: 'badge-neutral',
-  values: 'badge-primary',
-};
 
 // What the severity column says for issues that have no suspicion level.
 const CATEGORY_SEVERITY: Record<string, {label: string; badge: string; title: string}> = {
@@ -283,6 +351,43 @@ function DataQualityPage() {
     return counts;
   }, [cohortIssues]);
 
+  // Per type, for the cohort in view: found, checked and clean, or not checked.
+  // With all cohorts in view a type counts as checked where any cohort was.
+  const tagInfo = useMemo(() => {
+    const info: Record<string, {state: TagState; count: number; note: string}> = {};
+    const status = data?.check_status || {};
+    const cohorts = cohort ? [cohort] : Object.keys(status);
+    for (const t of data?.types || []) {
+      const count = typeCounts[t.key] || 0;
+      const checkedIn = cohorts.filter(c => status[c]?.[t.key]?.checked).length;
+      let note = '';
+      if (cohort) note = status[cohort]?.[t.key]?.note || '';
+      else if (cohorts.length) note = `checked in ${checkedIn} of ${cohorts.length} cohorts`;
+      const state: TagState = count > 0 ? 'found' : checkedIn > 0 ? 'clean' : 'unchecked';
+      info[t.key] = {state, count, note};
+    }
+    return info;
+  }, [data, cohort, typeCounts]);
+
+  const stateRank: Record<TagState, number> = {found: 0, clean: 1, unchecked: 2};
+
+  // The tags of a category: every regular type, the occasional ones only when
+  // they have findings; found first by count, then clean, then not checked.
+  const tagsOf = useCallback((category: string) => (data?.types || [])
+    .filter(t => t.category === category && (!t.occasional || (typeCounts[t.key] || 0) > 0))
+    .sort((a, b) => {
+      const ia = tagInfo[a.key], ib = tagInfo[b.key];
+      return stateRank[ia.state] - stateRank[ib.state] || ib.count - ia.count
+        || (typeOrder[a.key] ?? 0) - (typeOrder[b.key] ?? 0);
+    }), [data, typeCounts, tagInfo, typeOrder]);
+
+  const summary = useMemo(() => {
+    const regular = (data?.types || []).filter(t => !t.occasional);
+    const run = regular.filter(t => tagInfo[t.key]?.state !== 'unchecked').length;
+    const found = (data?.types || []).filter(t => tagInfo[t.key]?.state === 'found').length;
+    return {run, found, notRun: regular.length - run};
+  }, [data, tagInfo]);
+
   const visible = useMemo(() => {
     let items = cohortIssues.filter(i => !hiddenTypes.has(i.type));
     const q = query.trim().toLowerCase();
@@ -388,29 +493,30 @@ function DataQualityPage() {
 
           {data && (
             <div className="flex flex-col gap-3">
+              <div className="text-center text-sm text-base-content/70">
+                <span className="font-semibold text-base-content">{summary.run}</span> checks run
+                {' · '}<span className="font-semibold text-base-content">{summary.found}</span> found issues
+                {' · '}<span className="font-semibold text-base-content">{summary.notRun}</span> not run yet
+                <span className="text-xs text-base-content/50"> (hover a tag for what it checks)</span>
+              </div>
               {data.categories.map(cat => {
-                const types = data.types.filter(t => t.category === cat.key && typeCounts[t.key]);
+                const types = tagsOf(cat.key);
                 if (!types.length) return null;
-                const allShown = types.every(t => !hiddenTypes.has(t.key));
+                const foundTypes = types.filter(t => tagInfo[t.key]?.state === 'found');
+                const allShown = foundTypes.every(t => !hiddenTypes.has(t.key));
                 return (
                   <div key={cat.key} className="flex flex-wrap items-center justify-center gap-2">
-                    <button className="text-sm font-semibold mr-1 hover:underline" title={`${cat.description} Click to ${allShown ? 'hide' : 'show'} all.`}
+                    <button className="text-sm font-semibold mr-1 hover:underline disabled:no-underline disabled:cursor-default"
+                            disabled={!foundTypes.length}
+                            title={`${cat.description}${foundTypes.length ? ` Click to ${allShown ? 'hide' : 'show'} all found.` : ''}`}
                             onClick={() => setCategoryShown(cat.key, !allShown)}>
                       {cat.label}
                     </button>
-                    {types.map(t => {
-                      const on = !hiddenTypes.has(t.key);
-                      return (
-                        <label key={t.key} title={t.description}
-                               className={`flex items-center gap-2 rounded-full border px-3 py-1 cursor-pointer text-sm transition-opacity ${
-                                 on ? 'bg-base-100 border-base-300' : 'border-transparent opacity-50'}`}>
-                          <input type="checkbox" className="checkbox checkbox-xs" checked={on}
-                                 onChange={() => toggleType(t.key)} />
-                          <span>{typeLabel(t)}</span>
-                          <span className={`badge badge-sm ${CATEGORY_BADGE[cat.key]}`}>{typeCounts[t.key]}</span>
-                        </label>
-                      );
-                    })}
+                    {types.map(t => (
+                      <TypeTag key={t.key} type={t} index={typeOrder[t.key] ?? 0}
+                               state={tagInfo[t.key].state} count={tagInfo[t.key].count} note={tagInfo[t.key].note}
+                               shown={!hiddenTypes.has(t.key)} onToggle={() => toggleType(t.key)} />
+                    ))}
                   </div>
                 );
               })}
@@ -514,7 +620,7 @@ function DataQualityPage() {
                 return (
                   <tr key={`${i.cohort}/${i.type}/${i.variable || ''}/${i.row || ''}/${idx}`}>
                     <td className="whitespace-nowrap align-top">
-                      <span className={`badge badge-sm ${CATEGORY_BADGE[i.category]}`} title={t?.description}>
+                      <span className="badge badge-sm border" style={typeShade(typeOrder[i.type] ?? 0)} title={t?.description}>
                         {typeLabel(t, i.type)}
                       </span>
                     </td>

@@ -104,6 +104,111 @@ ISSUE_TYPES: dict[str, tuple[str, str, str, Optional[str]]] = {
 }
 
 
+# A short example of each type, for the page's explanation on hover: what the
+# problem looks like and, where it helps, what it should be. Generic, not taken
+# from any cohort.
+EXAMPLES: dict[str, str] = {
+    "syntax.missing_columns": "The dictionary has no VARTYPE column.",
+    "syntax.invalid_vartype": "VARTYPE 'NUMBER' → use one of STR, INT, FLOAT, DATETIME.",
+    "syntax.invalid_domain": "DOMAIN 'labs' → name an OMOP table, such as 'measurement'.",
+    "syntax.concept_code_format": "'loinc 2160-0' or 'xyz:123' → 'loinc:2160-0'.",
+    "syntax.omop_id_format": "OMOP id '3016723.5' or '3016723, 3020564' → one integer, '3016723'.",
+    "syntax.missing_code_format": "MISSING '999 000' → '999000' or '999.000'.",
+    "syntax.invalid_range_bound": "INT variable with MAX 'unknown'; DATETIME variable with MIN 'early'.",
+    "syntax.missing_required_field": "A row with a variable name but no VARTYPE.",
+    "syntax.duplicate_variable": "Two rows both named 'age'.",
+    "syntax.category_order": "INT variable with 'yes=1|no=0' → '1=yes|0=no'.",
+    "syntax.category_code_type": "INT variable with category '1.5=mild' or 'abc=yes'.",
+    "syntax.category_format": "'0=no,1=yes' → '0=no|1=yes'; 'yes|1=no' (one entry without '=').",
+    "syntax.repeated_category_code": "'1=yes|1=no' → '1=yes|2=no'.",
+    "syntax.empty_category_label": "'1=yes|2=' → '1=yes|2=no'.",
+    "syntax.impossible_range": "MIN 10 and MAX 5; a concentration in mg/L with MIN -0.06.",
+    "syntax.missing_code_collision": "MISSING 9 with categories '1=yes|2=no|9=unknown'; MISSING 999 with range 0 to 1000.",
+    "syntax.orphan_concept": "UNIT CONCEPT CODE 'ucum:mg/dL' on a row whose UNITS is empty.",
+    "syntax.concept_count_mismatch": "Three categories but two CATEGORICAL VALUE OMOP IDs.",
+    "syntax.other": "A dictionary message that fits none of the types above.",
+    "concepts.code_id_mismatch": "Code 'loinc:2160-0' (creatinine) with OMOP id 3004249 (systolic blood pressure).",
+    "concepts.wrong_vocabulary": "A unit coded 'loinc:2345-7'; a variable coded with a UCUM unit.",
+    "concepts.wrong_domain": "DOMAIN 'condition_occurrence' with a Measurement concept; a unit concept outside the Unit domain.",
+    "concepts.deprecated": "A SNOMED code that Athena marks deprecated or replaced by another.",
+    "concepts.non_standard": "An ICD-10 code or an ATC class where OMOP expects a standard SNOMED or RxNorm concept.",
+    "concepts.name_mismatch": "Concept name 'Blood sugar' for a code OMOP calls 'Glucose [Mass/volume] in Serum or Plasma'.",
+    "concepts.vartype_implausible": "A quantitative LOINC test declared STR; a nominal one declared FLOAT.",
+    "concepts.unit_implausible": "A LOINC mass concentration ([Mass/volume]) with UNITS 'mmol/L'.",
+    "concepts.structure": "A DOMAIN value the concept check does not accept, or columns it cannot find.",
+    "concepts.other": "A concept message that fits none of the types above.",
+    "concepts.check_failed": "Athena could not be reached for some concepts, so they went unchecked.",
+    "integrity.variable_not_in_data": "The dictionary lists 'bmi_v12', but the data has no such column.",
+    "integrity.column_not_in_dictionary": "The data has a column 'bmi_v12' that the dictionary does not list.",
+    "integrity.type_contradicted": "VARTYPE DATETIME, but the column holds plain numbers such as 1998.",
+    "integrity.unreadable_values": "A FLOAT column holding '<40' or 'n/a' in a few cells.",
+    "integrity.mixed_formats": "Dates as '2020-01-05' and '05/01/2020' in one column; '12.5' and '12,5'.",
+    "integrity.duplicate_rows": "Two rows identical in every column.",
+    "integrity.duplicate_ids": "A participant on two rows in data that has one row per participant.",
+    "integrity.record_structure": "A third of participants on several rows, while the dictionary has one column per visit.",
+    "values.undeclared_missing_code": "999 in a column where only 9999 is declared missing.",
+    "values.negative_minimum": "-1 in a column of days that is otherwise positive.",
+    "values.extreme_outlier": "QT interval 4060 ms in a column whose median is 412.",
+}
+
+# Shown on the page only when a cohort has some: catch-alls and problems with
+# the check itself rather than kinds of issue.
+OCCASIONAL_TYPES = {"syntax.other", "concepts.other", "concepts.structure", "concepts.check_failed"}
+
+
+def _day_first(iso: Optional[str]) -> str:
+    try:
+        return datetime.fromisoformat(str(iso)).strftime("%d.%m.%Y")
+    except (TypeError, ValueError):
+        return str(iso or "")
+
+
+def _check_status(cohorts: list[str], syntax_report: dict[str, Any],
+                  concept_status: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """For every cohort and issue type, whether the type was checked, and if
+    not, why: {cohort: {type: {"checked": bool, "note": str}}}. A count of
+    zero means nothing only when the type was checked."""
+    has_dictionary = {c["cohort_id"]: c["status"] in ("ok", "errors")
+                      for c in syntax_report.get("cohorts", [])}
+    facts = _profiling_facts()
+    out: dict[str, dict[str, Any]] = {}
+    for cohort in cohorts:
+        f = facts.get(cohort)
+        concept = concept_status.get(cohort) or {}
+        per: dict[str, Any] = {}
+        for key in ISSUE_TYPES:
+            category = ISSUE_TYPES[key][0]
+            checked, note = True, ""
+            if category == "syntax":
+                if not has_dictionary.get(cohort):
+                    checked, note = False, "no dictionary on file"
+                else:
+                    note = "checked against the current dictionary"
+            elif category == "concepts":
+                if not concept.get("checked_at"):
+                    checked, note = False, "the concept check has not been run for this cohort"
+                else:
+                    note = f"checked {_day_first(concept['checked_at'])}" + (
+                        "; the dictionary changed since" if concept.get("stale") else "")
+            elif category in ("integrity", "values"):
+                if not f:
+                    checked, note = False, "the cohort has no variable profiling yet"
+                elif key == "integrity.column_not_in_dictionary" and not f.get("c1_lists"):
+                    checked, note = False, "needs the name lists collected at the next profiling download"
+                elif key == "integrity.unreadable_values" and f.get("version") != "v2":
+                    checked, note = False, "needs a profiling in the newer (v2) format"
+                elif key in ("integrity.mixed_formats", "integrity.duplicate_rows",
+                             "integrity.duplicate_ids", "integrity.record_structure") and not f.get("measures"):
+                    checked, note = False, "needs a profiling by a clean room set up after 26.11.2026"
+                elif key in ("integrity.duplicate_ids", "integrity.record_structure") and not f.get("patient_id"):
+                    checked, note = False, "no column is annotated as the patient identifier"
+                else:
+                    note = f"profiling of {_day_first(f.get('profiled_at'))}"
+            per[key] = {"checked": checked, "note": note}
+        out[cohort] = per
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Dictionary syntax
 # ---------------------------------------------------------------------------
@@ -460,7 +565,8 @@ def _c1_names(folder: str, filename: str, column: str) -> Optional[list[str]]:
     return [str(v).strip() for v in df.get(column, pd.Series(dtype=str)).tolist() if str(v).strip()]
 
 
-def _integrity_issues_for(cohort: str, path: str, version: str) -> list[dict[str, Any]]:
+def _integrity_issues_for(cohort: str, path: str, version: str,
+                          facts: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
     from src.upload import get_latest_datadictionary, normalize_column_name
     with open(path, encoding="utf-8") as f:
         raw = json.load(f, parse_constant=lambda _c: None)
@@ -519,6 +625,14 @@ def _integrity_issues_for(cohort: str, path: str, version: str) -> list[dict[str
     # I4 to I6, measured in the enclave (v2 profiling from the version that
     # added them on; an older profiling has no "integrity" block).
     measures = raw.get("integrity") if version == "v2" and isinstance(raw.get("integrity"), dict) else None
+    if facts is not None:
+        facts.update({
+            "version": version,
+            "profiled_at": profiled_at.isoformat(timespec="seconds"),
+            "c1_lists": not_in_data is not None and not_in_dict is not None,
+            "measures": bool(measures) and "error" not in (measures or {}),
+            "patient_id": bool((measures or {}).get("patient_id_column")),
+        })
     if measures:
         issues += _measured_integrity_issues(cohort, measures, dictionary_path, when, stale)
 
@@ -645,14 +759,24 @@ def _integrity_issues() -> list[dict[str, Any]]:
         if _integrity_cache["signature"] == signature and _integrity_cache["issues"] is not None:
             return [dict(i) for i in _integrity_cache["issues"]]
     issues: list[dict[str, Any]] = []
+    facts: dict[str, dict[str, Any]] = {}
     for cohort_id, path, version in files:
+        facts[cohort_id] = {}
         try:
-            issues += _integrity_issues_for(cohort_id, path, version)
+            issues += _integrity_issues_for(cohort_id, path, version, facts[cohort_id])
         except Exception as e:
             logger.warning("integrity check failed for %s: %s", cohort_id, e)
     with _integrity_lock:
-        _integrity_cache.update(signature=signature, issues=issues)
+        _integrity_cache.update(signature=signature, issues=issues, facts=facts)
     return [dict(i) for i in issues]
+
+
+def _profiling_facts() -> dict[str, dict[str, Any]]:
+    """Per profiled cohort: version, date, whether c1's name lists and the
+    enclave's integrity measures are there, whether it has a patient id column.
+    Filled by _integrity_issues, which runs first."""
+    with _integrity_lock:
+        return dict(_integrity_cache.get("facts") or {})
 
 
 # ---------------------------------------------------------------------------
@@ -773,8 +897,10 @@ def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, 
         "data_issues_files": {c: files for c in sorted(set(cohorts) | profiled)
                               if (files := _data_issues_files(c))},
         "categories": CATEGORIES,
-        "types": [{"key": k, "category": c, "label": l, "description": d, "spec": sp}
+        "types": [{"key": k, "category": c, "label": l, "description": d, "spec": sp,
+                   "example": EXAMPLES.get(k), "occasional": k in OCCASIONAL_TYPES}
                   for k, (c, l, d, sp) in ISSUE_TYPES.items()],
+        "check_status": _check_status(sorted(set(cohorts) | profiled), syntax, concept_status),
         "issues": issues,
         "sources": {
             "syntax": {"checked_at": syntax.get("generated_at")},
