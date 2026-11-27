@@ -658,7 +658,7 @@ export function CohortIssuesView({data, cohort, quietTags = false, topRight, bel
                         title={current.dictionary_file}>
                   <Download size={14} />
                   <span className="flex flex-col items-start leading-tight">
-                    <span>Metadata dictionary</span>
+                    <span>Download {cohort.length > 12 ? `${cohort.slice(0, 10)}...` : cohort}&apos;s Dictionary</span>
                     <span className="text-[11px] font-normal opacity-70">uploaded {fmtDayFirst(current.dictionary_uploaded_at)}</span>
                   </span>
                 </button>
