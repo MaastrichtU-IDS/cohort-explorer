@@ -3,7 +3,7 @@
 import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/router';
-import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Grid} from 'react-feather';
+import {LogIn, LogOut, Compass, Upload, HardDrive, Map, Box, FileText, Settings, Grid, Share2} from 'react-feather';
 import NocodeWizard from '@/components/nocode/NocodeWizard';
 import {useCohorts} from '@/components/CohortsContext';
 import {DarkThemeIcon, LightThemeIcon, SparklesIcon} from '@/components/Icons';
@@ -925,6 +925,12 @@ export function Nav() {
               <span className="text-base">My DCRs</span>
             </Link>
           </li>
+          <li>
+            <Link href="/shared-results" className={pathname === '/shared-results' ? 'active' : ''}>
+              <Share2 size={24} />
+              <span className="text-base">Shared Results</span>
+            </Link>
+          </li>
           {aiNavEnabled && (
             <li>
               <Link href="/ai" className={pathname === '/ai' || pathname.startsWith('/ai/') ? 'active' : ''}>
@@ -950,6 +956,7 @@ export function Nav() {
             <li><Link href="/concept-clusters-heatmap">Concept Coverage</Link></li>
             <li><Link href="/mapping">Mapping</Link></li>
             <li><Link href="/dcrs">My DCRs</Link></li>
+            <li><Link href="/shared-results">Shared Results</Link></li>
             {aiNavEnabled && <li><Link href="/ai">iCARE-AI</Link></li>}
             <li><Link href="/docs_store">Documents</Link></li>
           </ul>

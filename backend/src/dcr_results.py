@@ -11,9 +11,11 @@ a re-run replaces it only once it succeeds.
   {data_folder}/dcr_results/{dcr_id}/{node}/run.json   status + file list
   {data_folder}/dcr_results/{dcr_id}/{node}/files/     extracted output
 
-Shared Results: an analyst can share one or more output files of a DCR
-with every logged-in user, under one title, description and optional details.
-Sharing copies the files, so a later re-run never changes what was shared.
+Shared Results: any logged-in user can share files with every logged-in
+user, under one title, description, optional details and the cohorts the
+results concern: either files uploaded on the Shared Results page, or output
+files of a DCR they are an analyst of (from My DCRs). Sharing copies the
+files, so a later re-run never changes what was shared.
 
   (stored under the folder's original name, results_gallery)
   {data_folder}/results_gallery/items.json
@@ -37,7 +39,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, Iterator, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from src.auth import get_current_user
@@ -52,6 +54,9 @@ MAX_TITLE = 200
 MAX_DESCRIPTION = 2000
 MAX_DETAILS = 10000
 MAX_FILES_PER_SHARE = 100
+# Uploads on the Shared Results page.
+MAX_UPLOAD_FILE_BYTES = 200 * 1024 * 1024
+MAX_UPLOAD_TOTAL_BYTES = 1024 * 1024 * 1024
 
 # Airlock (preview) nodes cannot be run on their own; everything else that
 # computes can.
@@ -396,6 +401,102 @@ def share_result(body: dict[str, Any], user: Any = Depends(get_current_user)) ->
         items.append(item)
         _write_json(os.path.join(_gallery_dir(), "items.json"), items)
     logger.info("Results shared: %s (%s, %d files) by %s", item_id, dcr_id, len(files), email)
+    return item
+
+
+def _upload_name(raw: Optional[str], index: int) -> str:
+    """A safe file name for an uploaded file: its own name without any folder
+    part, control characters or leading dots."""
+    name = os.path.basename(str(raw or "").replace("\\", "/")).strip()
+    name = "".join(ch for ch in name if ch.isprintable() and ch not in '<>:"|?*').lstrip(".").strip()
+    return name[:200] or f"file-{index + 1}"
+
+
+@router.post("/shared-results/upload", name="Share uploaded files to Shared Results (any logged-in user)")
+def share_uploaded_files(
+    title: str = Form(...),
+    description: str = Form(...),
+    details: str = Form(""),
+    cohorts: str = Form("[]"),
+    files: list[UploadFile] = File(...),
+    user: Any = Depends(get_current_user),
+) -> dict[str, Any]:
+    """One share made on the Shared Results page: a title, description,
+    optional details, the cohorts the results concern (a JSON list of cohort
+    ids from the catalogue), and the files themselves, any type."""
+    from src.cohort_cache import get_cached_cohort_ids
+
+    email = _email(user)
+    title = _clean(title, MAX_TITLE)
+    description = _clean(description, MAX_DESCRIPTION)
+    if not title or not description:
+        raise HTTPException(status_code=400, detail="Title and description are required")
+    files = [f for f in files or [] if f is not None and (f.filename or "").strip()]
+    if not files:
+        raise HTTPException(status_code=400, detail="Choose at least one file to share")
+    if len(files) > MAX_FILES_PER_SHARE:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_FILES_PER_SHARE} files can be shared at once")
+    try:
+        requested = json.loads(cohorts or "[]")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="cohorts must be a JSON list of cohort ids")
+    if not isinstance(requested, list):
+        raise HTTPException(status_code=400, detail="cohorts must be a JSON list of cohort ids")
+    known = set(get_cached_cohort_ids())
+    unknown = [str(c) for c in requested if str(c) not in known]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown cohorts: {', '.join(unknown[:5])}")
+    chosen = list(dict.fromkeys(str(c) for c in requested))
+
+    item_id = uuid.uuid4().hex
+    item_dir = os.path.join(_gallery_dir(), "files", item_id)
+    stored_files = []
+    total = 0
+    try:
+        for index, upload in enumerate(files):
+            name = _upload_name(upload.filename, index)
+            stored = os.path.join(str(index), name)
+            dest = os.path.join(item_dir, stored)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            size = 0
+            with open(dest, "wb") as out:
+                while True:
+                    chunk = upload.file.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    total += len(chunk)
+                    if size > MAX_UPLOAD_FILE_BYTES:
+                        raise HTTPException(status_code=413, detail=f"{name} is larger than {MAX_UPLOAD_FILE_BYTES // (1024 * 1024)} MB")
+                    if total > MAX_UPLOAD_TOTAL_BYTES:
+                        raise HTTPException(status_code=413, detail=f"The files together are larger than {MAX_UPLOAD_TOTAL_BYTES // (1024 * 1024)} MB")
+                    out.write(chunk)
+            stored_files.append({"node_name": "", "file_path": name, "file_name": name, "size": size,
+                                 "stored": stored, "result_generated_at": None})
+    except BaseException:
+        shutil.rmtree(item_dir, ignore_errors=True)
+        raise
+
+    item = {
+        "id": item_id,
+        "source": "upload",
+        "title": title,
+        "description": description,
+        "details": _clean(details, MAX_DETAILS),
+        "sharer_name": email,
+        "shared_by": email,
+        "shared_at": _now(),
+        "dcr_id": "",
+        "dcr_title": "",
+        "dcr_created_at": None,
+        "cohorts": chosen,
+        "files": stored_files,
+    }
+    with _file_lock(os.path.join(_gallery_dir(), ".lock")):
+        items = _gallery_items()
+        items.append(item)
+        _write_json(os.path.join(_gallery_dir(), "items.json"), items)
+    logger.info("Results uploaded and shared: %s (%d files, %d bytes) by %s", item_id, len(stored_files), total, email)
     return item
 
 
