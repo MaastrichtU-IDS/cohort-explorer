@@ -23,6 +23,7 @@ import AutocompleteConcept from '@/components/AutocompleteConcept';
 import {InfoIcon} from '@/components/Icons';
 import {fetchEdaOutput} from '@/utils/variableStats';
 import LoginPrompt from '@/components/LoginPrompt';
+import {ExploreDataQualityTab} from '@/components/DataQualityIssues';
 
 // "2026-11-13" (ISO date from the cache) -> "13.11.2026" (dd.mm.yyyy); when the
 // file does not exist the caller's wording for "missing" is shown instead.
@@ -902,7 +903,17 @@ export default function CohortsList() {
   // State to track active sub-tab for each cohort ('metadata' | 'graphs' | 'list' | 'eda')
   // 'search' = the per-cohort search results ("Search Matches"), available
   // while that cohort's search box holds a query.
-  const [activeSubTab, setActiveSubTab] = useState<{[key: string]: 'metadata' | 'graphs' | 'list' | 'eda' | 'search'}>({});
+  const [activeSubTab, setActiveSubTab] = useState<{[key: string]: 'metadata' | 'graphs' | 'list' | 'eda' | 'search' | 'quality'}>({});
+  // Cohorts whose data quality tab this user may open: shared by an admin on the
+  // Data Quality Dashboard, and the user is a platform admin or one of the
+  // cohort's owners. The backend decides; nobody else gets the button.
+  const [qualityCohorts, setQualityCohorts] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    fetch(`${apiUrl}/api/cohort-data-quality/access`, {credentials: 'include'})
+      .then(r => (r.ok ? r.json() : {cohorts: []}))
+      .then(d => setQualityCohorts(new Set(d.cohorts || [])))
+      .catch(() => setQualityCohorts(new Set()));
+  }, []);
   // State to track which cohorts have EDA data available
   const [edaAvailability, setEdaAvailability] = useState<{[key: string]: boolean}>({});
   // cohortId -> variables (lowercased) with summary statistics: marks matched
@@ -1718,6 +1729,24 @@ export default function CohortsList() {
                       >
                         Variables List
                       </button>
+                      {qualityCohorts.has(cohortData.cohort_id) && (
+                        <button
+                          onClick={(e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            setActiveSubTab(prev => ({...prev, [cohortData.cohort_id]: 'quality'}));
+                          }}
+                          className={`btn btn-lg rounded-full flex-col gap-0 leading-tight ${
+                            activeSubTab[cohortData.cohort_id] === 'quality'
+                              ? 'bg-red-100 border-2 border-red-400 text-red-900 hover:bg-red-200 hover:border-red-400'
+                              : 'btn-outline border-2 border-red-300 text-red-900 hover:bg-red-50 hover:border-red-400 hover:text-red-900'
+                          }`}
+                          style={{ minWidth: '200px' }}
+                          title="Only the platform admins and this cohort's owners can see this"
+                        >
+                          <span>Data Quality Issues</span>
+                          <span className="text-[10px] font-normal opacity-70">admins &amp; cohort owners only</span>
+                        </button>
+                      )}
                       {edaAvailability[cohortData.cohort_id] && ['Aachen-HF', 'LUPS', 'PNH-N1', 'TIME-CHF'].includes(cohortData.cohort_id) && (
                         <button 
                           onClick={(e: React.MouseEvent) => {
@@ -2318,6 +2347,11 @@ export default function CohortsList() {
                   </>
                 )}
                 
+                {/* Data quality issues: shared cohorts, admins and owners only */}
+                {activeSubTab[cohortData.cohort_id] === 'quality' && qualityCohorts.has(cohortData.cohort_id) && (
+                  <ExploreDataQualityTab cohort={cohortData.cohort_id} />
+                )}
+
                 {/* Variables List Only Tab Content */}
                 {activeSubTab[cohortData.cohort_id] === 'list' && (
                   <VariablesList 

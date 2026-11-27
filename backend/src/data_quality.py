@@ -951,8 +951,17 @@ def _attach_variable_details(issues: list[dict[str, Any]]) -> None:
 @router.get("/data-quality/issues")
 def get_data_quality_issues(user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """Every known issue of every cohort, from the three sources, each issue
-    carrying its cohort, type, variable where there is one, and message."""
+    carrying its cohort, type, variable where there is one, and message; and
+    each cohort's sharing setting for the explore page."""
     _require_admin(user)
+    payload = _collect_all()
+    payload["sharing"] = _load_sharing()
+    return payload
+
+
+def _collect_all() -> dict[str, Any]:
+    """The dashboard's whole payload, for every cohort. No access check: the
+    endpoints that call it decide what the user may see."""
     from src.suspect_values import _profiling_files
 
     cohorts = _known_cohorts()
@@ -1052,6 +1061,62 @@ def _data_issues_files(cohort_id: str) -> list[dict[str, Any]]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Sharing a cohort's issues on the explore page
+# ---------------------------------------------------------------------------
+# Per cohort, set by an admin on the dashboard: whether its issues show on the
+# explore page, and which issue types. When shown, they show to the platform
+# admins and to the cohort's owners (those who may edit the cohort: its listed
+# emails, administrator and study contact), and to no one else; the selected
+# types apply to all of them alike.
+
+_sharing_lock = threading.Lock()
+
+
+def _sharing_path() -> str:
+    return os.path.join(settings.data_folder, "data_quality", "sharing.json")
+
+
+def _load_sharing() -> dict[str, dict[str, Any]]:
+    try:
+        with open(_sharing_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _sharing_of(cohort_id: str) -> dict[str, Any]:
+    entry = _load_sharing().get(cohort_id) or {}
+    types = entry.get("types")
+    return {
+        "enabled": bool(entry.get("enabled")),
+        # All types until an admin narrows the selection.
+        "types": [t for t in types if t in ISSUE_TYPES] if isinstance(types, list) else list(ISSUE_TYPES),
+        "updated_at": entry.get("updated_at"),
+        "updated_by": entry.get("updated_by"),
+    }
+
+
+def _is_owner(user: dict[str, Any], cohort_id: str) -> bool:
+    """Admins and the cohort's owners: the cache's can_edit for this user."""
+    from src.cohort_cache import get_cohorts_from_cache
+    cohort = get_cohorts_from_cache(str(user.get("email") or "")).get(cohort_id)
+    return bool(cohort is not None and getattr(cohort, "can_edit", False))
+
+
+def _may_view_shared(user: dict[str, Any], cohort_id: str) -> bool:
+    return _sharing_of(cohort_id)["enabled"] and _is_owner(user, cohort_id)
+
+
+def _require_admin_or_shared(user: dict[str, Any], cohort_id: str) -> None:
+    """For the files, rows and dictionary behind a cohort's issues: the admins
+    always (the dashboard), the owners when the cohort is shared."""
+    if user.get("email") in settings.admins_list or _may_view_shared(user, cohort_id):
+        return
+    raise HTTPException(status_code=403, detail="Only admins and this cohort's owners can see its data quality issues.")
+
+
 def _known_cohort(cohort: str) -> str:
     """The cohort id as the catalog or the profiling folders spell it; 404 otherwise.
     It becomes part of a path, so only a known id is accepted."""
@@ -1082,8 +1147,8 @@ def _cohort_summary(cohorts: list[str], issues: list[dict[str, Any]],
 @router.get("/data-quality/dictionary/{cohort}")
 def download_dictionary(cohort: str, user: Any = Depends(get_current_user)) -> FileResponse:
     """The cohort's current dictionary file, as uploaded."""
-    _require_admin(user)
     cohort_id = _known_cohort(cohort)
+    _require_admin_or_shared(user, cohort_id)
     index = _dictionary_index(cohort_id)
     if not index:
         raise HTTPException(status_code=404, detail=f"{cohort_id} has no dictionary.")
@@ -1093,8 +1158,8 @@ def download_dictionary(cohort: str, user: Any = Depends(get_current_user)) -> F
 @router.get("/data-quality/dictionary-row/{cohort}/{variable}")
 def dictionary_row(cohort: str, variable: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """One variable's row of the cohort's current dictionary, every column as written."""
-    _require_admin(user)
     cohort_id = _known_cohort(cohort)
+    _require_admin_or_shared(user, cohort_id)
     index = _dictionary_index(cohort_id)
     if not index:
         raise HTTPException(status_code=404, detail=f"{cohort_id} has no dictionary.")
@@ -1109,10 +1174,10 @@ def dictionary_row(cohort: str, variable: str, user: Any = Depends(get_current_u
 @router.get("/data-quality/data-issues-files/{cohort}/{name}")
 def get_data_issues_file(cohort: str, name: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
     """The text of one of a cohort's profiling notes files."""
-    _require_admin(user)
     if name not in DATA_ISSUES_FILES:
         raise HTTPException(status_code=404, detail="No such file.")
     cohort_id = _known_cohort(cohort)
+    _require_admin_or_shared(user, cohort_id)
     entry = next((f for f in _data_issues_files(cohort_id) if f["name"] == name), None)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"{cohort_id} has no {name}.")
@@ -1120,6 +1185,77 @@ def get_data_issues_file(cohort: str, name: str, user: Any = Depends(get_current
     with open(path, encoding="utf-8", errors="replace") as f:
         content = f.read()
     return {**entry, "cohort": cohort_id, "content": content}
+
+
+@router.put("/data-quality/sharing/{cohort}")
+def set_sharing(cohort: str, body: dict[str, Any], user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """Show a cohort's issues on the explore page or not, and which types."""
+    _require_admin(user)
+    cohort_id = _known_cohort(cohort)
+    types = body.get("types")
+    if types is not None and (not isinstance(types, list) or any(t not in ISSUE_TYPES for t in types)):
+        raise HTTPException(status_code=422, detail="types must be a list of issue type keys.")
+    with _sharing_lock:
+        data = _load_sharing()
+        entry = data.get(cohort_id) or {}
+        if "enabled" in body:
+            entry["enabled"] = bool(body["enabled"])
+        if types is not None:
+            entry["types"] = types
+        entry["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        entry["updated_by"] = user.get("email")
+        data[cohort_id] = entry
+        path = _sharing_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1)
+        os.replace(tmp, path)
+    return {"cohort": cohort_id, **_sharing_of(cohort_id)}
+
+
+@router.get("/cohort-data-quality/access")
+def cohort_data_quality_access(user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """The cohorts whose issues this user may see on the explore page: shared
+    ones that the user is an admin or owner of."""
+    from src.cohort_cache import get_cohorts_from_cache
+    shared = [c for c, entry in _load_sharing().items() if entry.get("enabled")]
+    mine = get_cohorts_from_cache(str(user.get("email") or ""))
+    return {"cohorts": sorted(c for c in shared if c in mine and getattr(mine[c], "can_edit", False))}
+
+
+@router.get("/cohort-data-quality/{cohort}")
+def cohort_data_quality(cohort: str, user: Any = Depends(get_current_user)) -> dict[str, Any]:
+    """One cohort's issues for its explore-page tab: only when the cohort is
+    shared, only for its admins and owners, only the selected issue types."""
+    cohort_id = _known_cohort(cohort)
+    if not _may_view_shared(user, cohort_id):
+        raise HTTPException(status_code=403, detail="Only admins and this cohort's owners can see its data quality issues, once they are shared.")
+    sharing = _sharing_of(cohort_id)
+    allowed = set(sharing["types"])
+    full = _collect_all()
+    issues = [i for i in full["issues"] if i["cohort"] == cohort_id and i["type"] in allowed]
+    variables = {i["variable"].strip().lower() for i in issues if i.get("variable")}
+    summary = dict(full["cohort_summary"].get(cohort_id) or {})
+    summary.update(issues=len(issues), variables_with_issues=len(variables))
+    return {
+        "generated_at": full["generated_at"],
+        "cohort": cohort_id,
+        "cohorts": [cohort_id],
+        "cohorts_with_profiling": [c for c in full["cohorts_with_profiling"] if c == cohort_id],
+        "data_issues_files": {cohort_id: full["data_issues_files"].get(cohort_id, [])},
+        "categories": full["categories"],
+        "types": [t for t in full["types"] if t["key"] in allowed],
+        "issues": issues,
+        "check_status": {cohort_id: {k: v for k, v in (full["check_status"].get(cohort_id) or {}).items() if k in allowed}},
+        "cohort_summary": {cohort_id: summary},
+        "sources": {
+            "syntax": full["sources"]["syntax"],
+            "concepts": {"cohorts": {cohort_id: full["sources"]["concepts"]["cohorts"].get(cohort_id) or {}},
+                         "job": {"running": False, "done": 0, "total": 0}},
+            "values": full["sources"]["values"],
+        },
+    }
 
 
 @router.post("/data-quality/concept-check")
